@@ -1,0 +1,75 @@
+---
+title: "Eight Schools"
+output: html_notebook
+---
+
+```{r setup}
+library(outbreaks)
+library(rstan)
+library(tidyverse)
+options(mc.cores = 8)
+rstan_options(auto_write = TRUE)
+```
+
+```{r}
+# time series of cases
+cases <- influenza_england_1978_school$in_bed  # Number of students in bed
+
+# total count
+N <- 763;
+
+# times
+n_days <- length(cases) 
+t <- seq(0, n_days, by = 1)
+t0 = 0 
+t <- t[-1]
+
+#initial conditions
+i0 <- 1
+s0 <- N - i0
+r0 <- 0
+y0 = c(S = s0, I = i0, R = r0)
+
+# data for Stan
+data_sir <- list(n_days = n_days, y0 = y0, t0 = t0, ts = t, N = N, cases = cases)
+
+# number of MCMC steps
+niter <- 2000
+
+model <- stan_model("sir_negbin.stan")
+```
+
+```{r}
+fit_sir_negbin <- sampling(model,
+                           data = data_sir,
+                           iter = niter,
+                           chains = 4, 
+                           seed = 0,
+                           show_messages = FALSE)
+```
+
+```{r}
+pars=c('beta', 'gamma', "R0", "recovery_time")
+print(fit_sir_negbin, pars = pars)
+stan_dens(fit_sir_negbin, pars = pars, separate_chains = TRUE)
+smr_pred <- cbind(as.data.frame(summary(
+  fit_sir_negbin, pars = "pred_cases", probs = c(0.05, 0.5, 0.95))$summary), t, cases)
+colnames(smr_pred) <- make.names(colnames(smr_pred)) # to remove % in the col names
+
+c_posterior = "blue"
+ggplot(smr_pred, mapping = aes(x = t)) +
+  geom_ribbon(aes(ymin = X5., ymax = X95.), fill = c_posterior, alpha = 0.35) +
+  geom_line(mapping = aes(x = t, y = X50.), color = c_posterior) + 
+  geom_point(mapping = aes(y = cases)) +
+  labs(x = "Day", y = "Number of students in bed")
+
+params <- lapply(t, function(i){sprintf("y[%s,2]", i)}) #number of infected for each day
+smr_y <- as.data.frame(summary(fit_sir_negbin, 
+                               pars = params, probs = c(0.05, 0.5, 0.95))$summary)
+colnames(smr_y) <- make.names(colnames(smr_y)) # to remove % in the col names
+
+ggplot(smr_y, mapping = aes(x = t)) +
+  geom_ribbon(aes(ymin = X5., ymax = X95.), fill = c_posterior, alpha = 0.35) +
+  geom_line(mapping = aes(x = t, y = X50.), color = c_posterior) + 
+  labs(x = "Day", y = "Number of infected students")
+```
