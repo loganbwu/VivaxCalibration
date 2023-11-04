@@ -1,6 +1,5 @@
 functions {
-  real[] champagne(real t, real[] y, real[] theta, 
-  real[] x_r, int[] x_i) {
+  vector champagne(real t, vector y, vector theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
     real I0 = y[2];
@@ -67,18 +66,19 @@ transformed parameters{
     theta[1] = lambda;
     theta[2] = delta;
     
-    y = integrate_ode_rk45(champagne, y0, t0, ts, theta, x_r, x_i);
+    // y = integrate_ode_rk45(champagne, y0, t0, ts, theta, x_r, x_i);
+    y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
   for (i in 1:n_times-1)
   // incidence[i] = (y[i, 5] - y[i+1, 5]) * N; # incorrect, just for testing
-  incidence[i] = (y[i+1, 5] - y[i, 5]) * N; # incorrect, just for testing
+  incidence[i] = (y[i+1, 5] - y[i, 5]) * N;
 }
 
 model {
   //priors
   lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
+  delta ~ normal(0, 0.001);
   
   phi_inv ~ exponential(5);
   

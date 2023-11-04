@@ -12,42 +12,70 @@ rstan_options(auto_write = TRUE)
 ```
 
 ```{r}
+years = 365.25
+annual_subdivisions = 12
+max_time = 1 * years
+t0 = -0 * years
+t = seq(years/annual_subdivisions, max_time, annual_subdivisions)
+n_times = length(t)
 # time series of cases
-cases <- influenza_england_1978_school$in_bed  # Number of students in bed
-cases = rep(10, 12)
-N = 100;
-
-# times
-n_times = length(cases)
-month = 365.25/n_times
-t <- seq(month, month*n_times, length.out = n_times)
-t0 = 0
+cases = rep(1, n_times)
+N = 10000;
 
 #initial conditions
 I_init = 0.1
-y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init)
+y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, Infections=0)
+# y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init)
 
 # data for Stan
 data_sis <- list(n_times = n_times, y0 = y0, t0 = t0, ts = t, N = N, cases = cases)
 
 # number of MCMC steps
-niter <- 10 # 2000
+niter <- 1000
 
 model <- stan_model("champagne2022.stan")
 ```
 
 ```{r}
+# Find maximum likelihood for good starting parameters
+optim = optimizing(model, data = data_sis, hessian = FALSE)
+
+plot_data = optim$par %>%
+  as.data.frame() %>%
+  bind_cols(rownames(.), .) %>%
+  setNames(c("name", "value")) %>%
+  as_tibble() %>%
+  # filter(name %>% str_starts("y")) %>%
+  mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
+         time = t[index_i],
+         index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
+         compartment = names(y0)[index_j],
+         variable = name %>% str_remove("\\[.*")) %>%
+  mutate(variable = coalesce(compartment, variable))
+
+plot_data %>%
+  drop_na(time) %>%
+  ggplot(aes(x=time, y=value, color=variable, group=variable)) +
+  geom_line() +
+  facet_wrap(vars(variable), scales="free_y")
+```
+
+```{r}
+n_chains = 4
+theta_init = as.list(optim$par[c("lambda", "delta", "phi_inv")]) # optimisation results
 fit_sis_negbin <- sampling(model,
                            data = data_sis,
                            iter = niter,
-                           chains = 4, 
+                           chains = n_chains, 
+                           init = rep(list(theta_init), n_chains),
                            seed = 0)
 ```
 
 ```{r}
-pars=c("lambda")
+pars=c("lambda", "delta")
 print(fit_sis_negbin, pars = pars)
 stan_dens(fit_sis_negbin, pars = pars, separate_chains = TRUE)
+
 smr_pred <- cbind(as.data.frame(summary(
   fit_sis_negbin, pars = "pred_cases", probs = c(0.05, 0.5, 0.95))$summary),
   t=t[1:(n_times-1)], cases=cases[1:(n_times-1)])
@@ -68,5 +96,24 @@ colnames(smr_y) <- make.names(colnames(smr_y)) # to remove % in the col names
 ggplot(smr_y, mapping = aes(x = t)) +
   geom_ribbon(aes(ymin = X5.*N, ymax = X95.*N), fill = c_posterior, alpha = 0.35) +
   geom_line(mapping = aes(x = t, y = X50.*N), color = c_posterior) + 
-  labs(x = "Day", y = "Number of infected students")
+  labs(x = "Day", y = "True incidence")
+```
+
+```{r}
+plot_data = summary(fit_sis_negbin)$summary %>%
+  bind_cols(name = rownames(.), .) %>%
+  # filter(name %>% str_starts("y")) %>%
+  mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
+         time = t[index_i],
+         index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
+         compartment = names(y0)[index_j],
+         variable = name %>% str_remove("\\[.*")) %>%
+  mutate(variable = coalesce(compartment, variable))
+
+plot_data %>%
+  drop_na(time) %>%
+  ggplot(aes(x=time, y=mean, color=variable, group=variable)) +
+  geom_ribbon(aes(ymin = `25%`, ymax = `75%`, fill=variable, color=NULL), alpha=0.5) +
+  geom_line() +
+  facet_wrap(vars(variable), scales="free_y")
 ```
