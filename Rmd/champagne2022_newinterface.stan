@@ -10,13 +10,14 @@ functions {
     real r = x_r[1];
     real gammal = x_r[2];
     real f = x_r[3];
-    real alpha = x_r[4];
+    // real alpha = x_r[4];
     real beta = x_r[5];
     real rho = x_r[6];
     
     
     real lambda = theta[1];
     real delta = theta[2];
+    real alpha = theta[3];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
     real dI0_dt = -(lambda*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
@@ -53,6 +54,7 @@ transformed data {
 parameters {
   real<lower=0> lambda;
   real<lower=0> delta;
+  real<lower=0, upper=1> alpha;
   
   real<lower=0> phi_inv;
 }
@@ -62,9 +64,10 @@ transformed parameters{
   real incidence[n_times - 1];
   real phi = 1. / phi_inv;
   {
-    real theta[2];
+    real theta[3];
     theta[1] = lambda;
     theta[2] = delta;
+    theta[3] = alpha;
     
     // y = integrate_ode_rk45(champagne, y0, t0, ts, theta, x_r, x_i);
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
@@ -79,6 +82,7 @@ model {
   //priors
   lambda ~ normal(0, 1e4);
   delta ~ normal(0, 0.001);
+  alpha ~ uniform(0, 1);
   
   phi_inv ~ exponential(5);
   
