@@ -16,8 +16,9 @@ functions {
     real beta = x_r[5];
     real rho = x_r[6];
     real delta = x_r[7];
+    real lambda = x_r[8];
     
-    real lambda = theta[1];
+    // real lambda = theta[1];
     // real delta = theta[2];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
@@ -36,7 +37,6 @@ data {
   real t0;
   real ts[n_times];
   int N;
-  int cases[n_times];
   real<lower=0> r;
   real<lower=0> gammal;
   real<lower=0> f;
@@ -44,26 +44,26 @@ data {
   real<lower=0, upper=1> beta;
   real<lower=0, upper=1> rho;
   real<lower=0> delta;
+  real<lower=0> lambda;
+  real<lower=0> phi_inv;
 }
 
 transformed data {
-  real x_r[7] = {
+  real x_r[9] = {
     r,
     gammal,
     f,
     alpha,
     beta,
     rho,
-    delta
+    delta,
+    lambda,
+    phi_inv
   };
   int x_i[1] = { N };
 }
 
 parameters {
-  real<lower=0> lambda;
-  // real<lower=0> delta;
-  
-  real<lower=0> phi_inv;
 }
 
 transformed parameters{
@@ -71,9 +71,7 @@ transformed parameters{
   real incidence[n_times - 1];
   real phi = 1. / phi_inv;
   {
-    real theta[1];
-    theta[1] = lambda;
-    // theta[2] = delta;
+    real theta[0];
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
@@ -84,19 +82,20 @@ transformed parameters{
 
 model {
   //priors
-  lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
-  
-  phi_inv ~ exponential(5);
+  // lambda ~ normal(0, 1e4);
+  // delta ~ normal(0, 1e4);
+  // 
+  // phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 1:(n_times - 1))
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+  // for (i in 1:(n_times - 1))
+  //   cases[i] ~ neg_binomial_2(incidence[i], phi);
 }
 
 generated quantities {
-  real sim_cases[n_times-1];
+  real pred_cases[n_times-1];
   
   for (i in 1:(n_times - 1))
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+    pred_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+  // pred_cases = neg_binomial_2_rng(incidence, phi);
 }

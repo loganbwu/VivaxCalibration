@@ -7,26 +7,30 @@ output: html_notebook
 library(outbreaks)
 library(rstan)
 library(tidyverse)
+library(rstansim)
 options(mc.cores = 8)
 rstan_options(auto_write = TRUE)
 ```
 
+Note: https://ewan-keith.github.io/rstansim/articles/using-rstansim.html provides a helpful guide.
+
 ```{r}
+model <- stan_model("champagne2022.stan")
+
 years = 365.25
 annual_subdivisions = 12
 max_time = 1 * years
-t0 = -100 * years
+t0 = -10 * years
 t = seq(years/annual_subdivisions, max_time, annual_subdivisions)
 n_times = length(t)
 # time series of cases
 # cases = rep(100, n_times) + round(rnorm(n_times, 0, 10))
 cases = round(rnorm(n_times, 100, 10))
-N = 10000;
+N = 1000;
 
 #initial conditions
 I_init = 0.1
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, Infections=0)
-# y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init)
 
 # data for Stan
 data_sis <- list(n_times = n_times, y0 = y0, t0 = t0, ts = t, N = N, cases = cases,
@@ -35,13 +39,33 @@ data_sis <- list(n_times = n_times, y0 = y0, t0 = t0, ts = t, N = N, cases = cas
                  f = 1./72, # f
                  alpha = 0.21, # alpha
                  beta = 0.66, # beta
-                 rho = 0.21 # rho
+                 rho = 0.21, # rho
+                 delta = 0
 )
 
 # number of MCMC steps
-niter <- 1000
+niter <- 10000
 
-model <- stan_model("champagne2022.stan")
+synth_data = simulate_data("champagne2022.stan", data_name="dummy_data", input_data=data_sis,
+                           vars=c("incidence"), param_values=list(lambda=0.01, phi_inv=0.001))
+stansim_output1 <- fit_models(sim_name = "dummy_fit",
+                              sim_data = synth_data,
+                              stan_args = list(file = "champagne2022.stan"))
+stansim_output2 <- fit_models(sim_name = "dummy_fit2",
+                              sim_data = synth_data,
+                              stan_args = list(file = "champagne2022.stan"))
+synth_collection = collect_simulations(
+  collection_name = "dummy_collection",
+  stansim_output1,
+  stansim_output2
+)
+
+extract_data(
+  synth_collection,
+  estimates = "Rhat",
+  values = function(x)
+    x > 1.1
+)
 
 ggplot(with(data_sis, tibble(ts = ts, cases = cases)), aes(x = ts, y = cases)) +
   geom_point()
@@ -74,7 +98,7 @@ plot_data %>%
 
 ```{r}
 n_chains = 4
-theta_init = as.list(optim$par[c("lambda", "delta", "phi_inv")]) # optimisation results
+theta_init = as.list(optim$par[c("lambda", "phi_inv")]) # optimisation results
 fit_sis_negbin <- sampling(model,
                            data = data_sis,
                            iter = niter,
@@ -84,7 +108,7 @@ fit_sis_negbin <- sampling(model,
 ```
 
 ```{r}
-pars=c("lambda", "delta", "phi_inv")
+pars=c("lambda", "phi_inv")
 print(fit_sis_negbin, pars = pars)
 stan_dens(fit_sis_negbin, pars = pars, separate_chains = TRUE)
 
@@ -140,4 +164,27 @@ plot_data %>%
   facet_wrap(vars(variable), scales="free_y")
 
 pairs(fit_sis_negbin, pars=pars)
+```
+
+```{r}
+model2 <- stan_model("champagne2022_generation.stan")
+data_sis_generate <- list(n_times = n_times, y0 = y0, t0 = t0, ts = t, N = N,
+                          r = 1./60, # r
+                          gammal = 1./223, # gammal
+                          f = 1./72, # f
+                          alpha = 0.21, # alpha
+                          beta = 0.66, # beta
+                          rho = 0.21, # rho
+                          delta = 0,
+                          lambda = 0.01,
+                          phi_inv = 0.0001
+)
+# x = generate_quantities(
+
+predictions = stan(file = "champagne2022_generation.stan", data = data_sis_generate, chains = 1, iter = 1, algorithm = "Fixed_param")
+
+pred_cases = as.data.frame(predictions)
+
+# Check with R implementation
+
 ```
