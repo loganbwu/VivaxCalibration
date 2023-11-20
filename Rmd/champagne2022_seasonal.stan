@@ -1,8 +1,12 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
 functions {
-  real[] champagne(real t, real[] y, real[] theta, 
-  real[] x_r, int[] x_i) {
+  real suitability(real t, real eps, real kappa, real phase) {
+    // return(eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+cos((2*pi*t - phi)/365.25))/2)^kappa);
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin((2*pi()*t - phase)/365.25))/2)^kappa); # no normalising beta function
+  }
+  
+  real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
     real I0 = y[2];
@@ -18,8 +22,12 @@ functions {
     real beta = x_r[5];
     real rho = x_r[6];
     real delta = x_r[7];
+    real eps = x_r[8];
+    real kappa = x_r[9];
+    real phase = x_r[10];
     
-    real lambda = theta[1];
+    real omega = suitability(t, eps, kappa, phase);
+    real lambda = theta[1] * omega;
     // real delta = theta[2];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
@@ -46,17 +54,23 @@ data {
   real<lower=0, upper=1> beta;
   real<lower=0, upper=1> rho;
   real<lower=0> delta;
+  real<lower=0> eps;
+  real<lower=0> kappa;
+  real<lower=0> phase;
 }
 
 transformed data {
-  real x_r[7] = {
+  real x_r[10] = {
     r,
     gammal,
     f,
     alpha,
     beta,
     rho,
-    delta
+    delta,
+    eps,
+    kappa,
+    phase
   };
   int x_i[1] = { N };
 }
@@ -81,7 +95,7 @@ transformed parameters{
   }
   
   for (i in 1:n_times-1)
-    incidence[i] = (y[i+1, 5] - y[i, 5]) * N; # incorrect, just for testing
+    incidence[i] = (y[i+1, 5] - y[i, 5]); # incorrect, just for testing
 }
 
 model {
@@ -93,12 +107,15 @@ model {
   
   //sampling distribution
   for (i in 1:(n_times - 1))
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+    cases[i] ~ neg_binomial_2(fmax(0.0001, incidence[i]), phi);
 }
 
 generated quantities {
   real sim_cases[n_times-1];
+  real susceptible[n_times-1];
   
-  for (i in 1:(n_times - 1))
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+  for (i in 1:(n_times - 1)) {
+    sim_cases[i] = neg_binomial_2_rng(fmax(0.0001, incidence[i]), phi);
+    susceptible[i] = y[i, 4];
+  }
 }
