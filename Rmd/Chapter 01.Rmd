@@ -43,15 +43,15 @@ stan_model_champagne2022 = stan_model(model_champagne2022)
 # max_time = 1 * years
 dt = years/annual_subdivisions
 # t = seq(years/annual_subdivisions, max_time, annual_subdivisions)
-t0 = -10*years
-t = seq_len(5*12) * dt
+t0 = -50*years
+t = seq_len(3*annual_subdivisions) * dt
 n_times = length(t)
 # time series of cases
 N = 1000 # population size
-n_iter = 1000
+n_iter = 500
 
 #initial conditions
-I_init = 0.1
+I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 
 # constants for Stan
@@ -160,8 +160,9 @@ params_extract %>%
   ggplot(aes(x = value)) +
   geom_density(color="steelblue", fill="steelblue", alpha=0.75) +
   geom_vline(data=real_params_df, aes(xintercept=value), linetype="dashed") +
+  scale_x_continuous(limits = c(0, NA)) +
   facet_wrap(vars(name), scales = "free") +
-  labs(title = "Re-estimated posterior densities",
+  labs(title = "Re-estimated posterior densities with non-seasonal model",
        subtitle = "Dashed line: simulated value")
 ```
 
@@ -183,7 +184,7 @@ ts_sample = as_tibble(t(ts_extract[ix,])) %>%
 
 ggplot(ts_sample, aes(x=j, y=value, grou=trace)) +
   geom_line(alpha = 0.1) +
-  coord_cartesian(ylim = c(0, 200))
+  coord_cartesian(ylim = c(0, NA))
 ```
 
 Then we modify the Champagne model to include seasonality (as postulated in 2022) and verify again.
@@ -213,13 +214,13 @@ data_consts = list(n_times = n_times+1,
 )
 
 # Generate synthetic observations
-real_params = list(lambda=0.001, phi_inv=0.1)
+real_params = list(lambda=0.01, phi_inv=0.1)
 synth_data = simulate_data(
   file = model_champagne2022_seasonal,
   data_name = "dummy_data",
   input_data = data_consts,
   param_values = real_params,
-  vars = c("ts", "sim_cases", "susceptible")
+  vars = c("ts", "sim_cases", "susceptible", "R0", "Rc")
 )
 synth_data_rds = readRDS(synth_data$datasets[1])
 indx <- sapply(synth_data_rds, length)
@@ -229,10 +230,12 @@ synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
 
 synth_df %>%
   pivot_longer(-ts) %>%
-  ggplot(aes(x=ts, y=value)) +
+  ggplot(aes(x=(ts-data_consts$t0)/years, y=value)) +
   geom_line() +
   facet_wrap(vars(name), scales="free_y")
+```
 
+```{r}
 # Fit data
 # Edit data with generated values
 data = data_consts
@@ -241,6 +244,7 @@ data$ts = synth_df$ts
 data$cases = synth_df$cases
 
 optim = optimizing(stan_model_champagne2022,
+                   init = lapply(real_params, function(x) {100*x}),
                    data = data)
 theta_init = as.list(optim$par[c("lambda", "phi_inv")]) # optimisation results
 ```
@@ -274,18 +278,19 @@ ggplot(smr_pred, mapping = aes(x = t)) +
 ```
 
 ```{r}
-params_extract = rstan::extract(fit, c("lambda", "phi_inv")) %>%
+params_extract_1 = rstan::extract(fit, c("lambda", "phi_inv")) %>%
   lapply(as.numeric) %>%
   as_tibble()
 real_params_df = as.data.frame(real_params) %>%
   pivot_longer(everything())
-params_extract %>%
+params_extract_1 %>%
   pivot_longer(everything()) %>%
   ggplot(aes(x = value)) +
   geom_density(color="steelblue", fill="steelblue", alpha=0.75) +
   geom_vline(data=real_params_df, aes(xintercept=value), linetype="dashed") +
+  # scale_x_continuous(limits = c(0, NA)) +
   facet_wrap(vars(name), scales = "free") +
-  labs(title = "Re-estimated posterior densities",
+  labs(title = "Re-estimated posterior densities with seasonal model",
        subtitle = "Dashed line: simulated value")
 ```
 
@@ -300,11 +305,13 @@ We define reasonable scenarios that reflect the assumptions of the Champagne mod
 Scenarios include sequences of scenarios. For example, low-transmission tropical relapse with a range of magnitudes of seasonality (peak-trough ratio from 0% to 100%). This sequence would demonstrate how the magnitude of seasonality impacts the accuracy of parameter recovery.
 
 ```{r}
-ascertainment_rates = c(0.25, 0.5, 0.75, 1)[1]
-radical_cure_rates = c(0.25, 0.5, 0.75, 1)[1]
-transmission_rates = c(0.001, 0.01, 0.1, 1)
+# ascertainment_rates = c(0.25, 0.5, 0.75, 1)
+radical_cure_rates = c(0.25, 0.5, 0.75, 1)
+ascertainment_rates = data_consts$alpha
+# radical_cure_rates = data_consts$beta
+transmission_rates = c(0.005, 0.01, 0.02)
 importation_rate = 0 # because constant importation makes less sense in seasonal transmission
-population_size = 10000
+population_size = N
 
 data_scenarios = expand_grid(
   ascertainment_rates,
@@ -312,7 +319,8 @@ data_scenarios = expand_grid(
   transmission_rates,
   importation_rate,
   population_size
-)
+) %>%
+  mutate(ID = LETTERS[row_number()], .before=0)
 
 generate_cases = function(alpha, beta, lambda, delta, N) {
   data = data_consts
@@ -354,38 +362,154 @@ data_scenarios %>%
 data_scenarios
 ```
 
+### Comparison of parameter recovery
+
+On each scenario or sequence, recover the parameters using Champagne's solution on annual data and the typical ODE method. Show the resulting errors to the true parameter value.
+
+Below: For testing
+
+1. Try Champagne's direct solution
+
 ```{r}
+library(VivaxModelR)
 # Solve using Champagne
+# mydata = data_scenarios %>%
+#   mutate(id = LETTERS[row_number()],
+#          h = sapply(cases, mean) * 30.4 / population_size,
+#          alpha = ascertainment_rates,
+#          beta = radical_cure_rates,
+#          rho = alpha,
+#          omega = 1,
+#          prop_import = 0,
+#          .keep = "none")
 mydata = data_scenarios %>%
   mutate(id = LETTERS[row_number()],
-         h = sapply(cases, mean) * 30.4 / N,
-         alpha = ascertainment_rates,
-         beta = radical_cure_rates,
-         rho = alpha,
-         omega = 1,
-         prop_import = 0,
-         .keep = "none")
-mydata = data_scenarios %>%
-  mutate(id = LETTERS[row_number()],
-         h = sapply(cases, mean) * 30.4 / N,
+         h = sapply(cases, mean) / 30.4 / population_size, # daily incidence per person
          alpha = 0.9,
          beta = 0.9,
          rho = 0.9,
          omega = 1,
          prop_import = 0,
          .keep = "none")
-mydata_withR0RC=calibrate_vivax_equilibrium(df=mydata, f=data_consts$f, gamma=data_consts$gammal, r=data_consts$r, return.all = TRUE)
+mydata_withR0RC = calibrate_vivax_equilibrium(df=mydata, f=data_consts$f, gamma=data_consts$gammal, r=data_consts$r, return.all = TRUE)
 mydata_withR0RC
 ```
 
-### Comparison of parameter recovery
-
-On each scenario or sequence, recover the parameters using Champagne's solution on annual data and the typical ODE method. Show the resulting errors to the true parameter value.
+2. Aggregate monthly data to annual data then use the non-seasonal model
 
 ```{r}
-sim_scenarios = lapply(data_scenarios, function(x) {
-  x
-})
+data = data_consts
+data$n_times = floor(n_times / annual_subdivisions)
+ts = seq_len(n_times) * dt * annual_subdivisions
+every_twelfth = seq(1, length(synth_df$ts), annual_subdivisions) # c(1, 13, 25, ...)
+data$ts = synth_df$ts[every_twelfth]
+data$cases = sapply(every_twelfth, function(mo) {
+  ixs = seq_along(synth_df$cases)
+  sum(synth_df$cases[ixs >= mo & ixs < (mo+annual_subdivisions)])
+}) # Aggregate in twelve month blocks
+
+fit = sampling(stan_model_champagne2022,
+               data = data,
+               iter = n_iter,
+               chains = n_chains,
+               init = rep(list(theta_init), n_chains), # Start from MLE solution
+               seed = 0)
+
+pairs(fit, pars=c("lambda", "phi_inv"))
+params_extract_2 = rstan::extract(fit, c("lambda", "phi_inv")) %>%
+  lapply(as.numeric) %>%
+  as_tibble()
+real_params_df = as.data.frame(real_params) %>%
+  pivot_longer(everything())
+bind_rows("Seasonal" = params_extract_1,
+          "Steady-state" = params_extract_2,
+          .id = "Model") %>%
+  pivot_longer(-Model) %>%
+  ggplot(aes(x = value, color = Model, fill = Model)) +
+  geom_density(alpha=0.75) +
+  geom_vline(data=real_params_df, aes(xintercept=value), linetype="dashed") +
+  # scale_x_continuous(limits = c(0, NA)) +
+  facet_wrap(vars(name), scales = "free") +
+  labs(title = "Re-estimated posterior densities",
+       subtitle = "Dashed line: true simulated value")
+```
+
+Turn it into an encapsulated function
+
+```{r}
+# First do it just in one chunk and decide what the return value should be
+## Generate parameters
+# i = 2
+
+# Repeats from setup chunk
+
+years = 365.25
+annual_subdivisions = 12
+dt = years/annual_subdivisions
+# t = seq(years/annual_subdivisions, max_time, annual_subdivisions)
+t0 = -50*years
+t = seq_len(3*annual_subdivisions) * dt
+n_times = length(t)
+N = 1000 # population size
+n_iter = 500
+
+#initial conditions
+I_init = 0.01
+y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
+
+
+fun = function(i) {
+  
+  ascertainment_rate = data_scenarios$ascertainment_rates[i]
+  radical_cure_rate = data_scenarios$radical_cure_rates[i]
+  cases = data_scenarios$cases[[i]]
+  
+  data_iter = list(n_times = n_times,
+                   y0 = y0,
+                   t0 = t0,
+                   ts = seq_len(n_times) * dt,
+                   N = N,
+                   cases = cases,
+                   r = 1./60, # r
+                   gammal = 1./223, # gammal
+                   f = 1./72, # f
+                   alpha = ascertainment_rate, # alpha
+                   beta = radical_cure_rate, # beta
+                   rho = 0.21, # rho
+                   delta = 0,
+                   eps = 0,
+                   kappa = 1,
+                   phase = 0
+  )
+  
+  fit = sampling(stan_model_champagne2022_seasonal,
+                 data = data_iter,
+                 iter = n_iter,
+                 chains = n_chains,
+                 init = rep(list(theta_init), n_chains), # Start from MLE solution
+                 seed = 0)
+  
+  fit_summary = summary(fit)$summary %>%
+    bind_cols(
+      tibble(name = rownames(.)),
+      .
+    )
+  
+  fit_summary
+}
+
+sim_scenarios = lapply(seq_len(nrow(data_scenarios)), fun)
+
+analysis = sim_scenarios %>%
+  setNames(LETTERS[seq_along({.})]) %>%
+  bind_rows(.id = "ID") %>%
+  left_join(data_scenarios, by=c("ID"))
+
+analysis %>%
+  filter(name %in% c("lambda", "phi_inv")) %>%
+  ggplot(aes(x = ascertainment_rates, y = transmission_rates, fill=mean, color=mean)) +
+  geom_point() +
+  facet_grid(rows=vars(name), scales="free")
 
 # Display true and recovered parameters
 ```

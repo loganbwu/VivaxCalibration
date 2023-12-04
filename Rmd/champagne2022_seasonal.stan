@@ -84,7 +84,7 @@ parameters {
 
 transformed parameters{
   real y[n_times, 5];
-  real incidence[n_times - 1];
+  real<lower=0> incidence[n_times - 1];
   real phi = 1. / phi_inv;
   {
     real theta[1];
@@ -95,7 +95,7 @@ transformed parameters{
   }
   
   for (i in 1:n_times-1)
-    incidence[i] = (y[i+1, 5] - y[i, 5]); # incorrect, just for testing
+    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N); # incorrect, just for testing
 }
 
 model {
@@ -107,15 +107,19 @@ model {
   
   //sampling distribution
   for (i in 1:(n_times - 1))
-    cases[i] ~ neg_binomial_2(fmax(0.0001, incidence[i]), phi);
+    cases[i] ~ neg_binomial_2(incidence[i], phi);
 }
 
 generated quantities {
   real sim_cases[n_times-1];
   real susceptible[n_times-1];
+  real R0[n_times-1];
+  real Rc[n_times-1];
   
   for (i in 1:(n_times - 1)) {
-    sim_cases[i] = neg_binomial_2_rng(fmax(0.0001, incidence[i]), phi);
+    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
     susceptible[i] = y[i, 4];
+    R0[i] = (lambda * suitability(ts[i], eps, kappa, phase))/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
+    Rc[i] = lambda * suitability(ts[i], eps, kappa, phase) * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
   }
 }
