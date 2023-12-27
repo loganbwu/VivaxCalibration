@@ -496,7 +496,7 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
                              init = rep(list(theta_init), n_chains), # Start from MLE solution
                              seed = 0)
   
-  return(rstan::extract(fit_nonseasonal, c("lambda"))$lambda %>% as.numeric())
+  return(rstan::extract(fit_nonseasonal, c("lambda"))$lambda)
 }
 
 nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega) {
@@ -564,22 +564,22 @@ for (i in seq_len(nrow(data_scenarios))) {
 
 # Solve using non-seasonal poisson model
 for (i in seq_len(nrow(data_scenarios))) {
-  lambda_nonseasonal_poisson[[i]] = with(data_scenarios, {
-    poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
+  lambda_nonseasonal_poisson[i] = with(data_scenarios, {
+    poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1) %>% mean()
   })
 }
 
 # Solve using non-seasonal model
 for (i in seq_len(nrow(data_scenarios))) {
-  lambda_nonseasonal[[i]] = with(data_scenarios, {
-    nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
+  lambda_nonseasonal[i] = with(data_scenarios, {
+    nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1) %>% mean()
   })
 }
 
 # Solve using seasonal model
 for (i in seq_len(nrow(data_scenarios))) {
-  lambda_seasonal[[i]] = with(data_scenarios, {
-    seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i])
+  lambda_seasonal[i] = with(data_scenarios, {
+    seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i]) %>% mean()
   })
   # print(data_scenarios$lambda_nonseasonal[i])
 }
@@ -590,20 +590,14 @@ data_scenarios$lambda_nonseasonal = lambda_nonseasonal
 data_scenarios$lambda_seasonal = lambda_seasonal
 
 data_scenarios %>%
-  select(transmission_rates, starts_with("lambda_")) #%>%
-  # mutate_all(function(x) round(x, 4))
+  select(transmission_rates, starts_with("lambda_")) %>%
+  mutate_all(function(x) round(x, 4))
 
-plot_data = data_scenarios %>%
+data_scenarios %>%
   pivot_longer(starts_with("lambda")) %>%
-  mutate(est_mean = sapply(value, mean),
-         est_LQ = sapply(value, function(x) {quantile(x, 0.25, na.rm=T)}),
-         est_UQ = sapply(value, function(x) {quantile(x, 0.75, na.rm=T)})) %>%
-  select(-cases, -ts, -population_size, -value)
-plot_data %>%
   # filter(lambda_direct > 0) %>%
-  ggplot(aes(x = transmission_rates, y = est_mean, color=seasonality_ratio)) +
+  ggplot(aes(x = transmission_rates, y = value, color=seasonality_ratio)) +
   geom_point() +
-  geom_errorbar(aes(ymin = est_LQ, ymax = est_UQ)) +
   geom_abline(slope=1, intercept=0) +
   coord_cartesian(xlim = c(0, 0.03), ylim=c(0, 0.03)) +
   facet_wrap(vars(name), scales="free")
