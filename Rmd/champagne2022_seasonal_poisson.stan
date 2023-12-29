@@ -2,7 +2,6 @@
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    // return(eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+cos((2*pi*t - phi)/365.25))/2)^kappa);
     return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin((2*pi()*t - phase)/365.25))/2)^kappa); # no normalising beta function
   }
   
@@ -77,18 +76,15 @@ transformed data {
 
 parameters {
   real<lower=0> lambda;
-  // real<lower=0> delta;
-  
-  real<lower=0> phi_inv;
 }
 
 transformed parameters{
   real y[n_times, 5];
   real<lower=0> incidence[n_times - 1];
-  real phi = 1. / phi_inv;
   {
     real theta[1];
     theta[1] = lambda;
+    // theta[2] = delta;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
@@ -102,11 +98,9 @@ model {
   lambda ~ normal(0, 1e4);
   delta ~ normal(0, 1e4);
   
-  phi_inv ~ exponential(0.1);
-  
   //sampling distribution
   for (i in 1:(n_times - 1))
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+    cases[i] ~ poisson(incidence[i]);
 }
 
 generated quantities {
@@ -116,7 +110,7 @@ generated quantities {
   real Rc[n_times-1];
   
   for (i in 1:(n_times - 1)) {
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+    sim_cases[i] = poisson_rng(incidence[i]);
     susceptible[i] = y[i, 4];
     R0[i] = (lambda * suitability(ts[i], eps, kappa, phase))/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
     Rc[i] = lambda * suitability(ts[i], eps, kappa, phase) * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));

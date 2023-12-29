@@ -72,7 +72,6 @@ transformed parameters{
   {
     real theta[1];
     theta[1] = lambda;
-    // theta[2] = delta;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
