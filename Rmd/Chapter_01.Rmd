@@ -454,21 +454,21 @@ On each scenario or sequence, recover the parameters using Champagne's solution 
 Define one function for each method. Should take in a row of the dataframe as a list.
 
 ```{r}
-direct_sol = function(.cases, .population_size, .alpha, .beta, .omega) {
-  x = tibble(h = mean(.cases) / 30.4 / .population_size, # daily incidence per person
-             alpha = .alpha,
-             beta = .beta,
-             rho = .alpha,
-             omega = .omega,
-             prop_import = 0) %>%
-    calibrate_vivax_equilibrium(f=data_consts$f, gamma=data_consts$gammal, r=data_consts$r, return.all = TRUE)
-  
-  if (x$lambda == -2) {
-    return(NA_real_)
-  } else {
-    return(x$lambda)
-  }
-}
+# direct_sol = function(.cases, .population_size, .alpha, .beta, .omega) {
+#   x = tibble(h = mean(.cases) / 30.4 / .population_size, # daily incidence per person
+#              alpha = .alpha,
+#              beta = .beta,
+#              rho = .alpha,
+#              omega = .omega,
+#              prop_import = 0) %>%
+#     calibrate_vivax_equilibrium(f=data_consts$f, gamma=data_consts$gammal, r=data_consts$r, return.all = TRUE)
+#   
+#   if (x$lambda == -2) {
+#     return(NA_real_)
+#   } else {
+#     return(x$lambda)
+#   }
+# }
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
 poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
@@ -622,7 +622,7 @@ Below: For testing
 Execute methods on each scenario
 
 ```{r}
-library(VivaxModelR)
+# library(VivaxModelR)
 lambda_direct = rep(list(NULL), nrow(data_scenarios))
 lambda_nonseasonal_poisson = rep(list(NULL), nrow(data_scenarios))
 lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
@@ -637,11 +637,11 @@ tictoc::tic()
 #     direct_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
 #   })
 # }
-lambda_direct = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
-  with(data_scenarios, {
-    direct_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
-  })
-})
+# lambda_direct = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+#   with(data_scenarios, {
+#     direct_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
+#   })
+# })
 
 # Solve using non-seasonal poisson model
 # for (i in seq_len(nrow(data_scenarios))) {

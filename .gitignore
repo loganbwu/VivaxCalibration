@@ -4,6 +4,7 @@
 .Ruserdata
 
 *.nb.html
+*.md
 *.rds
 **/.DS_Store
 Rmd/mendeley.bib
