@@ -35,7 +35,7 @@ c_posterior = "blue"
 years = 365.25
 n_years = 5
 annual_subdivisions = 12
-n_iter = 500 # should be at least 500
+n_iter = 100 # should be at least 500
 n_chains = 4
 ```
 
@@ -487,6 +487,9 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   
   .data_agg = aggregate_data(.data)
   
+  if (true_lambda == 0.01) {
+    return(NULL)
+  }
   
   optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
@@ -627,12 +630,12 @@ Execute methods on each scenario
 
 ```{r}
 # library(VivaxModelR)
-lambda_direct = rep(list(NULL), nrow(data_scenarios))
-lambda_nonseasonal_poisson = rep(list(NULL), nrow(data_scenarios))
-lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
-lambda_seasonal_poisson = rep(list(NULL), nrow(data_scenarios))
-lambda_seasonal = rep(list(NULL), nrow(data_scenarios))
-lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
+# lambda_direct = rep(list(NULL), nrow(data_scenarios))
+# lambda_nonseasonal_poisson = rep(list(NULL), nrow(data_scenarios))
+# lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
+# lambda_seasonal_poisson = rep(list(NULL), nrow(data_scenarios))
+# lambda_seasonal = rep(list(NULL), nrow(data_scenarios))
+# lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
 
 # Solve using Champagne
 # for (i in seq_len(nrow(data_scenarios))) {
@@ -647,6 +650,14 @@ lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
 # })
 
 tictoc::tic("Non-seasonal poisson")
+# lambda_nonseasonal_poisson = rep(list(NULL), nrow(data_scenarios))
+# for (i in seq_len(nrow(data_scenarios))) {
+#   tictoc::tic(paste("Row", i))
+#   lambda_nonseasonal_poisson[[i]] = with(data_scenarios, {
+#     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
+#   })
+#   tictoc::toc()
+# }
 lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
@@ -656,6 +667,14 @@ tictoc::toc()
 
 # Solve using non-seasonal model
 tictoc::tic("Non-seasonal negative-binomial")
+# lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
+# for (i in seq_len(nrow(data_scenarios))) {
+#   tictoc::tic(paste("Row", i))
+#   lambda_nonseasonal[[i]] = with(data_scenarios, {
+#     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
+#   })
+#   tictoc::toc()
+# }
 lambda_nonseasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
