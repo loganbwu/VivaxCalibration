@@ -1,8 +1,14 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
+// In this version, we allow the seasonality parameters to be estimated
+
 functions {
-  real[] champagne(real t, real[] y, real[] theta, 
-  real[] x_r, int[] x_i) {
+  real suitability(real t, real eps, real kappa, real phase) {
+    // return(eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+cos((2*pi*t - phi)/365.25))/2)^kappa);
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin((2*pi()*t - phase)/365.25))/2)^kappa); # no normalising beta function
+  }
+  
+  real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
     real I0 = y[2];
@@ -18,8 +24,10 @@ functions {
     real beta = x_r[5];
     real rho = x_r[6];
     real delta = x_r[7];
+    real phase = x_r[8];
     
-    real lambda = theta[1];
+    real omega = suitability(t, theta[2], theta[3], phase);
+    real lambda = theta[1] * omega;
     // real delta = theta[2];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
@@ -46,36 +54,41 @@ data {
   real<lower=0, upper=1> beta;
   real<lower=0, upper=1> rho;
   real<lower=0> delta;
+  real<lower=0> phase;
 }
 
 transformed data {
-  real x_r[7] = {
+  real x_r[8] = {
     r,
     gammal,
     f,
     alpha,
     beta,
     rho,
-    delta
+    delta,
+    phase
   };
   int x_i[1] = { N };
 }
 
 parameters {
   real<lower=0> lambda;
-  // real<lower=0> delta;
-  
   real<lower=0> phi_inv;
+  real<lower=0, upper=1> eps;
+  real<lower=0> kappa;
+  //real<lower=0, upper=365.25> phase; // note: may be an issue with this being a cyclical variable
 }
 
 transformed parameters{
   real y[n_times, 5];
-  real incidence[n_times - 1];
+  real<lower=0> incidence[n_times - 1];
   real phi = 1. / phi_inv;
   {
-    real theta[1];
+    real theta[3];
     theta[1] = lambda;
-    // theta[2] = delta;
+    theta[2] = eps;
+    theta[3] = kappa;
+    //theta[4] = phase;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
@@ -87,9 +100,11 @@ transformed parameters{
 model {
   //priors
   lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
+  eps ~ uniform(0, 1);
+  kappa ~ exponential(0.1);
+  phase ~ uniform(0, 365.25);
   
-  phi_inv ~ exponential(5);
+  phi_inv ~ exponential(0.1);
   
   //sampling distribution
   for (i in 1:(n_times - 1))
@@ -98,7 +113,14 @@ model {
 
 generated quantities {
   real sim_cases[n_times-1];
+  real susceptible[n_times-1];
+  real R0[n_times-1];
+  real Rc[n_times-1];
   
-  for (i in 1:(n_times - 1))
+  for (i in 1:(n_times - 1)) {
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+    susceptible[i] = y[i, 4];
+    R0[i] = (lambda * suitability(ts[i], eps, kappa, phase))/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
+    Rc[i] = lambda * suitability(ts[i], eps, kappa, phase) * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
+  }
 }
