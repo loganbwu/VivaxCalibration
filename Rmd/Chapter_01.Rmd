@@ -34,6 +34,7 @@ years = 365.25
 n_years = 5
 annual_subdivisions = 12
 n_iter = 500 # should be at least 500
+n_chains = 4
 ```
 
 ## Model implementation
@@ -149,7 +150,6 @@ plot_data %>%
 Do the full posterior fit. It should predict the data very well.
 
 ```{r, eval=F}
-n_chains = 4
 fit_nonseasonal = sampling(stan_model_champagne2022,
                            data = data,
                            iter = n_iter,
