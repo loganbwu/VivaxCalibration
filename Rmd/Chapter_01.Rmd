@@ -21,11 +21,11 @@ Stan and posterior sampling will be used for all analyses.
 ```{r setup}
 library(tidyverse)
 library(rstan)
-library(rstansim)
+library(rstansim) # devtools::install_github("ewan-keith/rstansim")
 library(parallel)
 library(patchwork)
 library(pbmcapply)
-options(mc.cores = 8)
+options(mc.cores = parallelly::availableCores())
 rstan_options(auto_write = TRUE)
 
 c_posterior = "blue"
