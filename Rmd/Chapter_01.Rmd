@@ -312,7 +312,7 @@ rstan::extract(fit_seasonal, c("lambda", "phi_inv")) %>%
 
 What if we removed seasonality from the data and tried to fit the non-seasonal model?
 
-```{r, eval=F}
+```{r}
 #' Aggregate in twelve month blocks
 aggregate_data = function(.data) {
   .data$n_times = floor(n_times / annual_subdivisions)
@@ -325,7 +325,9 @@ aggregate_data = function(.data) {
   })
   .data
 }
+```
 
+```{r, eval=F}
 data_agg = aggregate_data(data)
 
 optim = optimizing(stan_model_champagne2022,
@@ -473,7 +475,7 @@ Define one function for each method. Should take in a row of the dataframe as a 
 # }
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
-poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
+poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -638,13 +640,12 @@ lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
 #     direct_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
 #   })
 # }
-# lambda_direct = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+# lambda_direct = lapply(seq_len(nrow(data_scenarios)), function(i) {
 #   with(data_scenarios, {
 #     direct_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1)
 #   })
 # })
 
-# Solve using non-seasonal poisson model
 tictoc::tic("Non-seasonal poisson")
 lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
