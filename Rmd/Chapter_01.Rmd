@@ -25,7 +25,9 @@ library(rstansim) # devtools::install_github("ewan-keith/rstansim")
 library(parallel)
 library(patchwork)
 library(pbmcapply)
-options(mc.cores = parallelly::availableCores())
+n_cores = parallelly::availableCores()
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 c_posterior = "blue"
@@ -629,7 +631,6 @@ lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
 lambda_seasonal_poisson = rep(list(NULL), nrow(data_scenarios))
 lambda_seasonal = rep(list(NULL), nrow(data_scenarios))
 lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
-tictoc::tic()
 
 # Solve using Champagne
 # for (i in seq_len(nrow(data_scenarios))) {
@@ -644,65 +645,48 @@ tictoc::tic()
 # })
 
 # Solve using non-seasonal poisson model
-# for (i in seq_len(nrow(data_scenarios))) {
-#   lambda_nonseasonal_poisson[[i]] = with(data_scenarios, {
-#     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-#   })
-# }
+tictoc::tic("Non-seasonal poisson")
 lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
   })
 })
+tictoc::toc()
 
 # Solve using non-seasonal model
-# for (i in seq_len(nrow(data_scenarios))) {
-#   lambda_nonseasonal[[i]] = with(data_scenarios, {
-#     nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-#   })
-# }
+tictoc::tic("Non-seasonal negative-binomial")
 lambda_nonseasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
   })
 })
+tictoc::toc()
 
 # Solve using seasonal poisson model
-# for (i in seq_len(nrow(data_scenarios))) {
-#   lambda_seasonal_poisson[[i]] = with(data_scenarios, {
-#     poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-#   })
-# }
+tictoc::tic("Seasonal poisson")
 lambda_seasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
 })
+tictoc::toc()
 
 # Solve using seasonal model
-# for (i in seq_len(nrow(data_scenarios))) {
-#   lambda_seasonal[[i]] = with(data_scenarios, {
-#     seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-#   })
-# }
+tictoc::tic("Seasonal negative-binomial")
 lambda_seasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
 })
+tictoc::toc()
 
-# Solve using seasonal model where the seasonal form must be estimated
-# for (i in seq_len(nrow(data_scenarios))) {
-#   lambda_seasonal_ext[[i]] = with(data_scenarios, {
-#     extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-#   })
-# }
+# Solve using seasonal model where the seasonal form must be estimated as well
+tictoc::tic("Seasonal negative-binomial, estimating seasonality")
 lambda_seasonal_ext = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
 })
-
 tictoc::toc()
 
 data_scenarios$lambda_direct = lambda_direct
