@@ -72,10 +72,10 @@ transformed data {
 }
 
 parameters {
-  real<lower=0> lambda;
+  real<lower=0, upper=9> lambda;
   real<lower=0> phi_inv;
   real<lower=0, upper=1> eps;
-  real<lower=0> kappa;
+  real<lower=0, upper=30> kappa;
   //real<lower=0, upper=365.25> phase; // note: may be an issue with this being a cyclical variable
 }
 
