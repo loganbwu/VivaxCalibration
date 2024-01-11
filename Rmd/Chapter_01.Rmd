@@ -35,7 +35,7 @@ c_posterior = "blue"
 years = 365.25
 n_years = 5
 annual_subdivisions = 12
-n_iter = 100 # should be at least 500
+n_iter = 1000 # should be at least 500
 n_chains = 4
 ```
 
@@ -410,7 +410,7 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
 
-generate_cases = function(alpha, beta, lambda, delta, eps, N) {
+.simulate_cases = function(alpha, beta, lambda, delta, eps, N) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
@@ -432,14 +432,20 @@ generate_cases = function(alpha, beta, lambda, delta, eps, N) {
     as.data.frame() %>%
     drop_na()
 }
+# Add cases onto a dataframe of scenarios based on its parameter columns
+simulate_cases = function(.scenarios) {
+  cases_scenarios = mclapply(seq_len(nrow(.scenarios)), function(i) {
+    dat = .scenarios[i,]
+    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size)
+  })
+  
+  .scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
+  .scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
+  .scenarios
+}
 
-cases_scenarios = mclapply(seq_len(nrow(data_scenarios)), function(i) {
-  dat = data_scenarios[i,]
-  x = generate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size)
-})
 
-data_scenarios$cases = mclapply(cases_scenarios, function(x) {x$cases})
-data_scenarios$ts = mclapply(cases_scenarios, function(x) {x$ts})
+data_scenarios = simulate_cases(data_scenarios)
 
 # Display scenarios
 data_scenarios %>%
@@ -494,9 +500,6 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   
-  # .theta_init = list(lambda = true_lambda,
-  #                    phi_inv = true_phi_inv)
-  
   .fit = sampling(stan_model_champagne2022_poisson,
                   data = .data_agg,
                   iter = n_iter,
@@ -523,9 +526,6 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
   optim_ext = optimizing(stan_model_champagne2022, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   
-  # .theta_init = list(lambda = true_lambda,
-  #                    phi_inv = true_phi_inv)
-  
   .fit = sampling(stan_model_champagne2022,
                   data = .data_agg,
                   iter = n_iter,
@@ -550,9 +550,6 @@ poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega,
   
   optim_ext = optimizing(stan_model_champagne2022_seasonal_poisson, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  # .theta_init = list(lambda = true_lambda,
-  #                    phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022_seasonal_poisson,
                   data = .data,
@@ -579,9 +576,6 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
   
   optim_ext = optimizing(stan_model_champagne2022_seasonal, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  # .theta_init = list(lambda = true_lambda,
-  #                    phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022_seasonal,
                   data = .data,
@@ -633,13 +627,6 @@ Execute methods on each scenario
 
 ```{r}
 # library(VivaxModelR)
-# lambda_direct = rep(list(NULL), nrow(data_scenarios))
-# lambda_nonseasonal_poisson = rep(list(NULL), nrow(data_scenarios))
-# lambda_nonseasonal = rep(list(NULL), nrow(data_scenarios))
-# lambda_seasonal_poisson = rep(list(NULL), nrow(data_scenarios))
-# lambda_seasonal = rep(list(NULL), nrow(data_scenarios))
-# lambda_seasonal_ext = rep(list(NULL), nrow(data_scenarios))
-
 # Solve using Champagne
 # for (i in seq_len(nrow(data_scenarios))) {
 #   lambda_direct[[i]] = with(data_scenarios, {
@@ -661,7 +648,7 @@ tictoc::tic("Non-seasonal poisson")
 #   })
 #   tictoc::toc()
 # }
-lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+data_scenarios$lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
   })
@@ -678,7 +665,7 @@ tictoc::tic("Non-seasonal negative-binomial")
 #   })
 #   tictoc::toc()
 # }
-lambda_nonseasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+data_scenarios$lambda_nonseasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
   })
@@ -695,7 +682,7 @@ tictoc::toc()
 #   tictoc::toc()
 # }
 tictoc::tic("Seasonal poisson")
-lambda_seasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+data_scenarios$lambda_seasonal_poisson = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
@@ -704,7 +691,7 @@ tictoc::toc()
 
 # Solve using seasonal model
 tictoc::tic("Seasonal negative-binomial")
-lambda_seasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+data_scenarios$lambda_seasonal = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
@@ -713,44 +700,19 @@ tictoc::toc()
 
 # Solve using seasonal model where the seasonal form must be estimated as well
 tictoc::tic("Seasonal negative-binomial, estimating seasonality")
-lambda_seasonal_ext = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
+data_scenarios$lambda_seasonal_ext = pbmclapply(seq_len(nrow(data_scenarios)), function(i) {
   with(data_scenarios, {
     extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
   })
 })
 tictoc::toc()
 
-data_scenarios$lambda_direct = lambda_direct
-data_scenarios$lambda_nonseasonal_poisson = lambda_nonseasonal_poisson
-data_scenarios$lambda_nonseasonal = lambda_nonseasonal
-data_scenarios$lambda_seasonal_poisson = lambda_seasonal_poisson
-data_scenarios$lambda_seasonal = lambda_seasonal
-data_scenarios$lambda_seasonal_ext = lambda_seasonal_ext
-
-```
-
-```{r}
-data_scenarios %>%
-  select(transmission_rates, starts_with("lambda_")) #%>%
-# mutate_all(function(x) round(x, 4))
-
-plot_data = data_scenarios %>%
-  # filter(seasonality_ratio == 1) %>%
-  pivot_longer(starts_with("lambda")) %>%
-  mutate(est_mean = sapply(value, mean),
-         est_LQ = sapply(value, function(x) {quantile(x, 0.25, na.rm=T)}),
-         est_UQ = sapply(value, function(x) {quantile(x, 0.75, na.rm=T)})) %>%
-  select(-cases, -ts, -population_size, -value)
-
-plot_data %>%
-  # filter(lambda_direct > 0) %>%
-  ggplot(aes(x = seasonality_ratio, y = est_mean, color=transmission_rates)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = est_LQ, ymax = est_UQ)) +
-  # geom_abline(slope=1, intercept=0) +
-  geom_hline(yintercept = seq(0.01, 0.03, by=0.005)) +
-  # coord_cartesian(xlim = c(0, 0.03), ylim=c(0, 0.05)) +
-  facet_wrap(vars(name), scales="free")
+# data_scenarios$lambda_direct = lambda_direct
+# data_scenarios$lambda_nonseasonal_poisson = lambda_nonseasonal_poisson
+# data_scenarios$lambda_nonseasonal = lambda_nonseasonal
+# data_scenarios$lambda_seasonal_poisson = lambda_seasonal_poisson
+# data_scenarios$lambda_seasonal = lambda_seasonal
+# data_scenarios$lambda_seasonal_ext = lambda_seasonal_ext
 ```
 
 Compare densities for individual scenarios between methods
@@ -761,20 +723,35 @@ comparison_colors = c("lambda_nonseasonal_poisson" = "tomato",
                       "lambda_seasonal_poisson" = "navy",
                       "lambda_seasonal" = "steelblue",
                       "lambda_seasonal_ext" = "hotpink")
+
+# Use this to filter out chains that haven't converged
+.calculate_rhat = function(.trace, .n_chains = n_chains) {
+  if (is.null(.trace)) {
+    return(NULL)
+  }
+  chains = matrix(.trace, ncol = .n_chains)
+  Rhat(chains)
+}
+calculate_rhat = function(x) {
+  sapply(x, .calculate_rhat)
+}
+
 plot_data = data_scenarios %>%
   pivot_longer(cols = matches("lambda"), names_to = "method", values_to = "estimate") %>%
-  unnest(estimate) %>%
+  mutate(rhat = calculate_rhat(estimate)) %>%
+  unnest(c(estimate, rhat)) %>%
+  filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
   drop_na(estimate)
 
 # trim quantiles
-trim = 0.01
+trim = 0.05
 plot_data = plot_data %>%
   group_by(ID, method) %>%
   mutate(trace = row_number(),
          lq = unname(quantile(estimate, trim*0.5)),
          uq = unname(quantile(estimate, 1-trim*0.5))) %>%
-  ungroup() %>%
-  filter(!method %>% str_detect("_poi"))
+  ungroup() #%>%
+# filter(!method %>% str_detect("_poi"))
 
 for (id in unique(plot_data$ID)) {
   .plot_cases = plot_data %>%
@@ -819,6 +796,12 @@ for (id in unique(plot_data$ID)) {
 #   group_by(method) %>%
 #   summarise(min = round(min(estimate), 4),
 #             max = round(max(estimate), 4))
+```
+
+Some of these chains appear to not mix.
+
+```{r}
+
 ```
 
 ## Extension to fitting more parameters
