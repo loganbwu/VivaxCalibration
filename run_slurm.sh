@@ -6,4 +6,4 @@
 #SBATCH --mem=16GB
 module load R/4.3.2
 
-R hello_world.R
+R --no-save hello_world.R
