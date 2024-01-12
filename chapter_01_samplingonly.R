@@ -114,10 +114,13 @@ simulate_cases = function(.scenarios) {
   .scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
   .scenarios
 }
+message("Running ", nrow(data_scenarios), " scenarios for ", n_repetitions, " repetitions")
 
 data_scenarios = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
   simulate_cases()
+
+message("Simulated cases for ", nrow(data_scenarios), " instances")
 
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
@@ -268,6 +271,8 @@ data_scenarios_long = data_scenarios %>%
   tidyr::crossing(methods) %>%
   head(limit_runs)
 
+message("Executing a total of ", nrow(data_scenarios_long, " fits"))
+
 run_scenario_method = function(i) {
   start = Sys.time()
   .method = data_scenarios_long$method[i]
@@ -304,3 +309,5 @@ tictoc::toc()
 # data_scenarios = run_all(data_scenarios)
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
 save.image(workspace_filename)
+
+message("Done.")
