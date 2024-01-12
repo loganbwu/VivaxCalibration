@@ -39,6 +39,7 @@ n_iter = 250 # should be at least 500
 n_chains = 2
 n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
+limit_runs = 3 # set to a finite number for testing, or Inf to run all
 ```
 
 ## Model implementation
@@ -694,13 +695,7 @@ run_all = function(.data_scenarios) {
     })
   })
   tictoc::toc()
-  
-  # data_scenarios$lambda_direct = lambda_direct
-  # data_scenarios$lambda_nonseasonal_poisson = lambda_nonseasonal_poisson
-  # data_scenarios$lambda_nonseasonal = lambda_nonseasonal
-  # data_scenarios$lambda_seasonal_poisson = lambda_seasonal_poisson
-  # data_scenarios$lambda_seasonal = lambda_seasonal
-  # data_scenarios$lambda_seasonal_ext = lambda_seasonal_ext
+
   .data_scenarios
 }
 
@@ -714,7 +709,8 @@ methods = tibble(
 )
 
 data_scenarios_long = data_scenarios %>%
-  tidyr::crossing(methods)
+  tidyr::crossing(methods) %>%
+  head(limit_runs)
 
 run_scenario_method = function(i) {
   start = Sys.time()
@@ -869,6 +865,15 @@ ggplot(smr_pred_ext, mapping = aes(x = t)) +
   geom_point(mapping = aes(y = cases)) +
   labs(x = "Day", y = "Cases") +
   coord_cartesian(ylim = c(0, NA))
+```
+
+How is goodness of fit under repetition?
+
+```{r}
+# Sum of squares
+loss_fn = function(est_value, true_value) {
+  mean((est_value - true_value)^2)
+}
 ```
 
 In particu
