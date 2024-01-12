@@ -16,7 +16,7 @@ n_iter = 250 # should be at least 500
 n_chains = 2
 n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
-limit_runs = 3 # set to a finite number for testing, or Inf to run all
+limit_runs = Inf # set to a finite number for testing, or Inf to run all
 
 model_champagne2022 = "Rmd/stan/champagne2022.stan"
 stan_model_champagne2022 = stan_model(model_champagne2022)
