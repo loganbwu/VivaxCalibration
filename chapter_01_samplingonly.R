@@ -271,7 +271,7 @@ data_scenarios_long = data_scenarios %>%
   tidyr::crossing(methods) %>%
   head(limit_runs)
 
-message("Executing a total of ", nrow(data_scenarios_long, " fits"))
+message("Executing a total of ", nrow(data_scenarios_long), " fits")
 
 run_scenario_method = function(i) {
   start = Sys.time()
