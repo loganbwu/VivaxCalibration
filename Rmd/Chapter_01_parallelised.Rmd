@@ -30,6 +30,7 @@ library(patchwork)
 library(pbmcapply)
 library(pbapply)
 source("../R/constants.R")
+source("../R/methods.R")
 n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
@@ -38,9 +39,10 @@ rstan_options(auto_write = TRUE)
 n_years = 5
 n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 10 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
+timelimit_per_run = 60*10#60 * 30
 ```
 
 ## Model implementation
@@ -396,7 +398,7 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
 
-.simulate_cases = function(alpha, beta, lambda, delta, eps, N) {
+.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, delta=0, eps=0, N=100, index=0) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
@@ -405,14 +407,21 @@ data_scenarios = expand_grid(
   data$N = N
   
   real_params = list(lambda=lambda, phi_inv=0.1)
-  synth_data = simulate_data(
+  
+  if (index == 0) {
+    index = sample.int(999999999, 1)
+  }
+  synth_data = suppressMessages(simulate_data(
     file = model_champagne2022_seasonal,
-    data_name = "dummy_data",
+    path = "sim_data",
+    data_name = paste0("data_", index),
     input_data = data,
     param_values = real_params,
     vars = c("ts", "sim_cases", "susceptible")
-  )
+  ))
+  # print(synth_data$datasets[1])
   synth_data_rds = readRDS(synth_data$datasets[1])
+  file.remove(synth_data$datasets[1])
   indx <- sapply(synth_data_rds, length)
   synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
     as.data.frame() %>%
@@ -422,7 +431,7 @@ data_scenarios = expand_grid(
 simulate_cases = function(.scenarios) {
   cases_scenarios = mclapply(seq_len(nrow(.scenarios)), function(i) {
     dat = .scenarios[i,]
-    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size)
+    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
   })
   
   .scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
@@ -432,6 +441,9 @@ simulate_cases = function(.scenarios) {
 
 data_scenarios = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
+  group_by(ID) %>%
+  mutate(rep = row_number()) %>%
+  ungroup() %>%
   simulate_cases()
 
 # Display scenarios
@@ -449,261 +461,50 @@ data_scenarios
 
 On each scenario or sequence, recover the parameters using Champagne's solution on annual data and the typical ODE method. Show the resulting errors to the true parameter value.
 
-Define one function for each method. Should take in a row of the dataframe as a list.
-
-```{r}
-# direct_sol = function(.cases, .population_size, .alpha, .beta, .omega) {
-#   x = tibble(h = mean(.cases) / 30.4 / .population_size, # daily incidence per person
-#              alpha = .alpha,
-#              beta = .beta,
-#              rho = .alpha,
-#              omega = .omega,
-#              prop_import = 0) %>%
-#     calibrate_vivax_equilibrium(f=data_consts$f, gamma=data_consts$gammal, r=data_consts$r, return.all = TRUE)
-#   
-#   if (x$lambda == -2) {
-#     return(NA_real_)
-#   } else {
-#     return(x$lambda)
-#   }
-# }
-
-#' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
-poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
-  .data = data_consts
-  .data$cases = .cases
-  .data$population_size = .population_size
-  .data$alpha = .alpha
-  .data$beta = .beta
-  .data$omega = .omega
-  .data$n_times = length(.data$cases)
-  .data$ts = .data$ts[seq_len(.data$n_times)]
-  
-  .data_agg = aggregate_data(.data)
-  
-  if (true_lambda == 0.01) {
-    return(NULL)
-  }
-  
-  optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  .fit = sampling(stan_model_champagne2022_poisson,
-                  data = .data_agg,
-                  iter = n_iter,
-                  chains = n_chains,
-                  init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                  cores = cores_per_sampler,
-                  refresh = 0)
-  
-  return(rstan::extract(.fit, c("lambda"))$lambda %>% as.numeric())
-}
-
-nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
-  .data = data_consts
-  .data$cases = .cases
-  .data$population_size = .population_size
-  .data$alpha = .alpha
-  .data$beta = .beta
-  .data$omega = .omega
-  .data$n_times = length(.data$cases)
-  .data$ts = .data$ts[seq_len(.data$n_times)]
-  
-  .data_agg = aggregate_data(.data)
-  
-  optim_ext = optimizing(stan_model_champagne2022, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  .fit = sampling(stan_model_champagne2022,
-                  data = .data_agg,
-                  iter = n_iter,
-                  chains = n_chains,
-                  init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                  cores = cores_per_sampler,
-                  refresh = 0)
-  
-  return(rstan::extract(.fit, c("lambda"))$lambda)
-}
-
-poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
-  .data = data_consts
-  .data$cases = .cases
-  .data$population_size = .population_size
-  .data$alpha = .alpha
-  .data$beta = .beta
-  .data$omega = .omega
-  .data$eps = .eps
-  .data$n_times = length(.data$cases)
-  .data$ts = .data$ts[seq_len(.data$n_times)]
-  
-  optim_ext = optimizing(stan_model_champagne2022_seasonal_poisson, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  .fit = sampling(stan_model_champagne2022_seasonal_poisson,
-                  data = .data,
-                  iter = n_iter,
-                  chains = n_chains,
-                  init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                  cores = cores_per_sampler,
-                  refresh = 0)
-  
-  return(rstan::extract(.fit, c("lambda"))$lambda)
-}
-
-seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
-  .data = data_consts
-  .data$cases = .cases
-  .data$population_size = .population_size
-  .data$alpha = .alpha
-  .data$beta = .beta
-  .data$omega = .omega
-  .data$eps = .eps
-  .data$n_times = length(.data$cases)
-  .data$ts = .data$ts[seq_len(.data$n_times)]
-  
-  
-  optim_ext = optimizing(stan_model_champagne2022_seasonal, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  
-  .fit = sampling(stan_model_champagne2022_seasonal,
-                  data = .data,
-                  iter = n_iter,
-                  chains = n_chains,
-                  init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                  cores = cores_per_sampler,
-                  refresh = 0)
-  
-  return(rstan::extract(.fit, c("lambda"))$lambda)
-}
-
-extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0) {
-  .data = data_consts
-  .data$cases = .cases
-  .data$population_size = .population_size
-  .data$alpha = .alpha
-  .data$beta = .beta
-  .data$omega = .omega
-  .data$eps = true_eps
-  .data$phase = true_phase
-  .data$n_times = length(.data$cases)
-  .data$ts = .data$ts[seq_len(.data$n_times)]
-  
-  # Try to get a good initial value
-  optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
-  
-  # .theta_init = list(lambda = true_lambda,
-  #                    phi_inv = true_phi_inv,
-  #                    eps = true_eps,
-  #                    kappa = true_kappa,
-  #                    phase = true_phase)
-  
-  .fit = sampling(stan_model_champagne2022_seasonal_ext,
-                  data = .data,
-                  iter = n_iter,
-                  chains = n_chains,
-                  init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                  cores = cores_per_sampler,
-                  refresh = 0)
-  
-  return(rstan::extract(.fit, c("lambda"))$lambda)
-}
-```
-
 Below: For testing
 
 Execute methods on each scenario
 
 ```{r}
-run_all = function(.data_scenarios) {
-  tictoc::tic("Non-seasonal poisson")
-  .data_scenarios$lambda_nonseasonal_poisson = pbmclapply(seq_len(nrow(.data_scenarios)), function(i) {
-    with(.data_scenarios, {
-      poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-    })
-  })
-  tictoc::toc()
-  
-  # Solve using non-seasonal model
-  tictoc::tic("Non-seasonal negative-binomial")
-  .data_scenarios$lambda_nonseasonal = pbmclapply(seq_len(nrow(.data_scenarios)), function(i) {
-    with(.data_scenarios, {
-      nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-    })
-  })
-  tictoc::toc()
-  
-  # Solve using seasonal poisson model
-  tictoc::tic("Seasonal poisson")
-  .data_scenarios$lambda_seasonal_poisson = pbmclapply(seq_len(nrow(.data_scenarios)), function(i) {
-    with(.data_scenarios, {
-      poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    })
-  })
-  tictoc::toc()
-  
-  # Solve using seasonal model
-  tictoc::tic("Seasonal negative-binomial")
-  .data_scenarios$lambda_seasonal = pbmclapply(seq_len(nrow(.data_scenarios)), function(i) {
-    with(.data_scenarios, {
-      seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    })
-  })
-  tictoc::toc()
-  
-  # Solve using seasonal model where the seasonal form must be estimated as well
-  tictoc::tic("Seasonal negative-binomial, estimating seasonality")
-  .data_scenarios$lambda_seasonal_ext = pbmclapply(seq_len(nrow(.data_scenarios)), function(i) {
-    with(.data_scenarios, {
-      extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    })
-  })
-  tictoc::toc()
-  
-  .data_scenarios
-}
-
-methods = tibble(
-  method = c(
-    "lambda_nonseasonal_poisson",
-    "lambda_nonseasonal",
-    "lambda_seasonal_poisson",
-    "lambda_seasonal",
-    "lambda_seasonal_ext")
-)
-
 data_scenarios_long = data_scenarios %>%
   tidyr::crossing(methods) %>%
   head(limit_runs)
 
+#' @param i index
 run_scenario_method = function(i) {
+  out_path = file.path("../run_scenario_method", paste0("row_", i, ".rds"))
+  if (file.exists(out_path)) {
+    result = read_rds(out_path)
+    if (!is.null(result$estimate)) {
+      return(result)
+    }
+  }
   start = Sys.time()
   .method = data_scenarios_long$method[i]
-  est = with(data_scenarios_long, {
-    withTimeout({
-      if (.method == "lambda_nonseasonal_poisson") {
-        poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-      }
-      else if (.method == "lambda_nonseasonal") {
-        nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-      }
-      else if (.method == "lambda_seasonal_poisson") {
-        poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-      }
-      else if (.method == "lambda_seasonal") {
-        seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-      }
-      else if (.method == "lambda_seasonal_ext") {
-        extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-      } else {
-        stop("Method invalid")
-      }
-    }, timeout=60*30, onTimeout="warning")
-  })
+  row = data_scenarios_long[i,]
+  est = withTimeout({
+    if (.method == "lambda_nonseasonal_poisson") {
+      poisson_nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
+    }
+    else if (.method == "lambda_nonseasonal") {
+      nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
+    }
+    else if (.method == "lambda_seasonal_poisson") {
+      poisson_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    }
+    else if (.method == "lambda_seasonal") {
+      seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    }
+    else if (.method == "lambda_seasonal_ext") {
+      extended_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    } else {
+      stop("Method invalid")
+    }
+  }, timeout=timelimit_per_run, onTimeout="warning")
   end = Sys.time()
   
   result = list(estimate = est, time = end - start)
-  write_rds(result, paste0("run_scenario_method/", i, ".rds"), compress="gz")
+  write_rds(result, out_path, compress="gz")
   
   return(result)
 }
@@ -732,7 +533,7 @@ plot_data = data_scenarios_long %>%
 # trim quantiles
 trim = 0.05
 plot_data = plot_data %>%
-  group_by(ID, method) %>%
+  group_by(ID, method, rep) %>%
   mutate(trace = row_number(),
          lq = unname(quantile(estimate, trim*0.5)),
          uq = unname(quantile(estimate, 1-trim*0.5))) %>%
@@ -759,7 +560,7 @@ for (id in unique(plot_data$ID)) {
   p2  = .plot_posterior %>%
     filter(estimate > lq, estimate < uq,
            estimate < 1) %>%
-    ggplot(aes(x = estimate, fill = method, color = method)) +
+    ggplot(aes(x = estimate, fill = method, color = method, group=interaction(method, rep))) +
     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
     stat_density(position="identity", alpha = 0.3) +
     geom_vline(aes(xintercept = transmission_rates), linetype="dashed") +
@@ -768,7 +569,7 @@ for (id in unique(plot_data$ID)) {
   
   p3 = .plot_posterior %>%
     group_by(method) %>%
-    ggplot(aes(x = trace, y = estimate,, color = method)) +
+    ggplot(aes(x = trace, y = estimate, color = method, group=interaction(method, rep))) +
     geom_line(alpha = 0.5) +
     geom_hline(aes(yintercept = transmission_rates), linetype="dashed") +
     scale_colour_manual(values = comparison_colors)
