@@ -6,6 +6,7 @@ library(parallel)
 library(patchwork)
 library(pbmcapply)
 library(pbapply)
+library(readr)
 source("R/constants.R")
 n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
@@ -82,7 +83,7 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
 
-.simulate_cases = function(alpha, beta, lambda, delta, eps, N) {
+.simulate_cases = function(alpha, beta, lambda, delta, eps, N, index=0) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
@@ -92,9 +93,13 @@ data_scenarios = expand_grid(
   
   real_params = list(lambda=lambda, phi_inv=0.1)
   
+  if (index == 0) {
+    index = sample.int(999999999, 1)
+  }
   synth_data = suppressMessages(simulate_data(
     file = model_champagne2022_seasonal,
-    data_name = "dummy_data",
+    path = "sim_data",
+    data_name = paste0("data_", index),
     input_data = data,
     param_values = real_params,
     vars = c("ts", "sim_cases", "susceptible")
@@ -109,7 +114,7 @@ data_scenarios = expand_grid(
 simulate_cases = function(.scenarios) {
   cases_scenarios = mclapply(seq_len(nrow(.scenarios)), function(i) {
     dat = .scenarios[i,]
-    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size)
+    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
   })
   
   .scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
@@ -301,7 +306,10 @@ run_scenario_method = function(i) {
   })
   end = Sys.time()
   
-  return(list(estimate = est, time = end - start))
+  result = list(estimate = est, time = end - start)
+  write_rds(result, paste0("run_scenario_method/", i, ".rds"), compress="gz")
+  
+  return(result)
 }
 
 tictoc::tic()
