@@ -20,6 +20,7 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
+                  control = list(max_treedepth = 4),
                   refresh = 0)
   
   return(rstan::extract(.fit, c("lambda"))$lambda %>% as.numeric())
@@ -46,6 +47,7 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
+                  control = list(max_treedepth = 4),
                   refresh = 0)
   
   return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -71,6 +73,7 @@ poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega,
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
+                  control = list(max_treedepth = 4),
                   refresh = 0)
   
   return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -97,6 +100,7 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
+                  control = list(max_treedepth = 4),
                   refresh = 0)
   
   return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -124,6 +128,7 @@ extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
+                  control = list(max_treedepth = 4),
                   refresh = 0)
   
   return(rstan::extract(.fit, c("lambda"))$lambda)
