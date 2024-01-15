@@ -551,37 +551,52 @@ for (id in unique(plot_data$ID)) {
     #        estimate < uq) %>%
     select(-ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
   
+  true_value = .plot_posterior$transmission_rates[1]
+  limits = c(true_value * 0.75, true_value * 1.25)
+  
   title = with(.plot_posterior[1,], paste0(id, ": lambda=", transmission_rates, " eps=", seasonality_ratio))
   
+  # Case plot
   p1 = ggplot(.plot_cases, aes(x = ts/years, y = cases)) +
     geom_point() +
     labs(title = title, x = "Years")
   
+  # Posterior density
   p2  = .plot_posterior %>%
-    filter(estimate > lq, estimate < uq,
-           estimate < 1) %>%
+    filter(estimate >= limits[1], estimate <= limits[2]) %>%
     ggplot(aes(x = estimate, fill = method, color = method, group=interaction(method, rep))) +
     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
     stat_density(position="identity", alpha = 0.3) +
-    geom_vline(aes(xintercept = transmission_rates), linetype="dashed") +
+    geom_vline(aes(xintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
-    scale_fill_manual(values = comparison_colors)
+    scale_fill_manual(values = comparison_colors) +
+    coord_cartesian(xlim = limits)
   
+  # Trace plot
   p3 = .plot_posterior %>%
     group_by(method) %>%
     ggplot(aes(x = trace, y = estimate, color = method, group=interaction(method, rep))) +
     geom_line(alpha = 0.5) +
-    geom_hline(aes(yintercept = transmission_rates), linetype="dashed") +
-    scale_colour_manual(values = comparison_colors)
+    geom_hline(aes(yintercept = true_value), linetype="dashed") +
+    scale_colour_manual(values = comparison_colors) +
+    coord_cartesian(ylim = limits)
   
-  print(p1 / p2 / p3)
+  print(p1 / p2 / p3 + plot_layout(guides = "collect"))
 }
 ```
 
 Some of these chains appear to not mix.
 
 ```{r}
-
+not_run = sapply(data_scenarios_long$estimate, is.null)
+message(sum(not_run), " of ", nrow(data_scenarios_long), " did not complete sampling")
+data_scenarios_long$time[not_run] = -10
+data_scenarios_long %>%
+  mutate(time = unlist(time)) %>%
+  ggplot(aes(x = time, fill = method)) +
+  geom_histogram() +
+  labs(title = "Scenario runtime",
+       subtitle = "Scenarios terminated after timeout are placed at -10")
 ```
 
 ## Extension to fitting more parameters
