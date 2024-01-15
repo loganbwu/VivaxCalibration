@@ -35,3 +35,12 @@ aggregate_data = function(.data) {
   })
   .data
 }
+
+#' https://stackoverflow.com/a/53018594
+with_timeout <- function(expr, cpu, elapsed){
+  expr <- substitute(expr)
+  envir <- parent.frame()
+  setTimeLimit(cpu = cpu, elapsed = elapsed, transient = TRUE)
+  on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE))
+  eval(expr, envir = envir)
+}

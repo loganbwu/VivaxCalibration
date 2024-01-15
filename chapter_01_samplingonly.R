@@ -1,3 +1,4 @@
+library(R.utils)
 library(tidyverse)
 library(rstan)
 library(rstansim) # devtools::install_github("ewan-keith/rstansim")
@@ -12,7 +13,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 250 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 2
 n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
@@ -90,13 +91,14 @@ data_scenarios = expand_grid(
   data$N = N
   
   real_params = list(lambda=lambda, phi_inv=0.1)
-  synth_data = simulate_data(
+  
+  synth_data = suppressMessages(simulate_data(
     file = model_champagne2022_seasonal,
     data_name = "dummy_data",
     input_data = data,
     param_values = real_params,
     vars = c("ts", "sim_cases", "susceptible")
-  )
+  ))
   synth_data_rds = readRDS(synth_data$datasets[1])
   indx <- sapply(synth_data_rds, length)
   synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
@@ -277,23 +279,25 @@ run_scenario_method = function(i) {
   start = Sys.time()
   .method = data_scenarios_long$method[i]
   est = with(data_scenarios_long, {
-    if (.method == "lambda_nonseasonal_poisson") {
-      poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-    }
-    else if (.method == "lambda_nonseasonal") {
-      nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
-    }
-    else if (.method == "lambda_seasonal_poisson") {
-      poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    }
-    else if (.method == "lambda_seasonal") {
-      seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    }
-    else if (.method == "lambda_seasonal_ext") {
-      extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
-    } else {
-      stop("Method invalid")
-    }
+    withTimeout({
+      if (.method == "lambda_nonseasonal_poisson") {
+        poisson_nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
+      }
+      else if (.method == "lambda_nonseasonal") {
+        nonseasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, transmission_rates[i])
+      }
+      else if (.method == "lambda_seasonal_poisson") {
+        poisson_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
+      }
+      else if (.method == "lambda_seasonal") {
+        seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
+      }
+      else if (.method == "lambda_seasonal_ext") {
+        extended_seasonal_sol(cases[[i]], population_size[i], ascertainment_rates[i], radical_cure_rates[i], 1, seasonality_ratio[i], transmission_rates[i])
+      } else {
+        stop("Method invalid")
+      }
+    }, timeout=60*30, onTimeout="warning")
   })
   end = Sys.time()
   
