@@ -11,10 +11,6 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   
   .data_agg = aggregate_data(.data)
   
-  if (true_lambda == 0.01) {
-    return(NULL)
-  }
-  
   optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   
