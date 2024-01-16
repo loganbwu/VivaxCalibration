@@ -29,6 +29,7 @@ library(parallel)
 library(patchwork)
 library(pbmcapply)
 library(pbapply)
+library(memoise)
 source("../R/constants.R")
 source("../R/methods.R")
 n_cores = parallelly::availableCores()
@@ -36,13 +37,16 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
+# Store generated data here
+cd = cachem::cache_disk("sim_data")
+
 n_years = 5
 n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 5 # how many times to duplicate each scenario
+n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*10#60 * 30
+timelimit_per_run = 60#60 * 30
 ```
 
 ## Model implementation
@@ -396,7 +400,7 @@ data_scenarios = expand_grid(
   seasonality_ratio,
   population_size
 ) %>%
-  mutate(ID = LETTERS[row_number()], .before=0)
+  mutate(scenario_ID = LETTERS[row_number()], .before=0)
 
 .simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, delta=0, eps=0, N=100, index=0) {
   data = data_consts
@@ -439,16 +443,19 @@ simulate_cases = function(.scenarios) {
   .scenarios
 }
 
-data_scenarios = data_scenarios %>%
+simulate_cases_memo = memoise(simulate_cases, cache=cd)
+
+
+data_scenarios_sim = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
-  group_by(ID) %>%
+  group_by(scenario_ID) %>%
   mutate(rep = row_number()) %>%
   ungroup() %>%
-  simulate_cases()
+  simulate_cases_memo()
 
 # Display scenarios
-data_scenarios %>%
-  distinct(ID, .keep_all=T) %>%
+data_scenarios_sim %>%
+  distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
   ggplot(aes(x = ts, y = cases, color=transmission_rates, group=interaction(seasonality_ratio, transmission_rates))) +
   geom_line() +
@@ -466,13 +473,14 @@ Below: For testing
 Execute methods on each scenario
 
 ```{r}
-data_scenarios_long = data_scenarios %>%
+data_scenarios_long = data_scenarios_sim %>%
   tidyr::crossing(methods) %>%
   head(limit_runs)
 
 #' @param i index
 run_scenario_method = function(i) {
   out_path = file.path("../run_scenario_method", paste0("row_", i, ".rds"))
+  dir.create("../run_scenario_method")
   if (file.exists(out_path)) {
     result = read_rds(out_path)
     if (!is.null(result$estimate)) {
@@ -523,36 +531,48 @@ save.image(workspace_filename)
 Compare densities for individual scenarios between methods
 
 ```{r}
+methods_count = sapply(names(comparison_colors), function(x) {
+  count = data_scenarios_long %>%
+    filter(method == x) %>%
+    nrow()
+})
+comparison_colors_count = comparison_colors
+names(comparison_colors_count) = methods_count
+
 plot_data = data_scenarios_long %>%
   # pivot_longer(cols = matches("lambda"), names_to = "method", values_to = "estimate") %>%
   mutate(rhat = calculate_rhat(estimate)) %>%
   unnest(c(estimate, rhat)) %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
   drop_na(estimate)
+  
 
 # trim quantiles
 trim = 0.05
 plot_data = plot_data %>%
-  group_by(ID, method, rep) %>%
-  mutate(trace = row_number(),
-         lq = unname(quantile(estimate, trim*0.5)),
-         uq = unname(quantile(estimate, 1-trim*0.5))) %>%
+  group_by(scenario_ID, method, rep) %>%
+  mutate(trace = row_number()#,
+         # lq = unname(quantile(estimate, trim*0.5)),
+         # uq = unname(quantile(estimate, 1-trim*0.5))
+         ) %>%
   ungroup()
 
-for (id in unique(plot_data$ID)) {
+for (id in unique(plot_data$scenario_ID)) {
   .plot_cases = plot_data %>%
-    filter(ID == id) %>%
+    filter(scenario_ID == id) %>%
     slice(1) %>% 
     unnest(c(ts, cases))
   
   .plot_posterior = plot_data %>%
-    filter(ID == id) %>%
+    filter(scenario_ID == id) %>%
     # filter(estimate > lq,
     #        estimate < uq) %>%
-    select(-ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
+    select(-scenario_ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
   
   true_value = .plot_posterior$transmission_rates[1]
-  limits = c(true_value * 0.75, true_value * 1.25)
+  xlim_buffer = 0.1
+  limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
+  limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
   
   title = with(.plot_posterior[1,], paste0(id, ": lambda=", transmission_rates, " eps=", seasonality_ratio))
   
@@ -566,7 +586,7 @@ for (id in unique(plot_data$ID)) {
     filter(estimate >= limits[1], estimate <= limits[2]) %>%
     ggplot(aes(x = estimate, fill = method, color = method, group=interaction(method, rep))) +
     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
-    stat_density(position="identity", alpha = 0.3) +
+    stat_density(position="identity", alpha = 0.25) +
     geom_vline(aes(xintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
     scale_fill_manual(values = comparison_colors) +
@@ -576,10 +596,10 @@ for (id in unique(plot_data$ID)) {
   p3 = .plot_posterior %>%
     group_by(method) %>%
     ggplot(aes(x = trace, y = estimate, color = method, group=interaction(method, rep))) +
-    geom_line(alpha = 0.5) +
+    geom_line(alpha = 0.25) +
     geom_hline(aes(yintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
-    coord_cartesian(ylim = limits)
+    coord_cartesian(ylim = limits_2)
   
   print(p1 / p2 / p3 + plot_layout(guides = "collect"))
 }
@@ -594,9 +614,13 @@ data_scenarios_long$time[not_run] = -10
 data_scenarios_long %>%
   mutate(time = unlist(time)) %>%
   ggplot(aes(x = time, fill = method)) +
-  geom_histogram() +
+  geom_histogram(alpha = 0.7) +
+  geom_vline(xintercept = -0.5) +
+  scale_fill_manual(values = comparison_colors) +
   labs(title = "Scenario runtime",
-       subtitle = "Scenarios terminated after timeout are placed at -10")
+       subtitle = "Scenarios terminated after timeout are placed at -10") +
+  facet_grid(rows = vars(seasonality_ratio),
+             cols = vars(transmission_rates))
 ```
 
 ## Extension to fitting more parameters
