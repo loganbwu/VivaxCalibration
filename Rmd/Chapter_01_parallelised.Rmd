@@ -32,7 +32,7 @@ library(pbapply)
 library(memoise)
 source("../R/constants.R")
 source("../R/methods.R")
-n_cores = parallelly::availableCores()
+n_cores = 1#parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
@@ -46,7 +46,7 @@ n_chains = 2
 n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60#60 * 30
+timelimit_per_run = 60*60
 ```
 
 ## Model implementation
@@ -546,15 +546,9 @@ plot_data = data_scenarios_long %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
   drop_na(estimate)
   
-
-# trim quantiles
-trim = 0.05
 plot_data = plot_data %>%
   group_by(scenario_ID, method, rep) %>%
-  mutate(trace = row_number()#,
-         # lq = unname(quantile(estimate, trim*0.5)),
-         # uq = unname(quantile(estimate, 1-trim*0.5))
-         ) %>%
+  mutate(trace = row_number()) %>%
   ungroup()
 
 for (id in unique(plot_data$scenario_ID)) {
@@ -609,18 +603,53 @@ Some of these chains appear to not mix.
 
 ```{r}
 not_run = sapply(data_scenarios_long$estimate, is.null)
-message(sum(not_run), " of ", nrow(data_scenarios_long), " did not complete sampling")
 data_scenarios_long$time[not_run] = -10
 data_scenarios_long %>%
   mutate(time = unlist(time)) %>%
   ggplot(aes(x = time, fill = method)) +
-  geom_histogram(alpha = 0.7) +
+  geom_histogram(alpha = 0.7, binwidth=1) +
   geom_vline(xintercept = -0.5) +
   scale_fill_manual(values = comparison_colors) +
-  labs(title = "Scenario runtime",
-       subtitle = "Scenarios terminated after timeout are placed at -10") +
+  labs(title = "Which methods took a long time?",
+       subtitle = paste(sum(not_run), "scenarios terminated after timeout of", timelimit_per_run, "seconds are placed at -10")) +
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates))
+
+rhat_threshold = 1.05
+convergence = plot_data %>%
+  group_by(scenario_ID, rep, method) %>%
+  slice(1) %>%
+  filter(rhat > rhat_threshold)
+
+plot_data %>%
+  group_by(scenario_ID, rep, method) %>%
+  slice(1) %>%
+  ggplot(aes(x = rhat, fill = method)) +
+  geom_histogram(alpha = 0.7, binwidth=0.1) +
+  scale_fill_manual(values = comparison_colors) +
+  labs(title = "Did the runs converge?",
+       subtitle = paste(nrow(convergence), "runs had an rhat on lambda greater than", rhat_threshold)) +
+  facet_grid(rows = vars(seasonality_ratio),
+             cols = vars(transmission_rates))
+```
+How bad are the errors?
+```{r}
+errors = data_scenarios_long %>%
+  unnest(estimate) %>%
+  mutate(error = as.numeric(estimate - transmission_rates)^2) %>%
+  group_by(transmission_rates, seasonality_ratio, method) %>%
+  summarise(rmse = sqrt(mean(error)), .groups="drop")
+
+ggplot(errors, aes(x = seasonality_ratio, y = rmse, color = method)) +
+  geom_line() +
+  facet_grid(rows = vars(transmission_rates), scales="free") +
+  labs(subtitle = "Facet by transmission rate")
+```
+
+What do mean predictions look like?
+
+```{r}
+
 ```
 
 ## Extension to fitting more parameters
