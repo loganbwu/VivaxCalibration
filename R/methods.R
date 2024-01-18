@@ -23,7 +23,8 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
                   control = list(max_treedepth = 4),
                   refresh = 0)
   
-  return(rstan::extract(.fit, c("lambda"))$lambda %>% as.numeric())
+  # return(rstan::extract(.fit, c("lambda"))$lambda %>% as.numeric())
+  return(.fit)
 }
 
 nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
@@ -50,7 +51,8 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
                   control = list(max_treedepth = 4),
                   refresh = 0)
   
-  return(rstan::extract(.fit, c("lambda"))$lambda)
+  # return(rstan::extract(.fit, c("lambda"))$lambda)
+  return(.fit)
 }
 
 poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
@@ -76,7 +78,8 @@ poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega,
                   control = list(max_treedepth = 4),
                   refresh = 0)
   
-  return(rstan::extract(.fit, c("lambda"))$lambda)
+  # return(rstan::extract(.fit, c("lambda"))$lambda)
+  return(.fit)
 }
 
 seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
@@ -103,7 +106,8 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
                   control = list(max_treedepth = 4),
                   refresh = 0)
   
-  return(rstan::extract(.fit, c("lambda"))$lambda)
+  # return(rstan::extract(.fit, c("lambda"))$lambda)
+  return(.fit)
 }
 
 extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0) {
@@ -131,7 +135,8 @@ extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega
                   control = list(max_treedepth = 4),
                   refresh = 0)
   
-  return(rstan::extract(.fit, c("lambda"))$lambda)
+  # return(rstan::extract(.fit, c("lambda"))$lambda)
+  return(.fit)
 }
 
 methods = tibble(

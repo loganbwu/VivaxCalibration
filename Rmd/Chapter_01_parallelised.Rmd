@@ -32,7 +32,7 @@ library(pbapply)
 library(memoise)
 source("../R/constants.R")
 source("../R/methods.R")
-n_cores = 1#parallelly::availableCores()
+n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
@@ -41,12 +41,16 @@ rstan_options(auto_write = TRUE)
 cd = cachem::cache_disk("sim_data")
 
 n_years = 5
-n_iter = 2500 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 10 # how many times to duplicate each scenario
+n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
+n_traces = 100 # limit for plotting sample trajectories
+
+methods = methods %>%
+  head(4)
 ```
 
 ## Model implementation
@@ -208,7 +212,7 @@ Check individual epidemic trajectories. Verify that both the sampled cases and t
 
 ```{r, eval=F}
 ts_extract = rstan::extract(fit_nonseasonal, "incidence")[[1]]
-n_traces = 1000
+
 ix = sample(seq_len(dim(ts_extract)[1]), n_traces, replace=T)
 ts_sample = as_tibble(t(ts_extract[ix,])) %>%
   mutate(j = row_number()) %>%
@@ -232,140 +236,6 @@ p2 = ggplot(ts_sample, aes(x=j, y=value, grou=trace)) +
 p1 / p2
 ```
 
-Then we generate data using the seasonal model.
-
-```{r, eval=F}
-# Generate synthetic observations
-real_params = list(lambda=0.01, phi_inv=0.1)
-synth_data = simulate_data(
-  file = model_champagne2022_seasonal,
-  data_name = "dummy_data",
-  input_data = data_consts,
-  param_values = real_params,
-  vars = c("ts", "sim_cases", "susceptible", "R0", "Rc")
-)
-synth_data_rds = readRDS(synth_data$datasets[1])
-indx <- sapply(synth_data_rds, length)
-synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
-  as.data.frame() %>%
-  drop_na()
-
-synth_df %>%
-  pivot_longer(-ts) %>%
-  ggplot(aes(x=(ts-data_consts$t0)/years, y=value)) +
-  geom_line() +
-  facet_wrap(vars(name), scales="free_y")
-```
-
-Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
-
-```{r, eval=F}
-# Fit data
-# Edit data with generated values
-data = data_consts
-data$n_times = n_times
-data$ts = synth_df$ts
-data$cases = synth_df$cases
-
-optim = optimizing(stan_model_champagne2022_seasonal,
-                   init = lapply(real_params, function(x) {100*x}),
-                   data = data)
-# Create initial values for solving efficiency
-theta_init = as.list(optim$par[c("lambda", "phi_inv")]) # optimisation results
-
-fit_seasonal = sampling(stan_model_champagne2022_seasonal,
-                        data = data,
-                        iter = n_iter,
-                        chains = n_chains,
-                        init = rep(list(theta_init), n_chains), # Start from MLE solution
-                        seed = 0)
-
-pairs(fit_seasonal, pars=c("lambda", "phi_inv"))
-
-smr_pred_seasonal <- with(synth_df, cbind(as.data.frame(
-  summary(
-    fit_seasonal,
-    pars = "sim_cases",
-    probs = c(0.05, 0.5, 0.95)
-  )$summary),
-  t=t[1:(n_times-1)], cases=cases[1:(n_times-1)])) %>%
-  setNames(colnames({.}))
-
-ggplot(smr_pred_seasonal, mapping = aes(x = t)) +
-  geom_ribbon(aes(ymin = `5%`, ymax = `95%`), fill = c_posterior, alpha = 0.35) +
-  geom_line(mapping = aes(y = `50%`), color = c_posterior) + 
-  geom_point(mapping = aes(y = cases)) +
-  labs(x = "Day", y = "Cases") +
-  coord_cartesian(ylim = c(0, NA))
-```
-
-Check whether the Bayesian fit with the correct model recovered the true parameters under seasonality, which it should.
-
-```{r, eval=F}
-real_params_df = as.data.frame(real_params) %>%
-  pivot_longer(everything())
-rstan::extract(fit_seasonal, c("lambda", "phi_inv")) %>%
-  as_tibble() %>%
-  pivot_longer(everything()) %>%
-  ggplot(aes(x = value)) +
-  geom_density(color="steelblue", fill="steelblue", alpha=0.75) +
-  geom_vline(data=real_params_df, aes(xintercept=value), linetype="dashed") +
-  # scale_x_continuous(limits = c(0, NA)) +
-  facet_wrap(vars(name), scales = "free") +
-  labs(title = "Re-estimated posterior densities with seasonal model",
-       subtitle = "Dashed line: simulated value")
-```
-
-
-What if we removed seasonality from the data and tried to fit the non-seasonal model?
-
-```{r, eval=F}
-data_agg = aggregate_data(data)
-
-optim = optimizing(stan_model_champagne2022,
-                   init = lapply(real_params, function(x) {100*x}),
-                   data = data)
-theta_init = as.list(optim$par[c("lambda", "phi_inv")]) # optimisation results
-
-fit_agg = sampling(stan_model_champagne2022,
-                   data = data_agg,
-                   iter = n_iter,
-                   chains = n_chains,
-                   init = rep(list(theta_init), n_chains), # Start from MLE solution
-                   seed = 0)
-
-smr_pred_agg <- with(data_agg, cbind(as.data.frame(
-  summary(
-    fit_agg,
-    pars = "sim_cases",
-    probs = c(0.05, 0.5, 0.95)
-  )$summary),
-  t=ts[1:(n_times-1)], cases=cases[1:(n_times-1)])) %>%
-  setNames(colnames({.}))
-
-ggplot(smr_pred_agg, mapping = aes(x = t)) +
-  geom_ribbon(aes(ymin = `5%`, ymax = `95%`), fill = c_posterior, alpha = 0.35) +
-  geom_line(mapping = aes(y = `50%`), color = c_posterior) + 
-  geom_point(mapping = aes(y = cases)) +
-  labs(x = "Day", y = "Cases") +
-  coord_cartesian(ylim = c(0, NA))
-```
-
-# The densities should not line up with the real parameters because the model is mis-specified.
-
-```{r, eval=F}
-rstan::extract(fit_agg, c("lambda", "phi_inv")) %>%
-  lapply(as.numeric) %>%
-  as_tibble() %>%
-  pivot_longer(everything()) %>%
-  ggplot(aes(x = value)) +
-  geom_density(color="steelblue", fill="steelblue", alpha=0.75) +
-  geom_vline(data=real_params_df, aes(xintercept=value), linetype="dashed") +
-  scale_x_continuous(limits = c(0, NA)) +
-  facet_wrap(vars(name), scales = "free") +
-  labs(title = "Re-estimated posterior densities with non-seasonal model",
-       subtitle = "Dashed line: simulated value")
-```
 
 ## Parameter recovery comparison on synthetic data
 
@@ -445,7 +315,6 @@ simulate_cases = function(.scenarios) {
 
 simulate_cases_memo = memoise(simulate_cases, cache=cd)
 
-
 data_scenarios_sim = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
   group_by(scenario_ID) %>%
@@ -461,7 +330,6 @@ data_scenarios_sim %>%
   geom_line() +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   facet_grid(vars(seasonality_ratio), vars(transmission_rates))
-data_scenarios
 ```
 
 ### Comparison of parameter recovery
@@ -490,7 +358,7 @@ run_scenario_method = function(i) {
   start = Sys.time()
   .method = data_scenarios_long$method[i]
   row = data_scenarios_long[i,]
-  est = withTimeout({
+  fit = withTimeout({
     if (.method == "lambda_nonseasonal_poisson") {
       poisson_nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
     }
@@ -511,21 +379,42 @@ run_scenario_method = function(i) {
   }, timeout=timelimit_per_run, onTimeout="warning")
   end = Sys.time()
   
-  result = list(estimate = est, time = end - start)
+  result = list(fit = fit, time = end - start)
   write_rds(result, out_path, compress="gz")
   
   return(result)
 }
 
 tictoc::tic()
-estimates_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
-data_scenarios_long$estimate = lapply(estimates_all, function(x) {x$estimate})
-data_scenarios_long$time = lapply(estimates_all, function(x) {x$time})
+fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+# estimates_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+# data_scenarios_long$estimate = lapply(estimates_all, function(x) {x$estimate})
+# data_scenarios_long$time = lapply(estimates_all, function(x) {x$time})
 tictoc::toc()
 
 # data_scenarios = run_all(data_scenarios)
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
-save.image(workspace_filename)
+# save.image(workspace_filename)
+```
+
+Extract data from each result
+
+```{r}
+extract_lambda = function(.result) {
+  .fit = .result$fit
+  lambda = rstan::extract(.fit, c("lambda"))$lambda
+  return(lambda)
+}
+
+extract_incidence = function(.result) {
+  .fit = .result$fit
+  incidence = rstan::extract(.fit, "incidence")[[1]]
+  ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+  ts_sample = as_tibble(t(ts_extract[ix,])) %>%
+    mutate(j = row_number()) %>%
+    pivot_longer(-j, names_to = "trace")
+  return(ts_sample)
+}
 ```
 
 Compare densities for individual scenarios between methods
@@ -543,9 +432,10 @@ plot_data = data_scenarios_long %>%
   # pivot_longer(cols = matches("lambda"), names_to = "method", values_to = "estimate") %>%
   mutate(rhat = calculate_rhat(estimate)) %>%
   unnest(c(estimate, rhat)) %>%
+  # filter(rep == 1) %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
   drop_na(estimate)
-  
+
 plot_data = plot_data %>%
   group_by(scenario_ID, method, rep) %>%
   mutate(trace = row_number()) %>%
@@ -636,7 +526,7 @@ How bad are the errors?
 ```{r}
 errors = data_scenarios_long %>%
   unnest(estimate) %>%
-  mutate(error = as.numeric(estimate - transmission_rates)^2) %>%
+  mutate(error = as.numeric((estimate - transmission_rates)/transmission_rates)^2) %>%
   group_by(transmission_rates, seasonality_ratio, method) %>%
   summarise(rmse = sqrt(mean(error)), .groups="drop")
 
