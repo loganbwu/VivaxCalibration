@@ -41,12 +41,12 @@ rstan_options(auto_write = TRUE)
 cd = cachem::cache_disk("sim_data")
 
 n_years = 5
-n_iter = 500 # should be at least 500
+n_iter = 2500 # should be at least 500
 n_chains = 2
 n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*60
+timelimit_per_run = 60*60 * 5
 ```
 
 ## Model implementation
