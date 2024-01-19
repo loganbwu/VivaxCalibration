@@ -101,7 +101,7 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  .data$omega = .omega
+  # .data$omega = .omega
   .data$eps = .eps
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
@@ -129,9 +129,9 @@ extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  .data$omega = .omega
-  .data$eps = true_eps
-  .data$phase = true_phase
+  # .data$omega = .omega
+  # .data$eps = true_eps
+  # .data$phase = true_phase
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
@@ -176,3 +176,43 @@ methods = tibble(
 #     return(x$lambda)
 #   }
 # }
+
+#' @param i index
+run_scenario_method = function(i) {
+  out_path = file.path("../run_scenario_method", paste0("row_", i, ".rds"))
+  dir.create("../run_scenario_method")
+  if (file.exists(out_path)) {
+    result = read_rds(out_path)
+    if (!is.null(result$fit)) {
+      return(result)
+    }
+  }
+  start = Sys.time()
+  .method = data_scenarios_long$method[i]
+  row = data_scenarios_long[i,]
+  fit = withTimeout({
+    if (.method == "lambda_nonseasonal_poisson") {
+      poisson_nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
+    }
+    else if (.method == "lambda_nonseasonal_negbin") {
+      nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
+    }
+    else if (.method == "lambda_seasonal_poisson") {
+      poisson_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    }
+    else if (.method == "lambda_seasonal_negbin") {
+      seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    }
+    else if (.method == "lambda_seasonal_negbin_ext") {
+      extended_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+    } else {
+      stop("Method invalid")
+    }
+  }, timeout=timelimit_per_run, onTimeout="warning")
+  end = Sys.time()
+  
+  result = list(fit = fit, time = end - start)
+  write_rds(result, out_path, compress="gz")
+  
+  return(result)
+}
