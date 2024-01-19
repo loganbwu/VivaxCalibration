@@ -55,23 +55,6 @@ methods = methods %>%
 
 ## Model implementation
 
-Define all models
-
-```{r}
-model_champagne2022 = "stan/champagne2022.stan"
-stan_model_champagne2022 = stan_model(model_champagne2022)
-model_champagne2022_poisson = "stan/champagne2022_poisson.stan"
-stan_model_champagne2022_poisson = stan_model(model_champagne2022_poisson)
-
-model_champagne2022_seasonal = "stan/champagne2022_seasonal.stan"
-stan_model_champagne2022_seasonal = stan_model(model_champagne2022_seasonal)
-model_champagne2022_seasonal_poisson = "stan/champagne2022_seasonal_poisson.stan"
-stan_model_champagne2022_seasonal_poisson = stan_model(model_champagne2022_seasonal_poisson)
-
-model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext.stan"
-stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
-```
-
 We begin with extending Champagne's 2022 model for tropical vivax to include seasonality.
 
 First we implement and verify the parameter recovery ability of Stan with the Champagne model as published in 2022.
@@ -169,8 +152,6 @@ fit_nonseasonal = sampling(stan_model_champagne2022,
                            chains = n_chains,
                            init = rep(list(theta_init), n_chains), # Start from MLE solution
                            seed = 0)
-
-# pairs(fit_nonseasonal, pars=c("lambda", "phi_inv"))
 
 smr_pred_nonseasonal <- with(data, cbind(as.data.frame(
   summary(
@@ -272,7 +253,7 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(scenario_ID = LETTERS[row_number()], .before=0)
 
-.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, delta=0, eps=0, N=100, index=0) {
+.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, delta=0, eps=0, N=100, index=NULL) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
@@ -282,7 +263,7 @@ data_scenarios = expand_grid(
   
   real_params = list(lambda=lambda, phi_inv=0.1)
   
-  if (index == 0) {
+  if (is.null(index)) {
     index = sample.int(999999999, 1)
   }
   synth_data = suppressMessages(simulate_data(
@@ -291,7 +272,7 @@ data_scenarios = expand_grid(
     data_name = paste0("data_", index),
     input_data = data,
     param_values = real_params,
-    vars = c("ts", "sim_cases", "susceptible")
+    vars = c("ts", "incidence", "sim_cases", "susceptible")
   ))
   # print(synth_data$datasets[1])
   synth_data_rds = readRDS(synth_data$datasets[1])
@@ -345,13 +326,22 @@ data_scenarios_long = data_scenarios_sim %>%
   tidyr::crossing(methods) %>%
   head(limit_runs)
 
+# Aggregate data for nonseasonal methods
+for (i in seq_len(nrow(data_scenarios_long))) {
+  if (data_scenarios_long$method[i] %>% str_detect("nonseasonal")) {
+    data_scenarios_long$ts[[i]] = aggregate_time(data_scenarios_long$ts[[i]])
+    data_scenarios_long$cases[[i]] = aggregate_time(data_scenarios_long$cases[[i]])
+    data_scenarios_long$eps[[i]] = aggregate_eps(data_scenarios_long$eps[[i]])
+  }
+}
+
 #' @param i index
 run_scenario_method = function(i) {
   out_path = file.path("../run_scenario_method", paste0("row_", i, ".rds"))
   dir.create("../run_scenario_method")
   if (file.exists(out_path)) {
     result = read_rds(out_path)
-    if (!is.null(result$estimate)) {
+    if (!is.null(result$fit)) {
       return(result)
     }
   }
@@ -362,16 +352,16 @@ run_scenario_method = function(i) {
     if (.method == "lambda_nonseasonal_poisson") {
       poisson_nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
     }
-    else if (.method == "lambda_nonseasonal") {
+    else if (.method == "lambda_nonseasonal_negbin") {
       nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
     }
     else if (.method == "lambda_seasonal_poisson") {
       poisson_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     }
-    else if (.method == "lambda_seasonal") {
+    else if (.method == "lambda_seasonal_negbin") {
       seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     }
-    else if (.method == "lambda_seasonal_ext") {
+    else if (.method == "lambda_seasonal_negbin_ext") {
       extended_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     } else {
       stop("Method invalid")
@@ -387,9 +377,6 @@ run_scenario_method = function(i) {
 
 tictoc::tic()
 fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
-# estimates_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
-# data_scenarios_long$estimate = lapply(estimates_all, function(x) {x$estimate})
-# data_scenarios_long$time = lapply(estimates_all, function(x) {x$time})
 tictoc::toc()
 
 # data_scenarios = run_all(data_scenarios)
@@ -402,19 +389,38 @@ Extract data from each result
 ```{r}
 extract_lambda = function(.result) {
   .fit = .result$fit
-  lambda = rstan::extract(.fit, c("lambda"))$lambda
-  return(lambda)
+  param = rstan::extract(.fit, c("lambda"))$lambda
+  return(param)
+}
+
+extract_phi_inv = function(.result) {
+  .fit = .result$fit
+  if ("phi_inv" %in% names(.fit)) {
+    param = rstan::extract(.fit, c("phi_inv"))$phi_inv
+  } else {
+    param = NULL
+  }
+  return(param)
 }
 
 extract_incidence = function(.result) {
   .fit = .result$fit
   incidence = rstan::extract(.fit, "incidence")[[1]]
   ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-  ts_sample = as_tibble(t(ts_extract[ix,])) %>%
+  ts_sample = as_tibble(t(incidence[ix,])) %>%
     mutate(j = row_number()) %>%
-    pivot_longer(-j, names_to = "trace")
+    pivot_longer(-j, names_to = "trace", values_to = "incidence")
   return(ts_sample)
 }
+
+extract_runtime = function(.result) {
+  return(.result$time)
+}
+
+data_scenarios_long$est_lambda = lapply(fits_all, extract_lambda)
+data_scenarios_long$est_phi_inv = lapply(fits_all, extract_phi_inv)
+data_scenarios_long$time = lapply(fits_all, extract_runtime)
+data_scenarios_long$est_incidence = lapply(fits_all, extract_incidence)
 ```
 
 Compare densities for individual scenarios between methods
@@ -430,11 +436,11 @@ names(comparison_colors_count) = methods_count
 
 plot_data = data_scenarios_long %>%
   # pivot_longer(cols = matches("lambda"), names_to = "method", values_to = "estimate") %>%
-  mutate(rhat = calculate_rhat(estimate)) %>%
-  unnest(c(estimate, rhat)) %>%
+  mutate(rhat = calculate_rhat(est_lambda)) %>%
+  unnest(c(est_lambda, rhat)) %>%
   # filter(rep == 1) %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
-  drop_na(estimate)
+  drop_na(est_lambda)
 
 plot_data = plot_data %>%
   group_by(scenario_ID, method, rep) %>%
@@ -443,7 +449,8 @@ plot_data = plot_data %>%
 
 for (id in unique(plot_data$scenario_ID)) {
   .plot_cases = plot_data %>%
-    filter(scenario_ID == id) %>%
+    filter(scenario_ID == id,
+           method %>% str_detect("_seasonal")) %>%
     slice(1) %>% 
     unnest(c(ts, cases))
   
@@ -467,8 +474,8 @@ for (id in unique(plot_data$scenario_ID)) {
   
   # Posterior density
   p2  = .plot_posterior %>%
-    filter(estimate >= limits[1], estimate <= limits[2]) %>%
-    ggplot(aes(x = estimate, fill = method, color = method, group=interaction(method, rep))) +
+    filter(est_lambda >= limits[1], est_lambda <= limits[2]) %>%
+    ggplot(aes(x = est_lambda, fill = method, color = method, group=interaction(method, rep))) +
     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
     stat_density(position="identity", alpha = 0.25) +
     geom_vline(aes(xintercept = true_value), linetype="dashed") +
@@ -479,7 +486,7 @@ for (id in unique(plot_data$scenario_ID)) {
   # Trace plot
   p3 = .plot_posterior %>%
     group_by(method) %>%
-    ggplot(aes(x = trace, y = estimate, color = method, group=interaction(method, rep))) +
+    ggplot(aes(x = trace, y = est_lambda, color = method, group=interaction(method, rep))) +
     geom_line(alpha = 0.25) +
     geom_hline(aes(yintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
@@ -492,7 +499,7 @@ for (id in unique(plot_data$scenario_ID)) {
 Some of these chains appear to not mix.
 
 ```{r}
-not_run = sapply(data_scenarios_long$estimate, is.null)
+not_run = sapply(data_scenarios_long$est_lambda, is.null)
 data_scenarios_long$time[not_run] = -10
 data_scenarios_long %>%
   mutate(time = unlist(time)) %>%
@@ -522,45 +529,88 @@ plot_data %>%
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates))
 ```
-How bad are the errors?
-```{r}
-errors = data_scenarios_long %>%
-  unnest(estimate) %>%
-  mutate(error = as.numeric((estimate - transmission_rates)/transmission_rates)^2) %>%
-  group_by(transmission_rates, seasonality_ratio, method) %>%
-  summarise(rmse = sqrt(mean(error)), .groups="drop")
+What are the modelled incidence trends like?
 
-ggplot(errors, aes(x = seasonality_ratio, y = rmse, color = method)) +
-  geom_line() +
-  facet_grid(rows = vars(transmission_rates), scales="free") +
-  labs(subtitle = "Facet by transmission rate")
+```{r}
+plot_data = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
+  incidence = data_scenarios_long$est_incidence[[i]]
+  ts = data_scenarios_long$ts[[i]]
+  dt = ts[[2]] - ts[[1]]
+  df = incidence %>%
+    mutate(method = data_scenarios_long$method[i],
+           t = ts[j] - years/annual_subdivisions + ifelse(method %>% str_detect("nonseasonal"), years, 0),
+           daily_incidence = incidence / dt,
+           scenario_ID = data_scenarios_long$scenario_ID[i],
+           rep = data_scenarios_long$rep[i])
+}) %>%
+  bind_rows() %>%
+  left_join(data_scenarios_long %>% select(-est_incidence),
+            by = c("scenario_ID", "method", "rep")) %>%
+  select(scenario_ID, seasonality_ratio, transmission_rates,  method, rep, t, daily_incidence, trace)
+
+
+plot_data_cases = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
+  t = data_scenarios_long$ts[[i]]
+  cases = data_scenarios_long$cases[[i]]
+  dt = t[2] - t[1]
+  tibble(t = t,
+         cases = cases / dt,
+         scenario_ID = data_scenarios_long$scenario_ID[i],
+         seasonality_ratio = data_scenarios_long$seasonality_ratio[i],
+         transmission_rates = data_scenarios_long$transmission_rates[i],
+         rep = data_scenarios_long$rep[i])
+}) %>%
+  bind_rows()
+
+ggplot(data=plot_data_cases, aes(x=t, y=cases)) +
+  geom_point() +
+  geom_line(data=plot_data, aes(y=daily_incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
+  facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
+             labeller = "label_both") +
+  coord_cartesian(ylim = c(0, NA))
 ```
 
-What do mean predictions look like?
+What happens if we use these parameters in the full model?
 
 ```{r}
+n_traces = 100
+incidences = list()
+for (i in seq_len(nrow(data_scenarios_long))) {
+  dat = data_scenarios_long[i,]
+  x = pbmclapply(seq_len(n_traces), function (j) {
+    .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, sample(unlist(dat$est_lambda), 1), dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
+  })
+  x = x["data.frame" == sapply(x, class)]
+  
+  incidences[[i]] = x %>%
+    bind_rows(.id = "trace")
+  
+  # normalise to be per day
+  dt = incidences[[i]]$ts[2] - incidences[[i]]$ts[1]
+  incidences[[i]]$t = incidences[[i]]$ts - years/annual_subdivisions
+  incidences[[i]]$daily_incidence = incidences[[i]]$incidence / dt
+}
+incidences_df = bind_rows(incidences, .id = "i") %>%
+  mutate(i = as.numeric(i),
+         method = data_scenarios_long$method[i],
+         transmission_rates = data_scenarios_long$transmission_rates[i],
+         seasonality_ratio = data_scenarios_long$seasonality_ratio[i])
 
+ggplot(data=plot_data_cases, aes(x=t, y=cases*years/annual_subdivisions)) +
+  geom_point() +
+  geom_line(data=incidences_df, aes(x=ts, y=incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
+  facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
+             labeller = "label_both") +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Case data fit using each method then (mean) re-simulated with the true model",
+       subtitle = "Re-adding seasonality after fitting a nonseasonal gives different results. (Predictions of 0 are convergence failures)",
+       y = "Cases/mean cases (per month)")
 ```
 
 ## Extension to fitting more parameters
 
 While we previously fit only the transmission rate $\lambda$ (and overdispersion $1/\phi$ for negative-binomial models), the seasonal models introduce more complexity; here, we have parameterised seasonality by three parameters: peak/trough ratio $\epsilon$, 'sharpness' $\kappa$, and an offset from the start of the year to the to the peak `phase` (because $\phi$ is already taken). These parameters could either be implemented as equivalent to transmission suitability as a function of temperature/precipitation (as in Mordecai et al., or the MAP), or estimated simultaneously with the transmission parameters.
 
-
-
-```{r, eval=F}
-theta_init_ext = theta_init
-theta_init_ext$eps = 0.5
-theta_init_ext$kappa = 1
-theta_init_ext$phase = 0.01
-
-fit_seasonal_ext = sampling(stan_model_champagne2022_seasonal_ext,
-                            data = data,
-                            iter = 100,
-                            chains = n_chains,
-                            init = rep(list(theta_init_ext), n_chains), # Start from MLE solution
-                            seed = 0)
-```
 
 Plot diagnostics
 
@@ -595,15 +645,6 @@ ggplot(smr_pred_ext, mapping = aes(x = t)) +
   coord_cartesian(ylim = c(0, NA))
 ```
 
-How is goodness of fit under repetition?
-
-```{r}
-# Sum of squares
-loss_fn = function(est_value, true_value) {
-  mean((est_value - true_value)^2)
-}
-```
-
 In particu
 
 ## Parameter recovery on real data
@@ -617,6 +658,11 @@ We will not be investigating Chinese Yunnan (southern mountainous) or Henan (cen
 - Brazilian 'integrated data set', available per county or municipality and very detailed.
 
 ```{r}
+library(MalariaData)
+hainan %>%
+  mutate(date = ymd(paste(Year, Month, "01", sep="-")) + months(1) - days(1)) %>%
+  ggplot(aes(x = date, y = `Vivax Cases`)) +
+  geom_line()
 data_hainan = list(NULL)
 
 data_brazil = list(low = NULL,

@@ -63,7 +63,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0, upper=0.5> lambda;
+  real<lower=0, upper=0.05> lambda;
   // real<lower=0> delta;
   
   real<lower=0, 10> phi_inv;

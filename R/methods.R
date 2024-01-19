@@ -1,3 +1,16 @@
+model_champagne2022 = "stan/champagne2022.stan"
+stan_model_champagne2022 = stan_model(model_champagne2022)
+model_champagne2022_poisson = "stan/champagne2022_poisson.stan"
+stan_model_champagne2022_poisson = stan_model(model_champagne2022_poisson)
+
+model_champagne2022_seasonal = "stan/champagne2022_seasonal.stan"
+stan_model_champagne2022_seasonal = stan_model(model_champagne2022_seasonal)
+model_champagne2022_seasonal_poisson = "stan/champagne2022_seasonal_poisson.stan"
+stan_model_champagne2022_seasonal_poisson = stan_model(model_champagne2022_seasonal_poisson)
+
+model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext.stan"
+stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
+
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
 poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
   .data = data_consts
@@ -9,13 +22,13 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
-  .data_agg = aggregate_data(.data)
+  # .data_agg = aggregate_data(.data)
   
   optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   
   .fit = sampling(stan_model_champagne2022_poisson,
-                  data = .data_agg,
+                  data = .data,
                   iter = n_iter,
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
@@ -37,13 +50,13 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
-  .data_agg = aggregate_data(.data)
+  # .data_agg = aggregate_data(.data)
   
   optim_ext = optimizing(stan_model_champagne2022, data=.data)
   .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   
   .fit = sampling(stan_model_champagne2022,
-                  data = .data_agg,
+                  data = .data,
                   iter = n_iter,
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
@@ -142,10 +155,10 @@ extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega
 methods = tibble(
   method = c(
     "lambda_nonseasonal_poisson",
-    "lambda_nonseasonal",
+    "lambda_nonseasonal_negbin",
     "lambda_seasonal_poisson",
-    "lambda_seasonal",
-    "lambda_seasonal_ext")
+    "lambda_seasonal_negbin",
+    "lambda_seasonal_negbin_ext")
 )
 
 # direct_sol = function(.cases, .population_size, .alpha, .beta, .omega) {
