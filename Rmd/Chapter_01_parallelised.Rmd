@@ -126,15 +126,15 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(scenario_ID = LETTERS[row_number()], .before=0)
 
-.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, delta=0, eps=0, N=100, index=NULL) {
+.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, phi_inv=0.1, delta=0, eps=0, kappa=1, phase=0, N=100, index=NULL) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
   data$delta = delta
-  data$eps = eps # 0=full seasonality, 1=no seasonality
   data$N = N
   
-  real_params = list(lambda=lambda, phi_inv=0.1)
+  real_params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa)
+  print(real_params)
   
   if (is.null(index)) {
     index = sample.int(999999999, 1)
@@ -157,9 +157,18 @@ data_scenarios = expand_grid(
 }
 # Add cases onto a dataframe of scenarios based on its parameter columns
 simulate_cases = function(.scenarios) {
-  cases_scenarios = mclapply(seq_len(nrow(.scenarios)), function(i) {
+  cases_scenarios = pbmclapply(seq_len(nrow(.scenarios)), function(i) {
     dat = .scenarios[i,]
-    x = .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, dat$transmission_rates, dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
+    x = .simulate_cases(alpha = dat$ascertainment_rates,
+                        beta = dat$radical_cure_rates,
+                        lambda = dat$transmission_rates,
+                        phi_inv = 0.1,
+                        delta = dat$importation_rate,
+                        kappa = 1,
+                        phase = 0,
+                        eps = dat$seasonality_ratio,
+                        N = dat$population_size,
+                        index = i)
   })
   
   .scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
@@ -174,6 +183,7 @@ data_scenarios_sim = data_scenarios %>%
   group_by(scenario_ID) %>%
   mutate(rep = row_number()) %>%
   ungroup() %>%
+  # simulate_cases()
   simulate_cases_memo()
 
 # Display scenarios
@@ -220,36 +230,6 @@ workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
 Extract data from each result
 
 ```{r}
-extract_lambda = function(.result) {
-  .fit = .result$fit
-  param = rstan::extract(.fit, c("lambda"))$lambda
-  return(param)
-}
-
-extract_phi_inv = function(.result) {
-  .fit = .result$fit
-  if ("phi_inv" %in% names(.fit)) {
-    param = rstan::extract(.fit, c("phi_inv"))$phi_inv
-  } else {
-    param = NULL
-  }
-  return(param)
-}
-
-extract_incidence = function(.result) {
-  .fit = .result$fit
-  incidence = rstan::extract(.fit, "incidence")[[1]]
-  ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-  ts_sample = as_tibble(t(incidence[ix,])) %>%
-    mutate(j = row_number()) %>%
-    pivot_longer(-j, names_to = "trace", values_to = "incidence")
-  return(ts_sample)
-}
-
-extract_runtime = function(.result) {
-  return(.result$time)
-}
-
 data_scenarios_long$est_lambda = lapply(fits_all, extract_lambda)
 data_scenarios_long$est_phi_inv = lapply(fits_all, extract_phi_inv)
 data_scenarios_long$time = lapply(fits_all, extract_runtime)
@@ -486,11 +466,16 @@ theta_init = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
 
 
 fit = sampling(stan_model_champagne2022_seasonal_ext,
-                data = data_ro,
-                iter = n_iter,
-                chains = 4,
-                # init = rep(list(theta_init), 1), # Start from MLE solution
-                cores = 4)
+               data = data_ro,
+               iter = n_iter,
+               chains = 1,
+               # init = rep(list(theta_init), 1), # Start from MLE solution
+               cores = 4,
+               control = list(max_treedepth = 3))
+brazil_result = list(fit = fit)
+
+posterior_lambda = extract_lambda(brazil_result)
+posterior_ = extract_lambda(brazil_result)
 ```
 
 ### Outputs

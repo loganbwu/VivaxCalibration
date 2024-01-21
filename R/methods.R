@@ -216,3 +216,39 @@ run_scenario_method = function(i) {
   
   return(result)
 }
+
+extract_lambda = function(.result) {
+  .fit = .result$fit
+  param = rstan::extract(.fit, c("lambda"))$lambda
+  return(param)
+}
+
+posterior_other = function(.result, var) {
+  .fit = .result$fit
+  param = rstan::extract(.fit, var)[[1]]
+  return(param)
+}
+
+extract_phi_inv = function(.result) {
+  .fit = .result$fit
+  if ("phi_inv" %in% names(.fit)) {
+    param = rstan::extract(.fit, c("phi_inv"))$phi_inv
+  } else {
+    param = NULL
+  }
+  return(param)
+}
+
+extract_incidence = function(.result) {
+  .fit = .result$fit
+  incidence = rstan::extract(.fit, "incidence")[[1]]
+  ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+  ts_sample = as_tibble(t(incidence[ix,])) %>%
+    mutate(j = row_number()) %>%
+    pivot_longer(-j, names_to = "trace", values_to = "incidence")
+  return(ts_sample)
+}
+
+extract_runtime = function(.result) {
+  return(.result$time)
+}
