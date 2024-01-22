@@ -132,7 +132,7 @@ data_ro$beta = 0.76
 data_ro$n_times = nrow(rondonia)
 data_ro$y0 = data_consts$y0
 data_ro$t0 = data_consts$t0
-data_ro$phase = 365.25*pi
+data_ro$phase = 365.25*0.5
 
 # Use BFGS
 optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
