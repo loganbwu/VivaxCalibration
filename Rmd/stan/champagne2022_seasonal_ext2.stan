@@ -113,11 +113,13 @@ generated quantities {
   real susceptible[n_times-1];
   real R0[n_times-1];
   real Rc[n_times-1];
+  real foi[n_times-1];
   
   for (i in 1:(n_times - 1)) {
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
     susceptible[i] = y[i, 4];
-    R0[i] = (lambda * suitability(ts[i], eps, kappa, phase))/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
-    Rc[i] = lambda * suitability(ts[i], eps, kappa, phase) * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
+    foi[i] = lambda * suitability(ts[i], eps, kappa, phase);
+    R0[i] = foi[i]/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
+    Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
   }
 }

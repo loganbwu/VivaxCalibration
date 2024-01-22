@@ -69,7 +69,7 @@ dt = years/annual_subdivisions
 t0 = -50*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t)
-N = 1000 # population size
+N = 1.8e6/1000 # population size
 
 #initial conditions
 I_init = 0.01
@@ -91,7 +91,9 @@ data_consts = list(n_times = n_times+1,
                    delta = 0,
                    eps = 0,
                    kappa = 1,
-                   phase = 0
+                   phase = 0,
+                   y0 = y0,
+                   t0 = t0
 )
 ```
 
@@ -126,12 +128,7 @@ data_ro = data_consts
 
 data_ro$cases = rondonia$cases
 data_ro$ts = seq_len(nrow(rondonia)) * years / annual_subdivisions
-data_ro$N = 1.8e6/1000
-data_ro$alpha = 0.5
-data_ro$beta = 0.76
 data_ro$n_times = nrow(rondonia)
-data_ro$y0 = data_consts$y0
-data_ro$t0 = data_consts$t0
 data_ro$phase = 365.25*0.5
 
 # Use BFGS
@@ -144,7 +141,7 @@ synth_data = simulate_data(
   data_name = "rondonia_fit",
   input_data = data_ro,
   param_values = theta_opt,
-  vars = c("ts", "incidence", "sim_cases")
+  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible")
 )
 
 synth_data_rds = readRDS(synth_data$datasets[1])
@@ -165,21 +162,64 @@ synth_df %>%
        subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
        x = "Years",
        y = "Cases / mean incidence")
+
+synth_df %>%
+  ggplot(aes(x = ts/years, y = susceptible)) +
+  geom_line()
 ```
 
 Repeat for the nonseasonal model
 
 ```{r}
-# Aggregate data to a yearly level
-data_ro_agg = data_ro
+model_champagne2022 = "stan/champagne2022.stan"
+stan_model_champagne2022 = stan_model(model_champagne2022)
 
-every_twelfth = seq(1, length(data_ro_agg$cases), annual_subdivisions)
-data_ro_agg$ts = data_ro_agg$ts[every_twelfth]
-data_ro_agg$cases = sapply(every_twelfth, function(mo) {
-  ixs = seq_along(data_ro_agg$cases)
-  sum(data_ro_agg$cases[ixs >= mo & ixs < (mo+annual_subdivisions)])
-})
-data_ro_agg$eps = 1
+rondonia_agg = integrated_dataset %>%
+  filter(exam.result == "vivax",
+         infection.state == "RO",
+         notification.year >= 2014) %>%
+  mutate(notification.date = as.Date(paste(notification.year, "01", "01", sep="-")) + years(1) - days(1)) %>%
+  count(notification.date, name = "cases")
+
+# Aggregate data to a yearly level
+data_ro_agg = data_consts
+
+data_ro_agg$cases = rondonia_agg$cases
+data_ro_agg$ts = seq_len(nrow(rondonia_agg)) * years
+data_ro_agg$n_times = nrow(rondonia_agg)
+data_ro_agg$y0 = data_consts$y0
+data_ro_agg$t0 = data_consts$t0
+
+optim_ext_agg = optimizing(stan_model_champagne2022, data=data_ro_agg)
+theta_opt_agg = as.list(optim_ext_agg$par[c("lambda", "phi_inv")])
+
+synth_data = simulate_data(
+  file = model_champagne2022_seasonal_ext,
+  path = "sim_data",
+  data_name = "rondonia_fit",
+  input_data = data_ro_agg,
+  param_values = theta_opt_agg,
+  vars = c("ts", "incidence", "sim_cases")
+)
+
+synth_data_rds = readRDS(synth_data$datasets[1])
+file.remove(synth_data$datasets[1])
+indx <- sapply(synth_data_rds, length)
+synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
+  as.data.frame() %>%
+  drop_na()
+
+synth_df %>%
+  ggplot(aes(x = ts/years, y = cases)) +
+  geom_point() +
+  geom_line(aes(y = incidence)) +
+  geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases), color="steelblue") +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_continuous(breaks = seq(0, 100)) +
+  labs(title = "Rondonia, Brazil: Maximum likelihood fit",
+       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
+       x = "Years",
+       y = "Cases / mean incidence")
 ```
 
 Try again but with sampling
@@ -221,6 +261,83 @@ ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free")
+```
+
+And, non-seasonal
+
+```{r}
+samp_ext = sampling(stan_model_champagne2022,
+                    data = data_ro_agg,
+                    iter = n_iter,
+                    chains = 4,
+                    # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                    cores = 4,
+                    control = list(max_treedepth = 4))
+
+incidence = rstan::extract(samp_ext, "incidence")[[1]]
+ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+ts_sample = as_tibble(t(incidence[ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  mutate(ts = data_ro_agg$ts[j])
+
+ggplot(ts_sample, aes(x=ts, y=incidence, group=trace)) +
+  geom_line(alpha = 10/n_traces) +
+  geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
+             aes(y = cases, group = NULL),
+             color="steelblue") +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Rondonia, Brazil: Posterior fit",
+       subtitle = "Blue: real data\nBlack: Traces of mean incidence",
+       x = "Years",
+       y = "Cases / mean incidence")
+
+# inspect parameter posteriors
+posterior = rstan::extract(samp_ext, c("lambda", "phi_inv")) %>%
+  as_tibble() %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value")
+
+ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free")
+```
+
+What if we used the steady-state fit to simulate posteriors in the full model?
+
+```{r}
+theta_composite = theta_opt
+theta_composite$lambda = theta_opt_agg$lambda
+
+synth_data = simulate_data(
+  file = model_champagne2022_seasonal_ext,
+  path = "sim_data",
+  data_name = "rondonia_fit",
+  input_data = data_ro,
+  param_values = theta_composite,
+  vars = c("ts", "incidence", "sim_cases")
+)
+
+synth_data_rds = readRDS(synth_data$datasets[1])
+file.remove(synth_data$datasets[1])
+indx <- sapply(synth_data_rds, length)
+synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
+  as.data.frame() %>%
+  drop_na()
+
+synth_df %>%
+  ggplot(aes(x = ts/years, y = cases)) +
+  geom_point() +
+  geom_line(aes(y = incidence)) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), color="steelblue") +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_continuous(breaks = seq(0, 100)) +
+  labs(title = "Rondonia, Brazil: Nonseasonal MLE applied to seasonal simulation",
+       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
+       x = "Years",
+       y = "Cases / mean incidence")
 ```
 
 With the parameter posterior distributions, we can start to discuss outcomes. We expect that the main advancement here is demonstrating heterogeneity in epidemic parameters; while it is clear there is heterogeneity in prevalence, administrative data is not normally able to demonstrate this. As James highlighted, this also raises the question of whether multiple regions should comprise a hierarchical model. The Brazilian data is very comprehensive across regions and makes this logical, but I suggest exploring this after performing independent modelling first.
