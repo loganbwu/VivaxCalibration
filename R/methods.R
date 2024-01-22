@@ -8,7 +8,7 @@ stan_model_champagne2022_seasonal = stan_model(model_champagne2022_seasonal)
 model_champagne2022_seasonal_poisson = "stan/champagne2022_seasonal_poisson.stan"
 stan_model_champagne2022_seasonal_poisson = stan_model(model_champagne2022_seasonal_poisson)
 
-model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext.stan"
+model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
@@ -219,11 +219,11 @@ run_scenario_method = function(i) {
 
 extract_lambda = function(.result) {
   .fit = .result$fit
-  param = rstan::extract(.fit, c("lambda"))$lambda
+  param = rstan::extract(.fit, c("lambda"))[[1]]
   return(param)
 }
 
-posterior_other = function(.result, var) {
+extract_other = function(.result, var) {
   .fit = .result$fit
   param = rstan::extract(.fit, var)[[1]]
   return(param)
@@ -231,8 +231,12 @@ posterior_other = function(.result, var) {
 
 extract_phi_inv = function(.result) {
   .fit = .result$fit
-  if ("phi_inv" %in% names(.fit)) {
-    param = rstan::extract(.fit, c("phi_inv"))$phi_inv
+  if (.fit@mode == 0) {
+    if ("phi_inv" %in% names(.fit)) {
+      param = rstan::extract(.fit, c("phi_inv"))[[1]]
+    } else {
+      param=NULL
+    }
   } else {
     param = NULL
   }
@@ -241,6 +245,9 @@ extract_phi_inv = function(.result) {
 
 extract_incidence = function(.result) {
   .fit = .result$fit
+  if (.fit@mode != 0) {
+    return(NULL)
+  }
   incidence = rstan::extract(.fit, "incidence")[[1]]
   ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
   ts_sample = as_tibble(t(incidence[ix,])) %>%

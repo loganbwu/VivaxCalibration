@@ -1,8 +1,9 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
+
+
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    // return(eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+cos((2*pi*t - phi)/365.25))/2)^kappa);
     return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin((2*pi()*t - phase)/365.25))/2)^kappa); # no normalising beta function
   }
   
@@ -27,14 +28,13 @@ functions {
     real phase = x_r[10];
     
     real omega = suitability(t, eps, kappa, phase);
-    real lambda = theta[1] * omega;
-    // real delta = theta[2];
+    real foi = theta[1] * omega;
     
-    real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
-    real dI0_dt = -(lambda*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
-    real dSl_dt = -(1-alpha*(1-beta))*(lambda*(Il+I0)+delta+f)*Sl + alpha*(1-beta)*(lambda*(Il+I0)+delta)*S0 - gammal*Sl + r*Il;
-    real dS0_dt = -(1-alpha*beta)*(lambda*(Il+I0)+delta)*S0 + (lambda*(I0+Il)+delta)*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
-    real dCumulativeInfections = (lambda*(Il+I0)+delta)*(S0+Sl);
+    real dIl_dt = (1-alpha)*(foi*(Il+I0)+delta)*(S0+Sl) + (foi*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
+    real dI0_dt = -(foi*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
+    real dSl_dt = -(1-alpha*(1-beta))*(foi*(Il+I0)+delta+f)*Sl + alpha*(1-beta)*(foi*(Il+I0)+delta)*S0 - gammal*Sl + r*Il;
+    real dS0_dt = -(1-alpha*beta)*(foi*(Il+I0)+delta)*S0 + (foi*(I0+Il)+delta)*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
+    real dCumulativeInfections = (foi*(Il+I0)+delta)*(S0+Sl);
     
     return {dIl_dt, dI0_dt, dSl_dt, dS0_dt, dCumulativeInfections};
   }
@@ -77,8 +77,6 @@ transformed data {
 
 parameters {
   real<lower=0, upper=0.05> lambda;
-  // real<lower=0> delta;
-  
   real<lower=0, upper=10> phi_inv;
 }
 
@@ -100,7 +98,6 @@ transformed parameters{
 model {
   //priors
   lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
   
   phi_inv ~ exponential(0.1);
   

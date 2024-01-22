@@ -106,7 +106,7 @@ Scenarios include sequences of scenarios. For example, low-transmission tropical
 # radical_cure_rates = seq(0, 1, by=0.2)
 radical_cure_rates = 0.66
 ascertainment_rates = data_consts$alpha
-seasonality_ratio = seq(0, 1, length.out=3)
+seasonality_ratio = seq(0, 1, length.out=2)
 # radical_cure_rates = data_consts$beta
 transmission_rates = seq(0.01, 0.02, by=0.005)
 importation_rate = 0 # because constant importation makes less sense in seasonal transmission
@@ -126,11 +126,12 @@ data_scenarios = expand_grid(
 ) %>%
   mutate(scenario_ID = LETTERS[row_number()], .before=0)
 
-.simulate_cases = function(alpha=0.5, beta=0.5, lambda=1, phi_inv=0.1, delta=0, eps=0, kappa=1, phase=0, N=100, index=NULL) {
+.simulate_cases = function(alpha=0.5, beta=0.5, lambda=0.01, phi_inv=0.1, delta=0, eps=0, kappa=1, phase=0, N=100, index=NULL) {
   data = data_consts
   data$alpha = alpha
   data$beta = beta
   data$delta = delta
+  data$phase = phase
   data$N = N
   
   real_params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa)
@@ -140,7 +141,7 @@ data_scenarios = expand_grid(
     index = sample.int(999999999, 1)
   }
   synth_data = suppressMessages(simulate_data(
-    file = model_champagne2022_seasonal,
+    file = model_champagne2022_seasonal_ext,
     path = "sim_data",
     data_name = paste0("data_", index),
     input_data = data,
@@ -183,8 +184,8 @@ data_scenarios_sim = data_scenarios %>%
   group_by(scenario_ID) %>%
   mutate(rep = row_number()) %>%
   ungroup() %>%
-  # simulate_cases()
-  simulate_cases_memo()
+  simulate_cases()
+  # simulate_cases_memo()
 
 # Display scenarios
 data_scenarios_sim %>%
@@ -222,7 +223,6 @@ tictoc::tic()
 fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
 tictoc::toc()
 
-# data_scenarios = run_all(data_scenarios)
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
 # save.image(workspace_filename)
 ```
@@ -248,10 +248,8 @@ comparison_colors_count = comparison_colors
 names(comparison_colors_count) = methods_count
 
 plot_data = data_scenarios_long %>%
-  # pivot_longer(cols = matches("lambda"), names_to = "method", values_to = "estimate") %>%
   mutate(rhat = calculate_rhat(est_lambda)) %>%
   unnest(c(est_lambda, rhat)) %>%
-  # filter(rep == 1) %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
   drop_na(est_lambda)
 
@@ -423,77 +421,6 @@ ggplot(data=plot_data_cases, aes(x=t, y=cases*years/annual_subdivisions)) +
 ## Extension to fitting more parameters
 
 While we previously fit only the transmission rate $\lambda$ (and overdispersion $1/\phi$ for negative-binomial models), the seasonal models introduce more complexity; here, we have parameterised seasonality by three parameters: peak/trough ratio $\epsilon$, 'sharpness' $\kappa$, and an offset from the start of the year to the to the peak `phase` (because $\phi$ is already taken). These parameters could either be implemented as equivalent to transmission suitability as a function of temperature/precipitation (as in Mordecai et al., or the MAP), or estimated simultaneously with the transmission parameters.
-
-
-## Parameter recovery on real data
-
-We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
-
-Data:
-
-- Hainan data (tropical China) but this has been difficult to acquire.
-We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
-- Brazilian 'integrated data set', available per county or municipality and very detailed.
-
-```{r}
-path = "/Users/wu.l/Documents/MalariaData/data-raw/brazil/integrated_dataset_Baroni2020.RData"
-load(path)
-rondonia = integrated_dataset %>%
-  filter(exam.result == "vivax",
-         infection.state == "RO",
-         notification.year >= 2014) %>%
-  mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
-  count(notification.date, name = "cases")
-ggplot(rondonia, aes(x = notification.date, y=cases)) +
-  geom_point() +
-  labs(title = "Vivax cases from Rondonia")
-```
-
-```{r}
-data_ro = data_consts
-
-data_ro$cases = rondonia$cases
-data_ro$ts = seq_len(nrow(rondonia)) * years / annual_subdivisions
-data_ro$N = 1.8e6
-data_ro$alpha = 0.5
-data_ro$beta = 0.5
-data_ro$n_times = nrow(rondonia)
-data_ro$y0 = data_consts$y0
-data_ro$t0 = data_consts$t0
-# Try to get a good initial value
-optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
-theta_init = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
-
-
-fit = sampling(stan_model_champagne2022_seasonal_ext,
-               data = data_ro,
-               iter = n_iter,
-               chains = 1,
-               # init = rep(list(theta_init), 1), # Start from MLE solution
-               cores = 4,
-               control = list(max_treedepth = 3))
-brazil_result = list(fit = fit)
-
-posterior_lambda = extract_lambda(brazil_result)
-posterior_ = extract_lambda(brazil_result)
-```
-
-### Outputs
-
-The parameter fitting routing will be run for each real-world dataset.
-
-```{r}
-fit_brazil = lapply(data_brazil, function(x) {
-  # perform Bayesian fit
-})
-
-# Show visual diagnostics to demonstrate that the model outputs actually reflect the observed data (this is not guaranteed because Champagne never used seasonal data)
-
-# Show parameter posterior distributions
-```
-
-With the parameter posterior distributions, we can start to discuss outcomes. We expect that the main advancement here is demonstrating heterogeneity in epidemic parameters; while it is clear there is heterogeneity in prevalence, administrative data is not normally able to demonstrate this. As James highlighted, this also raises the question of whether multiple regions should comprise a hierarchical model. The Brazilian data is very comprehensive across regions and makes this logical, but I suggest exploring this after performing independent modelling first.
-
 
 
 ## Extension to include time-varying transmission levels

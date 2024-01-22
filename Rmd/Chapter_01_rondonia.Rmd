@@ -1,0 +1,236 @@
+_---
+title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
+output:
+html_notebook:
+number_sections: true
+---
+
+**This should be similar to `Chapter_01.Rmd` but with the experiment data structure improved to take advantage of more cores than the number of scenarios.**
+
+# Introduction
+
+When calibrating their vivax population transmission models, White and Champagne lack longitudinal time series data and are forced to make equilibrium assumptions at a point in time (initially from Griffin from his 2014 P.f model). Here, derivatives are set to zero and the equations solved for unknowns. In the case of Champagne, the transmission rate $\lambda$ so that force of infection is $\lambda$ multiplied by the sum of infectious compartments $\sum{I}$.
+
+This assumption does not hold for areas with moderate to strong seasonality and long-term trends. This document demonstrates the standard implementation of dynamic ODE parameter-fitting methods applied to the White/Champagne style model and extends the form of the model (and its corresponding parameter estimation routine) to provide increasingly flexible relaxations to the original uses of the White/Champagne model. The end result will be a model and fitting routine that is flexible enough to reflect vivax epidemics in non-stationary regions, unlike the original implementation.
+
+[...]
+
+# Methods
+
+Stan and posterior sampling will be used for all analyses.
+
+```{r setup}
+library(R.utils)
+library(tidyverse)
+library(rstan)
+library(rstansim) # devtools::install_github("ewan-keith/rstansim")
+library(parallel)
+library(patchwork)
+library(pbmcapply)
+library(pbapply)
+library(memoise)
+source("../R/constants.R")
+# source("../R/methods.R")
+
+model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
+stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
+
+n_cores = parallelly::availableCores()
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
+rstan_options(auto_write = TRUE)
+
+# Store generated data here
+cd = cachem::cache_disk("sim_data")
+
+n_years = 5
+n_iter = 500 # should be at least 500
+n_chains = 2
+n_repetitions = 1 # how many times to duplicate each scenario
+cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
+limit_runs = Inf # set to a finite number for testing, or Inf to run all
+timelimit_per_run = 60*60 * 5
+n_traces = 100 # limit for plotting sample trajectories
+
+methods = methods %>%
+  head(4)
+```
+
+## Model implementation
+
+We begin with extending Champagne's 2022 model for tropical vivax to include seasonality.
+
+First we implement and verify the parameter recovery ability of Stan with the Champagne model as published in 2022.
+
+```{r}
+# perform simulation study
+dt = years/annual_subdivisions
+t0 = -50*years
+t = seq_len(n_years*annual_subdivisions) * dt
+n_times = length(t)
+N = 1000 # population size
+
+#initial conditions
+I_init = 0.01
+y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
+
+# constants for Stan
+data_consts = list(n_times = n_times+1,
+                   y0 = y0,
+                   t0 = t0,
+                   ts = seq_len(n_times+1) * dt,
+                   N = N,
+                   cases = rep(99999, n_times+1),
+                   r = 1./60, # r
+                   gammal = 1./223, # gammal
+                   f = 1./72, # f
+                   alpha = 0.21, # alpha
+                   beta = 0.66, # beta
+                   rho = 0.21, # rho
+                   delta = 0,
+                   eps = 0,
+                   kappa = 1,
+                   phase = 0
+)
+```
+
+## Parameter recovery on real data
+
+We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
+
+Data:
+
+- Hainan data (tropical China) but this has been difficult to acquire.
+We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
+- Brazilian 'integrated data set', available per county or municipality and very detailed.
+
+```{r}
+path = "/Users/wu.l/Documents/MalariaData/data-raw/brazil/integrated_dataset_Baroni2020.RData"
+load(path)
+rondonia = integrated_dataset %>%
+  filter(exam.result == "vivax",
+         infection.state == "RO",
+         notification.year >= 2014) %>%
+  mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
+  count(notification.date, name = "cases")
+
+ggplot(rondonia, aes(x = notification.date, y=cases)) +
+  geom_point() +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Vivax cases from Rondonia")
+```
+
+```{r}
+data_ro = data_consts
+
+data_ro$cases = rondonia$cases
+data_ro$ts = seq_len(nrow(rondonia)) * years / annual_subdivisions
+data_ro$N = 1.8e6/1000
+data_ro$alpha = 0.5
+data_ro$beta = 0.76
+data_ro$n_times = nrow(rondonia)
+data_ro$y0 = data_consts$y0
+data_ro$t0 = data_consts$t0
+data_ro$phase = 365.25*pi
+
+# Use BFGS
+optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
+theta_opt = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
+
+synth_data = simulate_data(
+  file = model_champagne2022_seasonal_ext,
+  path = "sim_data",
+  data_name = "rondonia_fit",
+  input_data = data_ro,
+  param_values = theta_opt,
+  vars = c("ts", "incidence", "sim_cases")
+)
+
+synth_data_rds = readRDS(synth_data$datasets[1])
+file.remove(synth_data$datasets[1])
+indx <- sapply(synth_data_rds, length)
+synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
+  as.data.frame() %>%
+  drop_na()
+
+synth_df %>%
+  ggplot(aes(x = ts/years, y = cases)) +
+  geom_point() +
+  geom_line(aes(y = incidence)) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), color="steelblue") +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_continuous(breaks = seq(0, 100)) +
+  labs(title = "Rondonia, Brazil: Maximum likelihood fit",
+       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
+       x = "Years",
+       y = "Cases / mean incidence")
+```
+
+Repeat for the nonseasonal model
+
+```{r}
+# Aggregate data to a yearly level
+data_ro_agg = data_ro
+
+every_twelfth = seq(1, length(data_ro_agg$cases), annual_subdivisions)
+data_ro_agg$ts = data_ro_agg$ts[every_twelfth]
+data_ro_agg$cases = sapply(every_twelfth, function(mo) {
+  ixs = seq_along(data_ro_agg$cases)
+  sum(data_ro_agg$cases[ixs >= mo & ixs < (mo+annual_subdivisions)])
+})
+data_ro_agg$eps = 1
+```
+
+Try again but with sampling
+
+```{r}
+samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
+                    data = data_ro,
+                    iter = n_iter,
+                    chains = 4,
+                    # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                    cores = 4,
+                    control = list(max_treedepth = 4))
+
+incidence = rstan::extract(samp_ext, "incidence")[[1]]
+ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+ts_sample = as_tibble(t(incidence[ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  mutate(ts = data_ro$ts[j])
+
+ggplot(ts_sample, aes(x=ts/years, y=incidence, group=trace)) +
+  geom_line(alpha = 10/n_traces) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases),
+             aes(y = cases, group = NULL),
+             color="steelblue") +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Rondonia, Brazil: Posterior fit",
+       subtitle = "Blue: real data\nBlack: Traces of mean incidence",
+       x = "Years",
+       y = "Cases / mean incidence")
+
+# inspect parameter posteriors
+posterior = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa")) %>%
+  as_tibble() %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value")
+ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free")
+```
+
+With the parameter posterior distributions, we can start to discuss outcomes. We expect that the main advancement here is demonstrating heterogeneity in epidemic parameters; while it is clear there is heterogeneity in prevalence, administrative data is not normally able to demonstrate this. As James highlighted, this also raises the question of whether multiple regions should comprise a hierarchical model. The Brazilian data is very comprehensive across regions and makes this logical, but I suggest exploring this after performing independent modelling first.
+
+
+
+## Extension to include time-varying transmission levels
+
+The Chinese and Brazilian datasets include longitudinal data for long enough to observe trends that must be due to changes in policy or environment Therefore, the seasonal Champagne model certainly will not be sufficient to explain this variation.
+
+We will modify the Champagne model's transmission rate $\lambda$ to be time-varying, $\lambda(t)$. The functional form of $\lambda(t)$ is unclear but is constrained by the information available to fit it. For example, we will never know if a decrease in trend is due to natural decay to a low equilibrium, or due to a decreasing $\lambda(t)$. However, by finding a *reasonable* form, $\lambda(t)$ will account for long-term variation that cannot be explained by other parameters and we hope it will allow the other parameters to be recovered in scenarios where there is no form of static or dynamic steady-state at play.
+
+At a minimum, $\lambda(t)$ will be a piecewise-constant or piecewise-linear function with breakpoints set manually when there are obvious changes in transmission intensity. This may prove sufficient. Other suggestions include particle filtering methods such as Kalman filtering.
