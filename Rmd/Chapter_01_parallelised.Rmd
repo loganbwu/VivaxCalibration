@@ -141,7 +141,7 @@ data_scenarios = expand_grid(
     index = sample.int(999999999, 1)
   }
   synth_data = suppressMessages(simulate_data(
-    file = model_champagne2022_seasonal_ext,
+    file = model_champagne2022_seasonal,
     path = "sim_data",
     data_name = paste0("data_", index),
     input_data = data,
