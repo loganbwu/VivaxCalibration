@@ -2,7 +2,7 @@
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin((2*pi()*t - phase)/365.25))/2)^kappa); # no normalising beta function
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa); # no normalising beta function
   }
   
   real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
