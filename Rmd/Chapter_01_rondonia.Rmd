@@ -69,7 +69,7 @@ dt = years/annual_subdivisions
 t0 = -50*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t)
-N = 1.8e6/1000 # population size
+N = 1.8e6/100 # population size
 
 #initial conditions
 I_init = 0.01
@@ -85,8 +85,8 @@ data_consts = list(n_times = n_times+1,
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
-                   alpha = 0.21, # alpha
-                   beta = 0.66, # beta
+                   alpha = 0.615, # alpha, 0.437/0.713
+                   beta = 0.713, # beta, Nekkab 2021
                    rho = 0.21, # rho
                    delta = 0,
                    eps = 0,
@@ -141,7 +141,7 @@ synth_data = simulate_data(
   data_name = "rondonia_fit",
   input_data = data_ro,
   param_values = theta_opt,
-  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible")
+  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible", "infectious", "dormant")
 )
 
 synth_data_rds = readRDS(synth_data$datasets[1])
@@ -149,6 +149,7 @@ file.remove(synth_data$datasets[1])
 indx <- sapply(synth_data_rds, length)
 synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
   as.data.frame() %>%
+  as_tibble() %>%
   drop_na()
 
 synth_df %>%
@@ -164,8 +165,10 @@ synth_df %>%
        y = "Cases / mean incidence")
 
 synth_df %>%
-  ggplot(aes(x = ts/years, y = susceptible)) +
-  geom_line()
+  pivot_longer(c(susceptible, infectious, dormant), names_to="compartment", values_to="proportion") %>%
+  ggplot(aes(x = ts/years, y = proportion, color=compartment)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, 1))
 ```
 
 Repeat for the nonseasonal model
@@ -251,13 +254,15 @@ ggplot(ts_sample, aes(x=ts/years, y=incidence, group=trace)) +
        x = "Years",
        y = "Cases / mean incidence")
 
+posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa")) %>%
+  as_tibble()
+
 # inspect parameter posteriors
-posterior = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa")) %>%
-  as_tibble() %>%
+posterior_seasonal %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value")
-ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free")
@@ -266,13 +271,13 @@ ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
 And, non-seasonal
 
 ```{r}
-samp_ext = sampling(stan_model_champagne2022,
-                    data = data_ro_agg,
-                    iter = n_iter,
-                    chains = 4,
-                    # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                    cores = 4,
-                    control = list(max_treedepth = 4))
+samp_ext_nonseasonal = sampling(stan_model_champagne2022,
+                                data = data_ro_agg,
+                                iter = n_iter,
+                                chains = 4,
+                                # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                                cores = 4,
+                                control = list(max_treedepth = 4))
 
 incidence = rstan::extract(samp_ext, "incidence")[[1]]
 ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
@@ -293,13 +298,14 @@ ggplot(ts_sample, aes(x=ts, y=incidence, group=trace)) +
        y = "Cases / mean incidence")
 
 # inspect parameter posteriors
-posterior = rstan::extract(samp_ext, c("lambda", "phi_inv")) %>%
-  as_tibble() %>%
+posterior_nonseasonal = rstan::extract(samp_ext_nonseasonal, c("lambda", "phi_inv")) %>%
+  as_tibble()
+
+posterior_nonseasonal %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value")
-
-ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free")
@@ -308,34 +314,46 @@ ggplot(posterior, aes(x = value, fill=parameter, color=parameter)) +
 What if we used the steady-state fit to simulate posteriors in the full model?
 
 ```{r}
-theta_composite = theta_opt
-theta_composite$lambda = theta_opt_agg$lambda
+n_samples = 500
+composite_list = pbmclapply(seq_len(n_samples), function(i) {
+   theta_composite = theta_opt
+  theta_composite$lambda = sample(posterior_nonseasonal$lambda, 1)
+  theta_composite$phi_inv = 0.1 # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
+  theta_composite$eps = sample(posterior_seasonal$eps, 1)
+  theta_composite$kappa = sample(posterior_seasonal$kappa, 1)
+  
+  composite_data = simulate_data(
+    file = model_champagne2022_seasonal_ext,
+    path = "sim_data",
+    data_name = "rondonia_fit",
+    input_data = data_ro,
+    param_values = theta_composite,
+    vars = c("ts", "incidence", "sim_cases")
+  )
+  
+  composite_data_rds = readRDS(composite_data$datasets[1])
+  file.remove(composite_data$datasets[1])
+  indx <- sapply(composite_data_rds, length)
+  lapply(composite_data_rds, function(x) {length(x) = max(indx); x}) %>%
+    as.data.frame() %>%
+    drop_na()
+})
+composite_list[sapply(composite_list, function(x) {class(x)=="try-error"})] <- NULL
 
-synth_data = simulate_data(
-  file = model_champagne2022_seasonal_ext,
-  path = "sim_data",
-  data_name = "rondonia_fit",
-  input_data = data_ro,
-  param_values = theta_composite,
-  vars = c("ts", "incidence", "sim_cases")
-)
+posterior_comparison = composite_list %>%
+  bind_rows(.id = "trace") %>%
+  mutate(method = "composite") %>%
+  bind_rows(ts_sample %>% mutate(method = "simultaneous", j=NULL)) %>%
+  as_tibble()
 
-synth_data_rds = readRDS(synth_data$datasets[1])
-file.remove(synth_data$datasets[1])
-indx <- sapply(synth_data_rds, length)
-synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
-  as.data.frame() %>%
-  drop_na()
-
-synth_df %>%
-  ggplot(aes(x = ts/years, y = cases)) +
-  geom_point() +
-  geom_line(aes(y = incidence)) +
-  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), color="steelblue") +
+posterior_comparison %>%
+  ggplot(aes(x = ts/years, y = incidence)) +
+  geom_line(aes(color=method, group=trace), alpha=0.2) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), aes(y=cases)) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_x_continuous(breaks = seq(0, 100)) +
-  labs(title = "Rondonia, Brazil: Nonseasonal MLE applied to seasonal simulation",
-       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
+  labs(title = "Rondonia, Brazil: Seasonality added to nonseasonal posterior fit",
+       subtitle = "Blue: real data\nBlack: simulated mean incidence",
        x = "Years",
        y = "Cases / mean incidence")
 ```
