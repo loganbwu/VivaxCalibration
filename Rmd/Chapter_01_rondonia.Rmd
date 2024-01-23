@@ -46,7 +46,7 @@ cd = cachem::cache_disk("sim_data")
 
 n_years = 5
 n_iter = 500 # should be at least 500
-n_chains = 2
+n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -135,22 +135,14 @@ data_ro$phase = 365.25*0.5
 optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
 theta_opt = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
 
-synth_data = simulate_data(
+synth_df = my_simulate_data(
   file = model_champagne2022_seasonal_ext,
   path = "sim_data",
   data_name = "rondonia_fit",
   input_data = data_ro,
   param_values = theta_opt,
-  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible", "infectious", "dormant")
+  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible", "infectious", "latent")
 )
-
-synth_data_rds = readRDS(synth_data$datasets[1])
-file.remove(synth_data$datasets[1])
-indx <- sapply(synth_data_rds, length)
-synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  drop_na()
 
 synth_df %>%
   ggplot(aes(x = ts/years, y = cases)) +
@@ -165,10 +157,13 @@ synth_df %>%
        y = "Cases / mean incidence")
 
 synth_df %>%
-  pivot_longer(c(susceptible, infectious, dormant), names_to="compartment", values_to="proportion") %>%
+  pivot_longer(c(susceptible, infectious, latent), names_to="compartment", values_to="proportion") %>%
   ggplot(aes(x = ts/years, y = proportion, color=compartment)) +
   geom_line() +
-  coord_cartesian(ylim = c(0, 1))
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(title = "Compartment",
+       x = "Years",
+       y = "Proportion")
 ```
 
 Repeat for the nonseasonal model
@@ -316,13 +311,13 @@ What if we used the steady-state fit to simulate posteriors in the full model?
 ```{r}
 n_samples = 500
 composite_list = pbmclapply(seq_len(n_samples), function(i) {
-   theta_composite = theta_opt
+  theta_composite = theta_opt
   theta_composite$lambda = sample(posterior_nonseasonal$lambda, 1)
   theta_composite$phi_inv = 0.1 # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
   theta_composite$eps = sample(posterior_seasonal$eps, 1)
   theta_composite$kappa = sample(posterior_seasonal$kappa, 1)
   
-  composite_data = simulate_data(
+  my_simulate_data(
     file = model_champagne2022_seasonal_ext,
     path = "sim_data",
     data_name = "rondonia_fit",
@@ -330,13 +325,6 @@ composite_list = pbmclapply(seq_len(n_samples), function(i) {
     param_values = theta_composite,
     vars = c("ts", "incidence", "sim_cases")
   )
-  
-  composite_data_rds = readRDS(composite_data$datasets[1])
-  file.remove(composite_data$datasets[1])
-  indx <- sapply(composite_data_rds, length)
-  lapply(composite_data_rds, function(x) {length(x) = max(indx); x}) %>%
-    as.data.frame() %>%
-    drop_na()
 })
 composite_list[sapply(composite_list, function(x) {class(x)=="try-error"})] <- NULL
 

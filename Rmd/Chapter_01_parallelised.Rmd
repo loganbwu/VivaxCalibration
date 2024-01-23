@@ -132,15 +132,16 @@ data_scenarios = expand_grid(
   data$beta = beta
   data$delta = delta
   data$phase = phase
+  data$eps = eps
   data$N = N
   
-  real_params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa)
+  real_params = list(lambda=lambda, phi_inv=phi_inv, kappa=kappa)
   print(real_params)
   
   if (is.null(index)) {
     index = sample.int(999999999, 1)
   }
-  synth_data = suppressMessages(simulate_data(
+  synth_df = suppressMessages(my_simulate_data(
     file = model_champagne2022_seasonal,
     path = "sim_data",
     data_name = paste0("data_", index),
@@ -148,13 +149,6 @@ data_scenarios = expand_grid(
     param_values = real_params,
     vars = c("ts", "incidence", "sim_cases", "susceptible")
   ))
-  # print(synth_data$datasets[1])
-  synth_data_rds = readRDS(synth_data$datasets[1])
-  file.remove(synth_data$datasets[1])
-  indx <- sapply(synth_data_rds, length)
-  synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
-    as.data.frame() %>%
-    drop_na()
 }
 # Add cases onto a dataframe of scenarios based on its parameter columns
 simulate_cases = function(.scenarios) {
@@ -345,6 +339,9 @@ What are the modelled incidence trends like?
 ```{r}
 plot_data = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
   incidence = data_scenarios_long$est_incidence[[i]]
+  if (is.null(incidence)) {
+    return(NULL)
+  }
   ts = data_scenarios_long$ts[[i]]
   dt = ts[[2]] - ts[[1]]
   df = incidence %>%

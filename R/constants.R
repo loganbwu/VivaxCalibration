@@ -63,3 +63,16 @@ with_timeout <- function(expr, cpu, elapsed){
   on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE))
   eval(expr, envir = envir)
 }
+
+my_simulate_data = function(...) {
+  synth_data = simulate_data(...)
+  
+  synth_data_rds = readRDS(synth_data$datasets[1])
+  file.remove(synth_data$datasets[1])
+  indx <- sapply(synth_data_rds, length)
+  synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
+    as.data.frame() %>%
+    as_tibble() %>%
+    drop_na()
+  return(synth_df)
+}

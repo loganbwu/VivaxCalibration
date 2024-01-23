@@ -92,7 +92,7 @@ transformed parameters{
   }
   
   for (i in 1:n_times-1)
-    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N);
+  incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N);
 }
 
 model {
@@ -105,14 +105,14 @@ model {
   
   //sampling distribution
   for (i in 1:(n_times - 1))
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+  cases[i] ~ neg_binomial_2(incidence[i], phi);
 }
 
 generated quantities {
   real sim_cases[n_times-1];
   real susceptible[n_times-1];
   real infectious[n_times-1];
-  real dormant[n_times-1];
+  real latent[n_times-1];
   real R0[n_times-1];
   real Rc[n_times-1];
   real foi[n_times-1];
@@ -121,7 +121,7 @@ generated quantities {
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
     susceptible[i] = y[i, 4];
     infectious[i] = y[i, 1] + y[i, 2];
-    dormant[i] = y[i, 3];
+    latent[i] = y[i, 3];
     foi[i] = lambda * suitability(ts[i], eps, kappa, phase);
     R0[i] = foi[i]/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
     Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
