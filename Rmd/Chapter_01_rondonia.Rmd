@@ -135,7 +135,7 @@ data_ro$phase = 365.25*0.5
 optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
 theta_opt = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
 
-synth_df = my_simulate_data(
+mle_synth_df = my_simulate_data(
   file = model_champagne2022_seasonal_ext,
   path = "sim_data",
   data_name = "rondonia_fit",
@@ -144,7 +144,7 @@ synth_df = my_simulate_data(
   vars = c("ts", "incidence", "sim_cases", "foi", "susceptible", "infectious", "latent")
 )
 
-synth_df %>%
+mle_synth_df %>%
   ggplot(aes(x = ts/years, y = cases)) +
   geom_point() +
   geom_line(aes(y = incidence)) +
@@ -156,7 +156,7 @@ synth_df %>%
        x = "Years",
        y = "Cases / mean incidence")
 
-synth_df %>%
+mle_synth_df %>%
   pivot_longer(c(susceptible, infectious, latent), names_to="compartment", values_to="proportion") %>%
   ggplot(aes(x = ts/years, y = proportion, color=compartment)) +
   geom_line() +
@@ -191,7 +191,7 @@ data_ro_agg$t0 = data_consts$t0
 optim_ext_agg = optimizing(stan_model_champagne2022, data=data_ro_agg)
 theta_opt_agg = as.list(optim_ext_agg$par[c("lambda", "phi_inv")])
 
-synth_data = simulate_data(
+mle_synth_df_nonseasonal = my_simulate_data(
   file = model_champagne2022_seasonal_ext,
   path = "sim_data",
   data_name = "rondonia_fit",
@@ -200,14 +200,7 @@ synth_data = simulate_data(
   vars = c("ts", "incidence", "sim_cases")
 )
 
-synth_data_rds = readRDS(synth_data$datasets[1])
-file.remove(synth_data$datasets[1])
-indx <- sapply(synth_data_rds, length)
-synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
-  as.data.frame() %>%
-  drop_na()
-
-synth_df %>%
+mle_synth_df_nonseasonal %>%
   ggplot(aes(x = ts/years, y = cases)) +
   geom_point() +
   geom_line(aes(y = incidence)) +
@@ -274,14 +267,14 @@ samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 cores = 4,
                                 control = list(max_treedepth = 4))
 
-incidence = rstan::extract(samp_ext, "incidence")[[1]]
+incidence = rstan::extract(samp_ext_nonseasonal, "incidence")[[1]]
 ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-ts_sample = as_tibble(t(incidence[ix,])) %>%
+ts_sample_nonseasonal = as_tibble(t(incidence[ix,])) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   mutate(ts = data_ro_agg$ts[j])
 
-ggplot(ts_sample, aes(x=ts, y=incidence, group=trace)) +
+ggplot(ts_sample_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
   geom_line(alpha = 10/n_traces) +
   geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
              aes(y = cases, group = NULL),
@@ -326,7 +319,7 @@ composite_list = pbmclapply(seq_len(n_samples), function(i) {
     vars = c("ts", "incidence", "sim_cases")
   )
 })
-composite_list[sapply(composite_list, function(x) {class(x)=="try-error"})] <- NULL
+composite_list[sapply(composite_list, function(x) {"try-error" %in% class(x)})] <- NULL
 
 posterior_comparison = composite_list %>%
   bind_rows(.id = "trace") %>%
