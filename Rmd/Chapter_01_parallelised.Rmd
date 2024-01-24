@@ -46,7 +46,7 @@ n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*60 * 5
+timelimit_per_run = 60*60
 n_traces = 100 # limit for plotting sample trajectories
 
 methods = methods %>%
@@ -108,7 +108,7 @@ ascertainment_rates = data_consts$alpha
 radical_cure_rates = data_consts$beta
 seasonality_ratio = seq(0, 1, length.out=3)
 # radical_cure_rates = data_consts$beta
-transmission_rates = seq(0.03, 0.09, length.out=3)
+transmission_rates = seq(0.027, 0.03, length.out=3)
 importation_rate = data_consts$delta # because constant importation makes less sense in seasonal transmission
 population_size = data_consts$N
 ```
@@ -187,9 +187,10 @@ data_scenarios_sim = data_scenarios %>%
 data_scenarios_sim %>%
   distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
-  ggplot(aes(x = ts, y = cases, color=transmission_rates, group=interaction(seasonality_ratio, transmission_rates))) +
-  geom_line() +
+  ggplot(aes(x = ts, y = cases, group=interaction(seasonality_ratio, transmission_rates))) +
+  geom_point(alpha = 0.8) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
+  scale_y_log10() +
   facet_grid(vars(seasonality_ratio), vars(transmission_rates))
 ```
 
@@ -214,26 +215,27 @@ for (i in seq_len(nrow(data_scenarios_long))) {
     data_scenarios_long$eps[[i]] = aggregate_eps(data_scenarios_long$eps[[i]])
   }
 }
+run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
 
 tictoc::tic()
 # fits_all = list()
 # for (i in seq_len(nrow(data_scenarios_long))) {
 #   print(i)
-#   fits_all[[i]] = run_scenario_method(i)
+#   fits_all[[i]] = run_scenario_method(i, refresh=NULL)
 # }
-run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
+
 fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
   run_scenario_method(..., force=T)
 })
 
-for (i in seq_len(nrow(data_scenarios_long))) {
-  result = fits_all[[i]]$fit
-  if (result@mode == 2) {
-    # redo
-    message("Redoing row ", i)
-    fits_all[[i]] = run_scenario_method(i, force=T)
-  }
-}
+# for (i in seq_len(length(fits_all))) {
+#   result = fits_all[[i]]$fit
+#   if (result@mode == 2) {
+#     # redo
+#     message("Redoing row ", i)
+#     fits_all[[i]] = run_scenario_method(i, force=T, refresh=NULL)
+#   }
+# }
 tictoc::toc()
 
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
@@ -247,75 +249,113 @@ data_scenarios_long$est_lambda = lapply(fits_all, extract_lambda)
 data_scenarios_long$est_phi_inv = lapply(fits_all, extract_phi_inv)
 data_scenarios_long$time = lapply(fits_all, extract_runtime)
 data_scenarios_long$est_incidence = lapply(fits_all, extract_incidence)
+
+# check samples
+sapply(data_scenarios_long$est_lambda, class)
+sapply(data_scenarios_long$est_lambda, function(x) length(x))
 ```
 
 Compare densities for individual scenarios between methods
 
 ```{r}
-methods_count = sapply(names(comparison_colors), function(x) {
-  count = data_scenarios_long %>%
-    filter(method == x) %>%
-    nrow()
-})
-comparison_colors_count = comparison_colors
-names(comparison_colors_count) = methods_count
-
 plot_data = data_scenarios_long %>%
+  select(-ascertainment_rates, -radical_cure_rates, -importation_rate, -population_size) %>%
   mutate(rhat = calculate_rhat(est_lambda)) %>%
   unnest(c(est_lambda, rhat)) %>%
   # filter(rhat < 1.5) %>% # Get rid of instances that appeared to not converge
-  drop_na(est_lambda)
-
-plot_data = plot_data %>%
+  drop_na(est_lambda) %>%
   group_by(scenario_ID, method, rep) %>%
   mutate(trace = row_number()) %>%
   ungroup()
 
-for (id in unique(plot_data$scenario_ID)) {
-  .plot_cases = plot_data %>%
-    filter(scenario_ID == id,
-           method %>% str_detect("_seasonal")) %>%
-    slice(1) %>% 
-    unnest(c(ts, cases))
+for (i in seq_len(nrow(data_scenarios))) {
+  id = data_scenarios$scenario_ID[i]
+  this_scenario = data_scenarios_long %>%
+    filter(scenario_ID == id)
+  plot_cases_i = this_scenario %>%
+    filter(method %>% str_detect("_sea")) %>%
+    slice(1) %>%
+    unnest(c(ts, cases)) %>%
+    select(ts, cases)
   
-  .plot_posterior = plot_data %>%
-    filter(scenario_ID == id) %>%
-    select(-scenario_ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
+  title = with(this_scenario, paste0(id, ": lambda=", transmission_rates[1], " eps=", seasonality_ratio[1]))
   
-  true_value = .plot_posterior$transmission_rates[1]
+  # Case plot
+  p1 = ggplot(plot_cases_i, aes(x = ts/years, y = cases)) +
+    geom_point() +
+    labs(x = "Years")
+  
+  # Density plot
+  samples = this_scenario %>%
+    select(est_lambda, method, rep) %>%
+    unnest(est_lambda) %>%
+    group_by(method, rep) %>%
+    mutate(iteration = row_number())
+  
+  true_value = this_scenario$transmission_rates[1]
   xlim_buffer = 0.2
   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
   
-  title = with(.plot_posterior[1,], paste0(id, ": lambda=", transmission_rates, " eps=", seasonality_ratio))
-  
-  # Case plot
-  p1 = ggplot(.plot_cases, aes(x = ts/years, y = cases)) +
-    geom_point() +
-    labs(title = title, x = "Years")
-  
-  # Posterior density
-  p2  = .plot_posterior %>%
-    filter(est_lambda >= limits[1], est_lambda <= limits[2]) %>%
-    ggplot(aes(x = est_lambda, fill = method, color = method, group=interaction(method, rep))) +
-    # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
-    stat_density(position="identity", alpha = 0.25) +
+  p2 = ggplot(samples, aes(x = est_lambda, fill = method, color = method, group=interaction(method, rep))) +
+    geom_density(alpha=0.2) +
     geom_vline(aes(xintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
-    scale_fill_manual(values = comparison_colors) +
-    coord_cartesian(xlim = limits)
+    scale_fill_manual(values = comparison_colors)
   
-  # Trace plot
-  p3 = .plot_posterior %>%
-    group_by(method) %>%
-    ggplot(aes(x = trace, y = est_lambda, color = method, group=interaction(method, rep))) +
-    geom_line(alpha = 0.25) +
-    geom_hline(aes(yintercept = true_value), linetype="dashed") +
-    scale_colour_manual(values = comparison_colors) +
-    coord_cartesian(ylim = limits_2)
+  p3 = ggplot(samples, aes(x = iteration, y = est_lambda, color = method, group=interaction(method, rep))) +
+    geom_line(alpha=0.5) +
+    scale_colour_manual(values = comparison_colors)
   
-  print(p1 / p2 / p3 + plot_layout(guides = "collect"))
+  print(p1 / p2 / p3 + plot_layout(guides = "collect")+
+    plot_annotation(title = title)) 
 }
+# 
+# for (id in unique(plot_data$scenario_ID)) {
+#   .plot_cases = plot_data %>%
+#     filter(scenario_ID == id,
+#            method %>% str_detect("_seasonal")) %>%
+#     slice(1) %>% 
+#     unnest(c(ts, cases))
+#   
+#   .plot_posterior = plot_data %>%
+#     filter(scenario_ID == id) %>%
+#     select(-scenario_ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
+#   
+#   true_value = .plot_posterior$transmission_rates[1]
+#   xlim_buffer = 0.2
+#   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
+#   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
+#   
+#   title = with(.plot_posterior[1,], paste0(id, ": lambda=", transmission_rates, " eps=", seasonality_ratio))
+#   
+#   # Case plot
+#   p1 = ggplot(.plot_cases, aes(x = ts/years, y = cases)) +
+#     geom_point() +
+#     labs(title = title, x = "Years")
+#   
+#   # Posterior density
+#   p2  = .plot_posterior %>%
+#     filter(est_lambda >= limits[1], est_lambda <= limits[2]) %>%
+#     ggplot(aes(x = est_lambda, fill = method, color = method, group=interaction(method, rep))) +
+#     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
+#     stat_density(position="identity", alpha = 0.25) +
+#     geom_vline(aes(xintercept = true_value), linetype="dashed") +
+#     scale_colour_manual(values = comparison_colors) +
+#     scale_fill_manual(values = comparison_colors)# +
+#     # coord_cartesian(xlim = limits)
+#   
+#   # Trace plot
+#   p3 = .plot_posterior %>%
+#     group_by(method) %>%
+#     ggplot(aes(x = trace, y = est_lambda, color = method, group=interaction(method, rep))) +
+#     geom_line(alpha = 0.25) +
+#     geom_hline(aes(yintercept = true_value), linetype="dashed") +
+#     scale_colour_manual(values = comparison_colors)# +
+#     # coord_cartesian(ylim = limits_2)
+#   
+#   print(p1 / p2 / p3 + plot_layout(guides = "collect"))
+# }
 ```
 
 Some of these chains appear to not mix.
@@ -347,7 +387,7 @@ plot_data %>%
   geom_histogram(alpha = 0.7, binwidth=0.1) +
   scale_fill_manual(values = comparison_colors) +
   labs(title = "Did the runs converge?",
-       subtitle = paste(nrow(convergence), "runs had an rhat on lambda greater than", rhat_threshold)) +
+       subtitle = paste0(nrow(convergence), " runs had an rhat on lambda greater than ", rhat_threshold, " (max ", max(round(plot_data$rhat, 2)), ")")) +
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates))
 ```
@@ -356,23 +396,24 @@ What are the modelled incidence trends like?
 ```{r}
 valid_ix = which(sapply(data_scenarios_long$est_lambda, class) == "array")
 plot_data = lapply(valid_ix, function(i) {
-  incidence = data_scenarios_long$est_incidence[[i]]
-  ts = data_scenarios_long$ts[[i]]
-  incidence$ts = ts[incidence$j]
-  if (is.null(incidence)) {
+  incidence_df = data_scenarios_long$est_incidence[[i]]
+  if (is.null(incidence_df)) {
     return(NULL)
   }
-  dt = ts[2] - ts[1]
-  df = incidence %>%
-    mutate(method = data_scenarios_long$method[i],
-           daily_incidence = incidence / dt,
-           scenario_ID = data_scenarios_long$scenario_ID[i],
+  ts = data_scenarios_long$ts[[i]]
+  incidence_df$ts = ts[incidence_df$j]
+  if (data_scenarios_long$method[i] %>% str_detect("nons")) {
+    incidence_df$incidence = incidence_df$incidence * 1
+  }
+  incidence_df = incidence_df %>%
+    mutate(scenario_ID = data_scenarios_long$scenario_ID[i],
+           method = data_scenarios_long$method[i],
            rep = data_scenarios_long$rep[i])
 }) %>%
   bind_rows() %>%
   left_join(data_scenarios_long %>% select(-est_incidence, -ts),
             by = c("scenario_ID", "method", "rep")) %>%
-  select(scenario_ID, seasonality_ratio, transmission_rates, ts, method, rep, daily_incidence, trace)
+  select(scenario_ID, seasonality_ratio, transmission_rates, ts, method, rep, incidence, trace)
 
 
 daily_cases = lapply(valid_ix, function(i) {
@@ -388,17 +429,21 @@ daily_cases = lapply(valid_ix, function(i) {
 }) %>%
   bind_rows()
 
+plot_cases = data_scenarios_long %>%
+  unnest(c(ts, cases))
+
 data_scenarios_daily = data_scenarios_sim %>%
   mutate(daily_cases = lapply(cases, function(x) {x/(years/annual_subdivisions)})) %>%
   unnest(c(ts, daily_cases))
 
-ggplot(plot_data, aes(x=ts, y=daily_incidence, color=method, group=interaction(trace, method))) +
+ggplot(plot_data, aes(x=ts, y=incidence, color=method, group=interaction(trace, method))) +
   geom_line(alpha=0.2) +
-  geom_point(data=data_scenarios_daily, aes(x=ts, y=daily_cases, color=NULL, group=NULL), alpha=0.25) +
+  geom_point(data=plot_cases, aes(x=ts, y=cases, color=NULL, group=NULL), alpha=0.25) +
   # geom_line(data=plot_data, aes(y=daily_incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
   facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
              labeller = "label_both") +
-  coord_cartesian(ylim = c(0, NA))
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_color_manual(values = comparison_colors)
 ```
 
 What happens if we use these parameters in the full model?
@@ -443,6 +488,7 @@ ggplot(incidences_df, aes(x=t/years, y=daily_incidence, color=method, group=inte
   geom_point(data=data_scenarios_daily, aes(x=ts/years, y=daily_cases, color=NULL, group=NULL), alpha=0.25) +
   facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
              labeller = "label_both") +
+  scale_color_manual(values = comparison_colors) +
   labs("Re-simulated mean incidences using the true seasonality",
        x = "Years",
        y = "Cases/mean cases (per month)")

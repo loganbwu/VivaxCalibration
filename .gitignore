@@ -9,3 +9,7 @@
 *.rds
 **/.DS_Store
 Rmd/mendeley.bib
+
+**/*.png
+**/*.svg
+**/*.jpg

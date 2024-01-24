@@ -12,22 +12,20 @@ model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
-poisson_nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
+poisson_nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0, refresh=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  .data$omega = .omega
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
   # .data_agg = aggregate_data(.data)
   
   # optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
-  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  .theta_init = list(lambda = true_lambda,
-                     phi_inv = true_phi_inv)
+  # .theta_init = as.list(optim_ext$par[c("lambda")])
+  .theta_init = list(lambda = true_lambda)
   
   .fit = sampling(stan_model_champagne2022_poisson,
                   data = .data,
@@ -36,19 +34,18 @@ poisson_nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
                   control = list(max_treedepth = 4),
-                  refresh = 0)
+                  refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda %>% as.numeric())
   return(.fit)
 }
 
-nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
+nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0, refresh=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  .data$omega = .omega
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
@@ -57,7 +54,7 @@ nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta,
   # optim_ext = optimizing(stan_model_champagne2022, data=.data)
   # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
   .theta_init = list(lambda = true_lambda,
-                     phi_inv = true_phi_inv,)
+                     phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022,
                   data = .data,
@@ -66,27 +63,25 @@ nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
                   control = list(max_treedepth = 4),
-                  refresh = 0)
+                  refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
   return(.fit)
 }
 
-poisson_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
+poisson_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0, refresh=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  .data$omega = .omega
-  .data$eps = .eps
+  .data$eps = true_eps
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
   # optim_ext = optimizing(stan_model_champagne2022_seasonal_poisson, data=.data)
-  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
-  .theta_init = list(lambda = true_lambda,
-                     phi_inv = true_phi_inv)
+  # .theta_init = as.list(optim_ext$par[c("lambda")])
+  .theta_init = list(lambda = true_lambda)
   
   .fit = sampling(stan_model_champagne2022_seasonal_poisson,
                   data = .data,
@@ -95,20 +90,19 @@ poisson_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
                   control = list(max_treedepth = 4),
-                  refresh = 0)
+                  refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
   return(.fit)
 }
 
-seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
+seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0, refresh=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  # .data$omega = .omega
-  .data$eps = .eps
+  .data$eps = true_eps
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
@@ -125,19 +119,18 @@ seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .o
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
                   control = list(max_treedepth = 4),
-                  refresh = 0)
+                  refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
   return(.fit)
 }
 
-extended_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0) {
+extended_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0, refresh=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
   .data$alpha = .alpha
   .data$beta = .beta
-  # .data$omega = .omega
   # .data$eps = true_eps
   # .data$phase = true_phase
   .data$n_times = length(.data$cases)
@@ -158,7 +151,7 @@ extended_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, 
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
                   control = list(max_treedepth = 4),
-                  refresh = 0)
+                  refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
   return(.fit)
@@ -190,44 +183,55 @@ methods = tibble(
 # }
 
 #' @param i index
-run_scenario_method = function(i, force=F) {
-  folder = "../run_scenario_method"
-  out_path = file.path(folder, paste0("row_", i, ".rds"))
-  if (!dir.exists(folder)) {
-    dir.create(folder)
-  }
-  if (file.exists(out_path) & !force) {
-    result = read_rds(out_path)
-    if (!is.null(result$fit)) {
-      return(result)
-    }
-  }
+run_scenario_method = function(i, force=F, refresh=0) {
+  # folder = "../run_scenario_method"
+  # out_path = file.path(folder, paste0("row_", i, ".rds"))
+  # if (!dir.exists(folder)) {
+  #   dir.create(folder)
+  # }
+  # if (file.exists(out_path) & !force) {
+  #   result = read_rds(out_path)
+  #   if (!is.null(result$fit)) {
+  #     return(result)
+  #   }
+  # }
   start = Sys.time()
   .method = data_scenarios_long$method[i]
   row = data_scenarios_long[i,]
   fit = withTimeout({
     if (.method == "lambda_nonseasonal_poisson") {
-      poisson_nonseasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
+      f = poisson_nonseasonal_sol
     }
     else if (.method == "lambda_nonseasonal_negbin") {
-      nonseasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
+      f = nonseasonal_sol
     }
     else if (.method == "lambda_seasonal_poisson") {
-      poisson_seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      f = poisson_seasonal_sol
     }
     else if (.method == "lambda_seasonal_negbin") {
-      seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      f = seasonal_sol
     }
     else if (.method == "lambda_seasonal_negbin_ext") {
-      extended_seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      f = extended_seasonal_sol
     } else {
       stop("Method invalid")
     }
+    result = f(data_consts = data_consts,
+               .cases = row$cases[[1]],
+               .population_size = row$population_size,
+               .alpha = row$ascertainment_rates,
+               .beta = row$radical_cure_rates,
+               true_eps = row$seasonality_ratio,
+               true_lambda = row$transmission_rates,
+               true_phi_inv = 0.1,
+               true_kappa = 1,
+               true_phase = 0,
+               refresh = 0)
   }, timeout=timelimit_per_run, onTimeout="warning")
   end = Sys.time()
   
   result = list(fit = fit, time = end - start)
-  write_rds(result, out_path, compress="gz")
+  # write_rds(result, out_path, compress="gz")
   
   return(result)
 }
