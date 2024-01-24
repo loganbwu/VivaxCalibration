@@ -62,7 +62,7 @@ First we implement and verify the parameter recovery ability of Stan with the Ch
 ```{r}
 # perform simulation study
 dt = years/annual_subdivisions
-t0 = -50*years
+t0 = -100*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t)
 N = 10000 # population size
@@ -218,24 +218,10 @@ for (i in seq_len(nrow(data_scenarios_long))) {
 run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
 
 tictoc::tic()
-# fits_all = list()
-# for (i in seq_len(nrow(data_scenarios_long))) {
-#   print(i)
-#   fits_all[[i]] = run_scenario_method(i, refresh=NULL)
-# }
-
 fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
   run_scenario_method(..., force=T)
 })
 
-# for (i in seq_len(length(fits_all))) {
-#   result = fits_all[[i]]$fit
-#   if (result@mode == 2) {
-#     # redo
-#     message("Redoing row ", i)
-#     fits_all[[i]] = run_scenario_method(i, force=T, refresh=NULL)
-#   }
-# }
 tictoc::toc()
 
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
@@ -293,7 +279,7 @@ for (i in seq_len(nrow(data_scenarios))) {
     mutate(iteration = row_number())
   
   true_value = this_scenario$transmission_rates[1]
-  xlim_buffer = 0.2
+  xlim_buffer = 0.1
   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
   
@@ -301,61 +287,17 @@ for (i in seq_len(nrow(data_scenarios))) {
     geom_density(alpha=0.2) +
     geom_vline(aes(xintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = comparison_colors) +
-    scale_fill_manual(values = comparison_colors)
+    scale_fill_manual(values = comparison_colors) +
+    coord_cartesian(xlim = limits)
   
   p3 = ggplot(samples, aes(x = iteration, y = est_lambda, color = method, group=interaction(method, rep))) +
     geom_line(alpha=0.5) +
-    scale_colour_manual(values = comparison_colors)
+    scale_colour_manual(values = comparison_colors) +
+    coord_cartesian(ylim = limits_2)
   
   print(p1 / p2 / p3 + plot_layout(guides = "collect")+
     plot_annotation(title = title)) 
 }
-# 
-# for (id in unique(plot_data$scenario_ID)) {
-#   .plot_cases = plot_data %>%
-#     filter(scenario_ID == id,
-#            method %>% str_detect("_seasonal")) %>%
-#     slice(1) %>% 
-#     unnest(c(ts, cases))
-#   
-#   .plot_posterior = plot_data %>%
-#     filter(scenario_ID == id) %>%
-#     select(-scenario_ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
-#   
-#   true_value = .plot_posterior$transmission_rates[1]
-#   xlim_buffer = 0.2
-#   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
-#   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
-#   
-#   title = with(.plot_posterior[1,], paste0(id, ": lambda=", transmission_rates, " eps=", seasonality_ratio))
-#   
-#   # Case plot
-#   p1 = ggplot(.plot_cases, aes(x = ts/years, y = cases)) +
-#     geom_point() +
-#     labs(title = title, x = "Years")
-#   
-#   # Posterior density
-#   p2  = .plot_posterior %>%
-#     filter(est_lambda >= limits[1], est_lambda <= limits[2]) %>%
-#     ggplot(aes(x = est_lambda, fill = method, color = method, group=interaction(method, rep))) +
-#     # ggplot(aes(x = estimate, y = ..scaled.., fill = method, color = method)) +
-#     stat_density(position="identity", alpha = 0.25) +
-#     geom_vline(aes(xintercept = true_value), linetype="dashed") +
-#     scale_colour_manual(values = comparison_colors) +
-#     scale_fill_manual(values = comparison_colors)# +
-#     # coord_cartesian(xlim = limits)
-#   
-#   # Trace plot
-#   p3 = .plot_posterior %>%
-#     group_by(method) %>%
-#     ggplot(aes(x = trace, y = est_lambda, color = method, group=interaction(method, rep))) +
-#     geom_line(alpha = 0.25) +
-#     geom_hline(aes(yintercept = true_value), linetype="dashed") +
-#     scale_colour_manual(values = comparison_colors)# +
-#     # coord_cartesian(ylim = limits_2)
-#   
-#   print(p1 / p2 / p3 + plot_layout(guides = "collect"))
-# }
 ```
 
 Some of these chains appear to not mix.
@@ -464,7 +406,6 @@ for (i in seq_len(nrow(data_scenarios_long))) {
                     eps = dat$seasonality_ratio,
                     N = dat$population_size,
                     index = i)
-    # .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, sample(unlist(dat$est_lambda), 1), dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
   })
   x = x["data.frame" %in% sapply(x, class)]
   
