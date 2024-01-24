@@ -76,7 +76,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0, upper=0.05> lambda;
+  real<lower=0, upper=0.999> lambda;
   real<lower=0, upper=10> phi_inv;
 }
 
@@ -99,7 +99,7 @@ model {
   //priors
   lambda ~ normal(0, 1e4);
   
-  phi_inv ~ exponential(0.1);
+  phi_inv ~ exponential(5);
   
   //sampling distribution
   for (i in 1:(n_times - 1))

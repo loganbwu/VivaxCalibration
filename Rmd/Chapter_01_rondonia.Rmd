@@ -30,19 +30,19 @@ library(patchwork)
 library(pbmcapply)
 library(pbapply)
 library(memoise)
+library(RColorBrewer)
 source("../R/constants.R")
 # source("../R/methods.R")
 
 model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
+model_champagne2022 = "stan/champagne2022.stan"
+stan_model_champagne2022 = stan_model(model_champagne2022)
 
 n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
-
-# Store generated data here
-cd = cachem::cache_disk("sim_data")
 
 n_years = 5
 n_iter = 500 # should be at least 500
@@ -51,10 +51,13 @@ n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
-n_traces = 100 # limit for plotting sample trajectories
+n_traces = 200 # limit for plotting sample trajectories
 
 methods = methods %>%
   head(4)
+
+param_colors = brewer.pal(4, "Set2")
+names(param_colors) = c("lambda", "phi", "eps", "kappa")
 ```
 
 ## Model implementation
@@ -91,9 +94,7 @@ data_consts = list(n_times = n_times+1,
                    delta = 0,
                    eps = 0,
                    kappa = 1,
-                   phase = 0,
-                   y0 = y0,
-                   t0 = t0
+                   phase = 0
 )
 ```
 
@@ -110,18 +111,34 @@ We will not be investigating Chinese Yunnan (southern mountainous) or Henan (cen
 ```{r}
 path = "/Users/wu.l/Documents/MalariaData/data-raw/brazil/integrated_dataset_Baroni2020.RData"
 load(path)
-rondonia = integrated_dataset %>%
+rondonia.all = integrated_dataset %>%
   filter(exam.result == "vivax",
-         infection.state == "RO",
-         notification.year >= 2014) %>%
+         infection.state == "RO") %>%
   mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
-  count(notification.date, name = "cases")
+  count(notification.year, notification.date, name = "cases") %>%
+  mutate(include = ifelse(notification.year >= 2014 & notification.year <= 2018, "grey20", "grey")) %>%
+  as_tibble()
 
-ggplot(rondonia, aes(x = notification.date, y=cases)) +
-  geom_point() +
+ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
+  annotate("rect", xmin=as.Date("2014-01-01"), xmax=as.Date("2018-12-31"), ymin=-Inf, ymax=Inf,
+           fill = "blue", alpha = 0.15) +
+  geom_col() +
   coord_cartesian(ylim = c(0, NA)) +
-  labs(title = "Vivax cases from Rondonia")
+  scale_x_date(date_breaks = "years", date_labels = "%Y") +
+  scale_fill_identity() +
+  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
+       x = "Notification date",
+       y = "Cases")
+
+ggsave("plots/rondonia_selected.png", width=8, height=4)
+
+rondonia = rondonia.all %>%
+  filter(include == "grey20")
+
+date_0 = min(rondonia$notification.date)
 ```
+
+Create data for the full model
 
 ```{r}
 data_ro = data_consts
@@ -130,48 +147,11 @@ data_ro$cases = rondonia$cases
 data_ro$ts = seq_len(nrow(rondonia)) * years / annual_subdivisions
 data_ro$n_times = nrow(rondonia)
 data_ro$phase = 365.25*0.5
-
-# Use BFGS
-optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=data_ro)
-theta_opt = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
-
-mle_synth_df = my_simulate_data(
-  file = model_champagne2022_seasonal_ext,
-  path = "sim_data",
-  data_name = "rondonia_fit",
-  input_data = data_ro,
-  param_values = theta_opt,
-  vars = c("ts", "incidence", "sim_cases", "foi", "susceptible", "infectious", "latent")
-)
-
-mle_synth_df %>%
-  ggplot(aes(x = ts/years, y = cases)) +
-  geom_point() +
-  geom_line(aes(y = incidence)) +
-  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), color="steelblue") +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = seq(0, 100)) +
-  labs(title = "Rondonia, Brazil: Maximum likelihood fit",
-       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
-       x = "Years",
-       y = "Cases / mean incidence")
-
-mle_synth_df %>%
-  pivot_longer(c(susceptible, infectious, latent), names_to="compartment", values_to="proportion") %>%
-  ggplot(aes(x = ts/years, y = proportion, color=compartment)) +
-  geom_line() +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "Compartment",
-       x = "Years",
-       y = "Proportion")
 ```
 
-Repeat for the nonseasonal model
+Create data for the nonseasonal model
 
 ```{r}
-model_champagne2022 = "stan/champagne2022.stan"
-stan_model_champagne2022 = stan_model(model_champagne2022)
-
 rondonia_agg = integrated_dataset %>%
   filter(exam.result == "vivax",
          infection.state == "RO",
@@ -187,116 +167,175 @@ data_ro_agg$ts = seq_len(nrow(rondonia_agg)) * years
 data_ro_agg$n_times = nrow(rondonia_agg)
 data_ro_agg$y0 = data_consts$y0
 data_ro_agg$t0 = data_consts$t0
-
-optim_ext_agg = optimizing(stan_model_champagne2022, data=data_ro_agg)
-theta_opt_agg = as.list(optim_ext_agg$par[c("lambda", "phi_inv")])
-
-mle_synth_df_nonseasonal = my_simulate_data(
-  file = model_champagne2022_seasonal_ext,
-  path = "sim_data",
-  data_name = "rondonia_fit",
-  input_data = data_ro_agg,
-  param_values = theta_opt_agg,
-  vars = c("ts", "incidence", "sim_cases")
-)
-
-mle_synth_df_nonseasonal %>%
-  ggplot(aes(x = ts/years, y = cases)) +
-  geom_point() +
-  geom_line(aes(y = incidence)) +
-  geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases), color="steelblue") +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = seq(0, 100)) +
-  labs(title = "Rondonia, Brazil: Maximum likelihood fit",
-       subtitle = "Blue: real data\nBlack: simulated cases and mean incidence",
-       x = "Years",
-       y = "Cases / mean incidence")
 ```
 
-Try again but with sampling
+Perform MCMC sampling for both models
 
 ```{r}
 samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
-                    chains = 4,
+                    chains = n_chains,
                     # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                    cores = 4,
+                    cores = n_cores,
                     control = list(max_treedepth = 4))
 
-incidence = rstan::extract(samp_ext, "incidence")[[1]]
-ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-ts_sample = as_tibble(t(incidence[ix,])) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  mutate(ts = data_ro$ts[j])
+samp_ext_nonseasonal = sampling(stan_model_champagne2022,
+                                data = data_ro_agg,
+                                iter = n_iter,
+                                chains = n_chains,
+                                # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                                cores = n_cores,
+                                control = list(max_treedepth = 4))
+```
 
-ggplot(ts_sample, aes(x=ts/years, y=incidence, group=trace)) +
-  geom_line(alpha = 10/n_traces) +
-  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases),
-             aes(y = cases, group = NULL),
-             color="steelblue") +
-  coord_cartesian(ylim = c(0, NA)) +
-  labs(title = "Rondonia, Brazil: Posterior fit",
-       subtitle = "Blue: real data\nBlack: Traces of mean incidence",
-       x = "Years",
-       y = "Cases / mean incidence")
 
+```{r}
+# inspect parameter posteriors
 posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa")) %>%
   as_tibble()
 
-# inspect parameter posteriors
-posterior_seasonal %>%
+p_seasonal_posterior = posterior_seasonal %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free")
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Seasonal model")
+
+# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
+
+
+# Plot credible intervals
+incidence = rstan::extract(samp_ext, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  group_by(j) %>%
+  mutate(ts = data_ro$ts[j],
+         lower = quantile(incidence, 0.025),
+         upper = quantile(incidence, 0.975),
+         legend = "95% prediction interval")
+
+sim_cases = rstan::extract(samp_ext, "sim_cases")[[1]]
+sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
+  group_by(j) %>%
+  mutate(ts = data_ro$ts[j],
+         lower = quantile(sim_cases, 0.025),
+         upper = quantile(sim_cases, 0.975),
+         legend = "95% prediction interval") %>%
+  distinct(j, .keep_all=T)
+
+p_seasonal_ci = ggplot(mapping = aes(x=ts + date_0)) +
+  geom_ribbon(data = sim_cases_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
+              alpha = 0.5) +
+  geom_ribbon(data = incidence_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
+              alpha = 0.5) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases),
+             aes(y = cases, group = NULL, color="Incidence data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(subtitle = "Seasonal model, monthly data",
+       x = "Year",
+       y = "Annual incidence")
+
+# ggsave("plots/rondonia_seasonal_ci.png", width=8, height=4)
 ```
 
 And, non-seasonal
 
 ```{r}
-samp_ext_nonseasonal = sampling(stan_model_champagne2022,
-                                data = data_ro_agg,
-                                iter = n_iter,
-                                chains = 4,
-                                # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                                cores = 4,
-                                control = list(max_treedepth = 4))
-
-incidence = rstan::extract(samp_ext_nonseasonal, "incidence")[[1]]
-ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-ts_sample_nonseasonal = as_tibble(t(incidence[ix,])) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  mutate(ts = data_ro_agg$ts[j])
-
-ggplot(ts_sample_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
-  geom_line(alpha = 10/n_traces) +
-  geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
-             aes(y = cases, group = NULL),
-             color="steelblue") +
-  coord_cartesian(ylim = c(0, NA)) +
-  labs(title = "Rondonia, Brazil: Posterior fit",
-       subtitle = "Blue: real data\nBlack: Traces of mean incidence",
-       x = "Years",
-       y = "Cases / mean incidence")
-
 # inspect parameter posteriors
 posterior_nonseasonal = rstan::extract(samp_ext_nonseasonal, c("lambda", "phi_inv")) %>%
   as_tibble()
 
-posterior_nonseasonal %>%
+# Plot posterior densities
+p_ns_posterior = posterior_nonseasonal %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free")
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Non-seasonal model")
+
+# ggsave("plots/rondonia_ns_posterior.png", width=8, height=4)
+
+# Plot traces
+incidence = rstan::extract(samp_ext_nonseasonal, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  mutate(ts = data_ro_agg$ts[j],
+         lower = quantile(incidence, 0.025),
+         upper = quantile(incidence, 0.975),
+         legend = "95% prediction interval")
+
+sim_cases = rstan::extract(samp_ext_nonseasonal, "sim_cases")[[1]]
+sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
+  mutate(ts = data_ro_agg$ts[j],
+         lower = quantile(sim_cases, 0.025),
+         upper = quantile(sim_cases, 0.975),
+         legend = "95% prediction interval") %>%
+  distinct(ts, .keep_all=T)
+
+p_ns_ci = ggplot(mapping = aes(x=ts + date_0)) +
+  geom_ribbon(data = sim_cases_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
+              alpha = 0.5) +
+  geom_ribbon(data = incidence_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
+              alpha = 0.5) +
+  geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
+             aes(y = cases, group = NULL, color="Incidence data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(subtitle = "Non-seasonal model, annual data",
+       x = "Year",
+       y = "Annual incidence")
+
+# ggsave("plots/rondonia_ns_ci.png", width=8, height=4)
+```
+
+Generate subplots
+
+```{r}
+p_seasonal_ci + p_ns_ci + plot_layout(guides = "collect") +
+  plot_annotation(title = "Posterior model fits",
+                  tag_levels = "A")
+ggsave("plots/ci.png", width=8, height=4)
+
+p_seasonal_posterior + p_ns_posterior + theme(legend.position="none") +
+  plot_layout(guides = "collect") +
+  plot_annotation("Posterior parameter estimates",
+                  tag_levels = "A")
+  
+ggsave("plots/posterior.png", width=8, height=4)
 ```
 
 What if we used the steady-state fit to simulate posteriors in the full model?
@@ -304,11 +343,12 @@ What if we used the steady-state fit to simulate posteriors in the full model?
 ```{r}
 n_samples = 500
 composite_list = pbmclapply(seq_len(n_samples), function(i) {
-  theta_composite = theta_opt
-  theta_composite$lambda = sample(posterior_nonseasonal$lambda, 1)
-  theta_composite$phi_inv = 0.1 # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
-  theta_composite$eps = sample(posterior_seasonal$eps, 1)
-  theta_composite$kappa = sample(posterior_seasonal$kappa, 1)
+  theta_composite = list(
+    lambda = sample(posterior_nonseasonal$lambda, 1),
+    phi_inv = 0.1, # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
+    eps = sample(posterior_seasonal$eps, 1),
+    kappa = sample(posterior_seasonal$kappa, 1)
+  )
   
   my_simulate_data(
     file = model_champagne2022_seasonal_ext,
@@ -321,27 +361,37 @@ composite_list = pbmclapply(seq_len(n_samples), function(i) {
 })
 composite_list[sapply(composite_list, function(x) {"try-error" %in% class(x)})] <- NULL
 
+incidence = rstan::extract(samp_ext, "incidence")[[1]]
+ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+ts_sample = as_tibble(t(incidence[ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  mutate(ts = data_ro$ts[j])
+
 posterior_comparison = composite_list %>%
   bind_rows(.id = "trace") %>%
-  mutate(method = "composite") %>%
-  bind_rows(ts_sample %>% mutate(method = "simultaneous", j=NULL)) %>%
+  mutate(method = "Nonseasonal calibration\nwith seasonality added") %>%
+  bind_rows(ts_sample %>% mutate(method = "Seasonal model calibration", j=NULL)) %>%
   as_tibble()
 
 posterior_comparison %>%
-  ggplot(aes(x = ts/years, y = incidence)) +
-  geom_line(aes(color=method, group=trace), alpha=0.2) +
-  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases), aes(y=cases)) +
+  ggplot(aes(x = ts+date_0, y = incidence)) +
+  geom_line(aes(color=method, group=trace), alpha=0.1) +
+  geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases, color="Incidence data"), aes(y=cases)) +
   coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = seq(0, 100)) +
-  labs(title = "Rondonia, Brazil: Seasonality added to nonseasonal posterior fit",
-       subtitle = "Blue: real data\nBlack: simulated mean incidence",
-       x = "Years",
+  scale_colour_manual(NULL, 
+                      breaks = c("Incidence data", "Seasonal model calibration", "Nonseasonal calibration\nwith seasonality added"),
+                      values = c("black", "tomato", "steelblue")) +
+  guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  labs(title = "True seasonality added to nonseasonal posterior fit",
+       color = "Calibration routine",
+       x = "Year",
        y = "Cases / mean incidence")
+
+ggsave("plots/rondonia_composite.png", width=8, height=4)
 ```
 
 With the parameter posterior distributions, we can start to discuss outcomes. We expect that the main advancement here is demonstrating heterogeneity in epidemic parameters; while it is clear there is heterogeneity in prevalence, administrative data is not normally able to demonstrate this. As James highlighted, this also raises the question of whether multiple regions should comprise a hierarchical model. The Brazilian data is very comprehensive across regions and makes this logical, but I suggest exploring this after performing independent modelling first.
-
-
 
 ## Extension to include time-varying transmission levels
 
@@ -350,3 +400,7 @@ The Chinese and Brazilian datasets include longitudinal data for long enough to 
 We will modify the Champagne model's transmission rate $\lambda$ to be time-varying, $\lambda(t)$. The functional form of $\lambda(t)$ is unclear but is constrained by the information available to fit it. For example, we will never know if a decrease in trend is due to natural decay to a low equilibrium, or due to a decreasing $\lambda(t)$. However, by finding a *reasonable* form, $\lambda(t)$ will account for long-term variation that cannot be explained by other parameters and we hope it will allow the other parameters to be recovered in scenarios where there is no form of static or dynamic steady-state at play.
 
 At a minimum, $\lambda(t)$ will be a piecewise-constant or piecewise-linear function with breakpoints set manually when there are obvious changes in transmission intensity. This may prove sufficient. Other suggestions include particle filtering methods such as Kalman filtering.
+
+```{r}
+print("Done.")
+```

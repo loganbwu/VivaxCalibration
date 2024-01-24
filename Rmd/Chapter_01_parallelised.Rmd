@@ -38,7 +38,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 # Store generated data here
-cd = cachem::cache_disk("sim_data")
+cd = cachem::cache_disk("memoise")
 
 n_years = 5
 n_iter = 500 # should be at least 500
@@ -65,7 +65,7 @@ dt = years/annual_subdivisions
 t0 = -50*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t)
-N = 1000 # population size
+N = 10000 # population size
 
 #initial conditions
 I_init = 0.01
@@ -81,8 +81,8 @@ data_consts = list(n_times = n_times+1,
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
-                   alpha = 0.21, # alpha
-                   beta = 0.66, # beta
+                   alpha = 0.615, # alpha, 0.437/0.713
+                   beta = 0.713, # beta, Nekkab 2021
                    rho = 0.21, # rho
                    delta = 0,
                    eps = 0,
@@ -104,13 +104,13 @@ Scenarios include sequences of scenarios. For example, low-transmission tropical
 ```{r}
 # ascertainment_rates = c(0.25, 0.5, 0.75, 1)
 # radical_cure_rates = seq(0, 1, by=0.2)
-radical_cure_rates = 0.66
 ascertainment_rates = data_consts$alpha
-seasonality_ratio = seq(0, 1, length.out=2)
+radical_cure_rates = data_consts$beta
+seasonality_ratio = seq(0, 1, length.out=3)
 # radical_cure_rates = data_consts$beta
-transmission_rates = seq(0.01, 0.02, by=0.005)
-importation_rate = 0 # because constant importation makes less sense in seasonal transmission
-population_size = N
+transmission_rates = seq(0.03, 0.09, length.out=3)
+importation_rate = data_consts$delta # because constant importation makes less sense in seasonal transmission
+population_size = data_consts$N
 ```
 
 Expand scenarios into a grid and generate synthetic data.
@@ -150,6 +150,8 @@ data_scenarios = expand_grid(
     vars = c("ts", "incidence", "sim_cases", "susceptible")
   ))
 }
+x = .simulate_cases(lambda=0.05)
+
 # Add cases onto a dataframe of scenarios based on its parameter columns
 simulate_cases = function(.scenarios) {
   cases_scenarios = pbmclapply(seq_len(nrow(.scenarios)), function(i) {
@@ -179,7 +181,7 @@ data_scenarios_sim = data_scenarios %>%
   mutate(rep = row_number()) %>%
   ungroup() %>%
   simulate_cases()
-  # simulate_cases_memo()
+# simulate_cases_memo()
 
 # Display scenarios
 data_scenarios_sim %>%
@@ -214,7 +216,24 @@ for (i in seq_len(nrow(data_scenarios_long))) {
 }
 
 tictoc::tic()
-fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+# fits_all = list()
+# for (i in seq_len(nrow(data_scenarios_long))) {
+#   print(i)
+#   fits_all[[i]] = run_scenario_method(i)
+# }
+run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
+fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
+  run_scenario_method(..., force=T)
+})
+
+for (i in seq_len(nrow(data_scenarios_long))) {
+  result = fits_all[[i]]$fit
+  if (result@mode == 2) {
+    # redo
+    message("Redoing row ", i)
+    fits_all[[i]] = run_scenario_method(i, force=T)
+  }
+}
 tictoc::toc()
 
 workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
@@ -261,12 +280,10 @@ for (id in unique(plot_data$scenario_ID)) {
   
   .plot_posterior = plot_data %>%
     filter(scenario_ID == id) %>%
-    # filter(estimate > lq,
-    #        estimate < uq) %>%
     select(-scenario_ID, -ascertainment_rates, -radical_cure_rates, -population_size, -cases, -ts)
   
   true_value = .plot_posterior$transmission_rates[1]
-  xlim_buffer = 0.1
+  xlim_buffer = 0.2
   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
   
@@ -337,42 +354,48 @@ plot_data %>%
 What are the modelled incidence trends like?
 
 ```{r}
-plot_data = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
+valid_ix = which(sapply(data_scenarios_long$est_lambda, class) == "array")
+plot_data = lapply(valid_ix, function(i) {
   incidence = data_scenarios_long$est_incidence[[i]]
+  ts = data_scenarios_long$ts[[i]]
+  incidence$ts = ts[incidence$j]
   if (is.null(incidence)) {
     return(NULL)
   }
-  ts = data_scenarios_long$ts[[i]]
-  dt = ts[[2]] - ts[[1]]
+  dt = ts[2] - ts[1]
   df = incidence %>%
     mutate(method = data_scenarios_long$method[i],
-           t = ts[j] - years/annual_subdivisions + ifelse(method %>% str_detect("nonseasonal"), years, 0),
            daily_incidence = incidence / dt,
            scenario_ID = data_scenarios_long$scenario_ID[i],
            rep = data_scenarios_long$rep[i])
 }) %>%
   bind_rows() %>%
-  left_join(data_scenarios_long %>% select(-est_incidence),
+  left_join(data_scenarios_long %>% select(-est_incidence, -ts),
             by = c("scenario_ID", "method", "rep")) %>%
-  select(scenario_ID, seasonality_ratio, transmission_rates,  method, rep, t, daily_incidence, trace)
+  select(scenario_ID, seasonality_ratio, transmission_rates, ts, method, rep, daily_incidence, trace)
 
 
-plot_data_cases = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
+daily_cases = lapply(valid_ix, function(i) {
   t = data_scenarios_long$ts[[i]]
   cases = data_scenarios_long$cases[[i]]
   dt = t[2] - t[1]
   tibble(t = t,
-         cases = cases / dt,
+         daily_cases = cases / dt,
          scenario_ID = data_scenarios_long$scenario_ID[i],
          seasonality_ratio = data_scenarios_long$seasonality_ratio[i],
          transmission_rates = data_scenarios_long$transmission_rates[i],
-         rep = data_scenarios_long$rep[i])
+         trace = data_scenarios_long$rep[i])
 }) %>%
   bind_rows()
 
-ggplot(data=plot_data_cases, aes(x=t, y=cases)) +
-  geom_point() +
-  geom_line(data=plot_data, aes(y=daily_incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
+data_scenarios_daily = data_scenarios_sim %>%
+  mutate(daily_cases = lapply(cases, function(x) {x/(years/annual_subdivisions)})) %>%
+  unnest(c(ts, daily_cases))
+
+ggplot(plot_data, aes(x=ts, y=daily_incidence, color=method, group=interaction(trace, method))) +
+  geom_line(alpha=0.2) +
+  geom_point(data=data_scenarios_daily, aes(x=ts, y=daily_cases, color=NULL, group=NULL), alpha=0.25) +
+  # geom_line(data=plot_data, aes(y=daily_incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
   facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
              labeller = "label_both") +
   coord_cartesian(ylim = c(0, NA))
@@ -381,14 +404,24 @@ ggplot(data=plot_data_cases, aes(x=t, y=cases)) +
 What happens if we use these parameters in the full model?
 
 ```{r}
-n_traces = 100
+n_traces = 10
 incidences = list()
 for (i in seq_len(nrow(data_scenarios_long))) {
   dat = data_scenarios_long[i,]
   x = pbmclapply(seq_len(n_traces), function (j) {
-    .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, sample(unlist(dat$est_lambda), 1), dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
+    y = .simulate_cases(alpha = dat$ascertainment_rates,
+                    beta = dat$radical_cure_rates,
+                    lambda = sample(unlist(dat$est_lambda), 1),
+                    phi_inv = 0.1,
+                    delta = dat$importation_rate,
+                    kappa = 1,
+                    phase = 0,
+                    eps = dat$seasonality_ratio,
+                    N = dat$population_size,
+                    index = i)
+    # .simulate_cases(dat$ascertainment_rates, dat$radical_cure_rates, sample(unlist(dat$est_lambda), 1), dat$importation_rate, dat$seasonality_ratio, dat$population_size, index=i)
   })
-  x = x["data.frame" == sapply(x, class)]
+  x = x["data.frame" %in% sapply(x, class)]
   
   incidences[[i]] = x %>%
     bind_rows(.id = "trace")
@@ -404,14 +437,14 @@ incidences_df = bind_rows(incidences, .id = "i") %>%
          transmission_rates = data_scenarios_long$transmission_rates[i],
          seasonality_ratio = data_scenarios_long$seasonality_ratio[i])
 
-ggplot(data=plot_data_cases, aes(x=t, y=cases*years/annual_subdivisions)) +
-  geom_point() +
-  geom_line(data=incidences_df, aes(x=ts, y=incidence, color=method, group=interaction(method, trace)), alpha=0.2) +
+# plot predictions
+ggplot(incidences_df, aes(x=t/years, y=daily_incidence, color=method, group=interaction(method, trace))) +
+  geom_line(alpha=0.2) +
+  geom_point(data=data_scenarios_daily, aes(x=ts/years, y=daily_cases, color=NULL, group=NULL), alpha=0.25) +
   facet_wrap(vars(seasonality_ratio, transmission_rates), scales="free",
              labeller = "label_both") +
-  coord_cartesian(ylim = c(0, NA)) +
-  labs(title = "Case data fit using each method then (mean) re-simulated with the true model",
-       subtitle = "Re-adding seasonality after fitting a nonseasonal gives different results. (Predictions of 0 are convergence failures)",
+  labs("Re-simulated mean incidences using the true seasonality",
+       x = "Years",
        y = "Cases/mean cases (per month)")
 ```
 
@@ -429,9 +462,6 @@ We will modify the Champagne model's transmission rate $\lambda$ to be time-vary
 At a minimum, $\lambda(t)$ will be a piecewise-constant or piecewise-linear function with breakpoints set manually when there are obvious changes in transmission intensity. This may prove sufficient. Other suggestions include particle filtering methods such as Kalman filtering.
 
 ```{r}
-lambda = function(t, ...) {
-  
-}
+print("Done.")
 ```
-
 _

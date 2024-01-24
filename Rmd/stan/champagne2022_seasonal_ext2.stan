@@ -74,7 +74,7 @@ transformed data {
 parameters {
   real<lower=0, upper=0.9> lambda;
   real<lower=0, upper=1> eps;
-  real<lower=0, upper=20> kappa;
+  real<lower=0.01, upper=99> kappa;
   real<lower=0, upper=10> phi_inv;
 }
 
@@ -92,16 +92,16 @@ transformed parameters{
   }
   
   for (i in 1:n_times-1)
-  incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N);
+  incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
 }
 
 model {
   //priors
   lambda ~ normal(0, 1e4);
   eps ~ uniform(0, 1);
-  kappa ~ uniform(0.01, 99);
+  kappa ~ exponential(0.1);
   
-  phi_inv ~ exponential(0.1);
+  phi_inv ~ exponential(5);
   
   //sampling distribution
   for (i in 1:(n_times - 1))

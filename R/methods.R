@@ -12,7 +12,7 @@ model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.
-poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
+poisson_nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -24,8 +24,10 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   
   # .data_agg = aggregate_data(.data)
   
-  optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  # optim_ext = optimizing(stan_model_champagne2022_poisson, data=.data)
+  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  .theta_init = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022_poisson,
                   data = .data,
@@ -40,7 +42,7 @@ poisson_nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .ome
   return(.fit)
 }
 
-nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
+nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_lambda=0.01, true_phi_inv=0.1) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -52,8 +54,10 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
   
   # .data_agg = aggregate_data(.data)
   
-  optim_ext = optimizing(stan_model_champagne2022, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  # optim_ext = optimizing(stan_model_champagne2022, data=.data)
+  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  .theta_init = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv,)
   
   .fit = sampling(stan_model_champagne2022,
                   data = .data,
@@ -68,7 +72,7 @@ nonseasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true
   return(.fit)
 }
 
-poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
+poisson_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -79,8 +83,10 @@ poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega,
   .data$n_times = length(.data$cases)
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
-  optim_ext = optimizing(stan_model_champagne2022_seasonal_poisson, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  # optim_ext = optimizing(stan_model_champagne2022_seasonal_poisson, data=.data)
+  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  .theta_init = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022_seasonal_poisson,
                   data = .data,
@@ -95,7 +101,7 @@ poisson_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega,
   return(.fit)
 }
 
-seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
+seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, .eps, true_lambda=0.01, true_phi_inv=0.1) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -107,8 +113,10 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
   
-  optim_ext = optimizing(stan_model_champagne2022_seasonal, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  # optim_ext = optimizing(stan_model_champagne2022_seasonal, data=.data)
+  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv")])
+  .theta_init = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv)
   
   .fit = sampling(stan_model_champagne2022_seasonal,
                   data = .data,
@@ -123,7 +131,7 @@ seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, .eps, t
   return(.fit)
 }
 
-extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0) {
+extended_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, .omega, true_eps, true_lambda=0.01, true_phi_inv=0.1, true_kappa=1, true_phase=0) {
   .data = data_consts
   .data$cases = .cases
   .data$population_size = .population_size
@@ -136,8 +144,12 @@ extended_seasonal_sol = function(.cases, .population_size, .alpha, .beta, .omega
   .data$ts = .data$ts[seq_len(.data$n_times)]
   
   # Try to get a good initial value
-  optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=.data)
-  .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
+  # optim_ext = optimizing(stan_model_champagne2022_seasonal_ext, data=.data)
+  # .theta_init = as.list(optim_ext$par[c("lambda", "phi_inv", "eps", "kappa")])
+  .theta_init = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv,
+                     eps = true_eps,
+                     kappa = true_kappa)
   
   .fit = sampling(stan_model_champagne2022_seasonal_ext,
                   data = .data,
@@ -178,10 +190,13 @@ methods = tibble(
 # }
 
 #' @param i index
-run_scenario_method = function(i) {
-  out_path = file.path("../run_scenario_method", paste0("row_", i, ".rds"))
-  dir.create("../run_scenario_method")
-  if (file.exists(out_path)) {
+run_scenario_method = function(i, force=F) {
+  folder = "../run_scenario_method"
+  out_path = file.path(folder, paste0("row_", i, ".rds"))
+  if (!dir.exists(folder)) {
+    dir.create(folder)
+  }
+  if (file.exists(out_path) & !force) {
     result = read_rds(out_path)
     if (!is.null(result$fit)) {
       return(result)
@@ -192,19 +207,19 @@ run_scenario_method = function(i) {
   row = data_scenarios_long[i,]
   fit = withTimeout({
     if (.method == "lambda_nonseasonal_poisson") {
-      poisson_nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
+      poisson_nonseasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$transmission_rates)
     }
     else if (.method == "lambda_nonseasonal_negbin") {
-      nonseasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
+      nonseasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, transmission_rates)
     }
     else if (.method == "lambda_seasonal_poisson") {
-      poisson_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      poisson_seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     }
     else if (.method == "lambda_seasonal_negbin") {
-      seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     }
     else if (.method == "lambda_seasonal_negbin_ext") {
-      extended_seasonal_sol(row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
+      extended_seasonal_sol(data_consts, row$cases[[1]], row$population_size, row$ascertainment_rates, row$radical_cure_rates, 1, row$seasonality_ratio, row$transmission_rates)
     } else {
       stop("Method invalid")
     }
