@@ -11,10 +11,19 @@ comparison_colors = c("lambda_nonseasonal_poisson" = "tomato",
                       "lambda_seasonal_negbin" = "steelblue",
                       "lambda_seasonal_negbin_ext" = "hotpink")
 
+renamed_comparison_colors = c("Nonseasonal, poisson" = "tomato",
+                              "Nonseasonal, negbin" = "orange",
+                              "Seasonal, poisson" = "navy",
+                              "Seasonal, negbin" = "steelblue",
+                              "Seasonal, negbin_ext" = "hotpink")
+
+rename_methods = names(comparison_colors)
+names(rename_methods) = names(renamed_comparison_colors)
+
 # Use this to filter out chains that haven't converged
 .calculate_rhat = function(.trace, .n_chains = n_chains) {
   if (is.null(.trace)) {
-    return(NULL)
+    return(NA)
   }
   chains = matrix(.trace, ncol = .n_chains)
   Rhat(chains)
@@ -75,4 +84,15 @@ my_simulate_data = function(...) {
     as_tibble() %>%
     drop_na()
   return(synth_df)
+}
+
+plot_labeller <- function(variable, value){
+  if (variable == "seasonality_ratio") {
+    var = "eps"
+  } else if (variable == "transmission_rates") {
+    var = "lambda"
+  } else {
+    var = "facet"
+  }
+  return(paste0(var, ": ", value))
 }

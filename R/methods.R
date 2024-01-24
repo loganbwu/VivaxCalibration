@@ -237,19 +237,37 @@ run_scenario_method = function(i, force=F, refresh=0) {
 }
 
 extract_lambda = function(.result) {
+  if (is.null(.result)) {
+    return(NULL)
+  }
   .fit = .result$fit
+  (if (is.null(.fit)) {
+    return(NULL)
+  })
   param = rstan::extract(.fit, c("lambda"))[[1]]
   return(param)
 }
 
 extract_other = function(.result, var) {
+  if (is.null(.result)) {
+    return(NULL)
+  }
   .fit = .result$fit
+  if (is.null(.fit)) {
+    return(NULL)
+  }
   param = rstan::extract(.fit, var)[[1]]
   return(param)
 }
 
 extract_phi_inv = function(.result) {
+  if (is.null(.result)) {
+    return(NULL)
+  }
   .fit = .result$fit
+  if (is.null(.fit)) {
+    return(NULL)
+  }
   if (.fit@mode == 0) {
     if ("phi_inv" %in% names(.fit)) {
       param = rstan::extract(.fit, c("phi_inv"))[[1]]
@@ -263,10 +281,17 @@ extract_phi_inv = function(.result) {
 }
 
 extract_incidence = function(.result) {
+  if (is.null(.result)) {
+    return(NULL)
+  }
   .fit = .result$fit
+  if (is.null(.fit)) {
+    return(NULL)
+  }
   if (.fit@mode != 0) {
     return(NULL)
   }
+  
   incidence = rstan::extract(.fit, "incidence")[[1]]
   ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
   ts_sample = as_tibble(t(incidence[ix,])) %>%
