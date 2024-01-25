@@ -62,7 +62,6 @@ nonseasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta,
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
-                  control = list(max_treedepth = 4),
                   refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -89,7 +88,6 @@ poisson_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
-                  control = list(max_treedepth = 4),
                   refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -118,7 +116,6 @@ seasonal_sol = function(data_consts, .cases, .population_size, .alpha, .beta, tr
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
-                  control = list(max_treedepth = 4),
                   refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -150,7 +147,6 @@ extended_seasonal_sol = function(data_consts, .cases, .population_size, .alpha, 
                   chains = n_chains,
                   init = rep(list(.theta_init), n_chains), # Start from MLE solution
                   cores = cores_per_sampler,
-                  control = list(max_treedepth = 4),
                   refresh = refresh)
   
   # return(rstan::extract(.fit, c("lambda"))$lambda)
@@ -184,17 +180,17 @@ methods = tibble(
 
 #' @param i index
 run_scenario_method = function(i, force=F, refresh=0) {
-  # folder = "../run_scenario_method"
-  # out_path = file.path(folder, paste0("row_", i, ".rds"))
-  # if (!dir.exists(folder)) {
-  #   dir.create(folder)
-  # }
-  # if (file.exists(out_path) & !force) {
-  #   result = read_rds(out_path)
-  #   if (!is.null(result$fit)) {
-  #     return(result)
-  #   }
-  # }
+  folder = "../run_scenario_method"
+  out_path = file.path(folder, paste0("row_", i, ".rds"))
+  if (!dir.exists(folder)) {
+    dir.create(folder)
+  }
+  if (file.exists(out_path) & !force) {
+    result = read_rds(out_path)
+    if (!is.null(result$fit)) {
+      return(result)
+    }
+  }
   start = Sys.time()
   .method = data_scenarios_long$method[i]
   row = data_scenarios_long[i,]
@@ -231,7 +227,7 @@ run_scenario_method = function(i, force=F, refresh=0) {
   end = Sys.time()
   
   result = list(fit = fit, time = end - start)
-  # write_rds(result, out_path, compress="gz")
+  write_rds(result, out_path, compress="gz")
   
   return(result)
 }

@@ -47,7 +47,7 @@ cd = cachem::cache_disk("memoise")
 n_years = 5
 n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60
@@ -187,10 +187,10 @@ data_scenarios_sim = data_scenarios %>%
 
 # Display scenarios
 data_scenarios_sim %>%
-  distinct(scenario_ID, .keep_all=T) %>%
+  # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
-  ggplot(aes(x = ts, y = cases, group=interaction(seasonality_ratio, transmission_rates))) +
-  geom_point(alpha = 0.8) +
+  ggplot(aes(x = ts, y = cases, group=interaction(seasonality_ratio, transmission_rates, rep))) +
+  geom_line(alpha = 0.6) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   scale_y_log10() +
   facet_grid(rows = vars(seasonality_ratio),
@@ -218,7 +218,7 @@ for (i in seq_len(nrow(data_scenarios_long))) {
     data_scenarios_long$cases[[i]] = aggregate_time(data_scenarios_long$cases[[i]])
   }
 }
-# run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
+run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
 
 tictoc::tic()
 # fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
@@ -228,9 +228,6 @@ fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
 data_scenarios_long$fit = fits_all
 
 tictoc::toc()
-
-workspace_filename = format(Sys.time(), "%Y%M%d %H%M%S.Rdata")
-# save.image(workspace_filename)
 ```
 
 Extract data from each result
@@ -266,11 +263,11 @@ for (i in seq_len(n_scenarios)) {
   scenario_cases = data_scenarios_sim %>%
     filter(scenario_ID == id) %>%
     unnest(c(ts, cases)) %>%
-    select(ts, cases, transmission_rates, seasonality_ratio)
+    select(ts, cases, transmission_rates, seasonality_ratio, rep)
   
   # Case plot
-  p1 = ggplot(scenario_cases, aes(x = ts/years, y = cases)) +
-    geom_point() +
+  p1 = ggplot(scenario_cases, aes(x = ts/years, y = cases, group=rep)) +
+    geom_line(alpha = 0.6) +
     labs(x = "Years",
          y = "Cases")
   
@@ -284,7 +281,7 @@ for (i in seq_len(n_scenarios)) {
            method = fct_recode(method, !!!rename_methods))
   
   true_value = this_scenario$transmission_rates[1]
-  xlim_buffer = 0.1
+  xlim_buffer = 0.05
   limits = c(true_value * (1-xlim_buffer), true_value * (1+xlim_buffer))
   limits_2 = c(true_value * (1-2*xlim_buffer), true_value * (1+2*xlim_buffer))
   
@@ -375,7 +372,8 @@ ggplot(modelled_incidence, aes(x=ts, y=incidence, color=method, group=interactio
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates), scales="free",
              labeller = plot_labeller) +
-  coord_cartesian(ylim = c(0, NA)) +
+  # coord_cartesian(ylim = c(0, NA)) +
+  scale_y_log10() +
   scale_color_manual(values = renamed_comparison_colors) +
   labs(title = "Posterior mean incidence trajectories and overlaid case data",
        color = "Method",
@@ -386,15 +384,18 @@ ggplot(modelled_incidence, aes(x=ts, y=incidence, color=method, group=interactio
 What happens if we use these parameters in the full model?
 
 ```{r}
+data_scenarios_long_rep1 = data_scenarios_long %>%
+  filter(rep == 1)
+
 # Note: using multithreading seems to result in a race condition deleting most of the results from rstansim
-composite = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
-  df = data_scenarios_long[i,] %>%
+composite = lapply(seq_len(nrow(data_scenarios_long_rep1)), function(i) {
+  df = data_scenarios_long_rep1[i,] %>%
     select(-cases)
   post_lambda = extract_lambda(df$fit[[1]])
   if (!length(post_lambda) >= 1) {
     return(NULL)
   }
-  sim = lapply(seq_len(n_traces) %>% setNames({.}), function (j) {
+  sim = pbmclapply(seq_len(10) %>% setNames({.}), function (j) {
     y = .simulate_cases(alpha = df$ascertainment_rates,
                         beta = df$radical_cure_rates,
                         lambda = sample(post_lambda, 1),
@@ -418,9 +419,12 @@ composite = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
   bind_rows() %>%
   mutate(method = fct_recode(method, !!!rename_methods))
 
-ggplot(composite, aes(x=ts, y=incidence, color=method, group=interaction(method, sim))) +
+plot_cases_rep1 = plot_cases %>%
+  filter(rep == 1)
+
+ggplot(composite, aes(x=ts, y=incidence, color=method, group=interaction(method, sim, rep))) +
   geom_line(alpha=0.2) +
-  geom_point(data=plot_cases, aes(x=ts, y=cases, color=NULL, group=NULL), alpha=0.25) +
+  geom_point(data=plot_cases_rep1, aes(x=ts, y=cases, color=NULL, group=NULL), alpha=0.25) +
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates), scales="free",
              labeller = plot_labeller) +
@@ -446,5 +450,6 @@ At a minimum, $\lambda(t)$ will be a piecewise-constant or piecewise-linear func
 
 ```{r}
 print("Done.")
+# save.image("Chapter_01_parallelised.Rdata")
 ```
 _
