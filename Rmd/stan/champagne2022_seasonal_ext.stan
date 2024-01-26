@@ -21,9 +21,8 @@ functions {
     real f = x_r[3];
     real alpha = x_r[4];
     real beta = x_r[5];
-    real rho = x_r[6];
-    real delta = x_r[7];
-    real phase = x_r[8];
+    real delta = x_r[6];
+    real phase = x_r[7];
     
     real omega = suitability(t, theta[2], theta[3], phase);
     real foi = theta[1] * omega;
@@ -50,19 +49,17 @@ data {
   real<lower=0> f;
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  real<lower=0, upper=1> rho;
   real<lower=0> delta;
   real<lower=0> phase;
 }
 
 transformed data {
-  real x_r[8] = {
+  real x_r[7] = {
     r,
     gammal,
     f,
     alpha,
     beta,
-    rho,
     delta,
     phase
   };

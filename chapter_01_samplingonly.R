@@ -58,7 +58,6 @@ data_consts = list(n_times = n_times+1,
                    f = 1./72, # f
                    alpha = 0.21, # alpha
                    beta = 0.66, # beta
-                   rho = 0.21, # rho
                    delta = 0,
                    eps = 0,
                    kappa = 1,

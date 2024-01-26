@@ -16,8 +16,7 @@ functions {
     real f = x_r[3];
     real alpha = x_r[4];
     real beta = x_r[5];
-    real rho = x_r[6];
-    real delta = x_r[7];
+    real delta = x_r[6];
     
     real lambda = theta[1];
     // real delta = theta[2];
@@ -44,18 +43,16 @@ data {
   real<lower=0> f;
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  real<lower=0, upper=1> rho;
   real<lower=0> delta;
 }
 
 transformed data {
-  real x_r[7] = {
+  real x_r[6] = {
     r,
     gammal,
     f,
     alpha,
     beta,
-    rho,
     delta
   };
   int x_i[1] = { N };

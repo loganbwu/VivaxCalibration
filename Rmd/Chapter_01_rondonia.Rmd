@@ -1,5 +1,5 @@
 _---
-title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+title: "PLAN for Chapter 1. Modelology for fitting ODE epidemic models"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
 html_notebook:
@@ -16,7 +16,7 @@ This assumption does not hold for areas with moderate to strong seasonality and 
 
 [...]
 
-# Methods
+# Models
 
 Stan and posterior sampling will be used for all analyses.
 
@@ -88,9 +88,8 @@ data_consts = list(n_times = n_times+1,
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
-                   alpha = 0.615, # alpha, 0.437/0.713
-                   beta = 0.713, # beta, Nekkab 2021
-                   rho = 0.21, # rho
+                   alpha = 0.8, # alpha,
+                   beta = 0.429/0.8, # beta, Nekkab 2021
                    delta = 0,
                    eps = 0,
                    kappa = 1,
@@ -177,16 +176,14 @@ samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     iter = n_iter,
                     chains = n_chains,
                     # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                    cores = n_cores,
-                    control = list(max_treedepth = 4))
+                    cores = n_cores)
 
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
                                 iter = n_iter,
                                 chains = n_chains,
                                 # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                                cores = n_cores,
-                                control = list(max_treedepth = 4))
+                                cores = n_cores)
 ```
 
 
@@ -328,14 +325,45 @@ Generate subplots
 p_seasonal_ci + p_ns_ci + plot_layout(guides = "collect") +
   plot_annotation(title = "Posterior model fits",
                   tag_levels = "A")
-ggsave("plots/ci.png", width=8, height=4)
+ggsave("plots/rondonia_ci.png", width=8, height=4)
 
-p_seasonal_posterior + p_ns_posterior + theme(legend.position="none") +
+p_seasonal_posterior + theme(legend.position="none") + p_ns_posterior + theme(legend.position="none") +
   plot_layout(guides = "collect") +
   plot_annotation("Posterior parameter estimates",
                   tag_levels = "A")
   
-ggsave("plots/posterior.png", width=8, height=4)
+ggsave("plots/rondonia_posterior.png", width=8, height=4)
+```
+
+Examine the estimated seasonal pattern
+
+```{r}
+omega = function(t, eps, kappa, phase=365.25/2) {
+  return(eps + (1-eps)*pi/beta(0.5, kappa+0.5)*((1+sin(2*pi*(t - phase)/365.25))/2)^kappa)
+}
+
+omega_params = rstan::extract(samp_ext, c("eps", "kappa")) %>%
+  as_tibble() %>%
+  mutate(i = row_number())
+
+tt = seq(0, 365.25, length.out=101)
+omega_ts = lapply(seq_len(nrow(omega_params)), function(i) {
+  omega(tt, omega_params$eps[i], omega_params$kappa[i])
+})
+omega_params$omega = omega_ts
+omega_params$t = rep(list(tt), nrow(omega_params))
+omega_params %>%
+  unnest(c(t, omega)) %>%
+  ggplot(aes(x = t/years*annual_subdivisions, y=omega, group=i)) +
+  geom_line(alpha=0.05, color="grey10") +
+  geom_hline(yintercept = 1, linetype="dashed") +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_continuous(breaks = 0:annual_subdivisions, expand = c(0,0)) +
+  labs(title = "Posterior estimate of ω(t)",
+       x = "t (months)",
+       y = "ω(t)")
+
+ggsave("plots/rondonia_omega.png", width=8, height=4)
 ```
 
 What if we used the steady-state fit to simulate posteriors in the full model?
@@ -383,7 +411,7 @@ posterior_comparison %>%
                       breaks = c("Incidence data", "Seasonal model calibration", "Nonseasonal calibration\nwith seasonality added"),
                       values = c("black", "tomato", "steelblue")) +
   guides(color = guide_legend(override.aes = list(alpha = 1))) +
-  labs(title = "True seasonality added to nonseasonal posterior fit",
+  labs(title = "Calibrated using the full seasonal model or the steady-state approximation",
        color = "Calibration routine",
        x = "Year",
        y = "Cases / mean incidence")

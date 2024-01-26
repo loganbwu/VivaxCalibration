@@ -21,9 +21,8 @@ functions {
     real f = x_r[3];
     real alpha = x_r[4];
     real beta = x_r[5];
-    real rho = x_r[6];
-    real delta = x_r[7];
-    real phase = x_r[8];
+    real delta = x_r[6];
+    real phase = x_r[7];
     
     real eps = theta[2];
     real kappa = theta[3];
@@ -52,19 +51,17 @@ data {
   real<lower=0> f;
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  real<lower=0, upper=1> rho;
   real<lower=0> delta;
   real<lower=0> phase;
 }
 
 transformed data {
-  real x_r[8] = {
+  real x_r[7] = {
     r,
     gammal,
     f,
     alpha,
     beta,
-    rho,
     delta,
     phase
   };
@@ -97,7 +94,7 @@ transformed parameters{
 
 model {
   //priors
-  lambda ~ normal(0, 1e4);
+  lambda ~ exponential(10);
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   

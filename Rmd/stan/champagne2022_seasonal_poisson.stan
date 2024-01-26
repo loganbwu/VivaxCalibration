@@ -19,11 +19,10 @@ functions {
     real f = x_r[3];
     real alpha = x_r[4];
     real beta = x_r[5];
-    real rho = x_r[6];
-    real delta = x_r[7];
-    real eps = x_r[8];
-    real kappa = x_r[9];
-    real phase = x_r[10];
+    real delta = x_r[6];
+    real eps = x_r[7];
+    real kappa = x_r[8];
+    real phase = x_r[9];
     
     real omega = suitability(t, eps, kappa, phase);
     real lambda = theta[1] * omega;
@@ -51,7 +50,6 @@ data {
   real<lower=0> f;
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  real<lower=0, upper=1> rho;
   real<lower=0> delta;
   real<lower=0> eps;
   real<lower=0> kappa;
@@ -59,13 +57,12 @@ data {
 }
 
 transformed data {
-  real x_r[10] = {
+  real x_r[9] = {
     r,
     gammal,
     f,
     alpha,
     beta,
-    rho,
     delta,
     eps,
     kappa,
