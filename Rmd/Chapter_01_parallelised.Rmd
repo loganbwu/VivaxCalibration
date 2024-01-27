@@ -29,6 +29,7 @@ library(parallel)
 library(patchwork)
 library(pbmcapply)
 library(pbapply)
+library(ggridges)
 library(memoise)
 source("../R/constants.R")
 source("../R/methods.R")
@@ -178,6 +179,11 @@ simulate_cases = function(.scenarios) {
 
 simulate_cases_memo = memoise(simulate_cases, cache=cd)
 
+if (n_repetitions > 1) {
+  title = paste(n_repetitions, "repetitions of simulated data per scenario")
+} else {
+  title = "Simulated scenario data"
+}
 data_scenarios_sim = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
   group_by(scenario_ID) %>%
@@ -189,13 +195,17 @@ data_scenarios_sim = data_scenarios %>%
 data_scenarios_sim %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
-  ggplot(aes(x = ts, y = cases, group=interaction(seasonality_ratio, transmission_rates, rep))) +
+  ggplot(aes(x = ts/years, y = cases, group=interaction(seasonality_ratio, transmission_rates, rep))) +
   geom_line(alpha = 0.6) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
-  scale_y_log10() +
+  scale_y_log10(labels = label_auto2) +
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates),
-             labeller = plot_labeller)
+             labeller = plot_labeller) +
+  labs(title = title,
+       x = "Year",
+       y = "Monthly cases")
+ggsave("plots/synth_data.png", width=8, height=4)
 ```
 
 ### Comparison of parameter recovery
@@ -291,8 +301,8 @@ for (i in seq_len(n_scenarios)) {
     scale_colour_manual(values = renamed_comparison_colors) +
     scale_fill_manual(values = renamed_comparison_colors) +
     coord_cartesian(xlim = limits) +
-    labs(fill = "Method",
-         color = "Method",
+    labs(fill = "Model",
+         color = "Model",
          x = "Posterior lambda estimate",
          y = "Density")
   
@@ -310,6 +320,43 @@ for (i in seq_len(n_scenarios)) {
 }
 ```
 
+Quantify the error
+
+```{r}
+errors_long = data_scenarios_long %>%
+  mutate(lambda = lapply(fit, extract_lambda)) %>%
+  unnest(lambda) %>%
+  mutate(error = (transmission_rates - lambda) / lambda,
+         method = fct_recode(method, !!!rename_methods))
+# calculate bounds so that we get most of all methods for all scenarios
+errors_bounds = errors_long %>%
+  group_by(method, scenario_ID,) %>%
+  summarise(upper = quantile(error, 0.9),
+            lower = quantile(error, 0.1),
+            .groups = "drop") %>%
+  summarise(upper = max(upper),
+            lower = min(lower))
+x_buffer = max(errors_bounds$upper, -errors_bounds$lower) * 1.1
+errors_long %>%
+  filter(error <= x_buffer, error >= -x_buffer) %>%
+  ggplot(aes(x = error, y=method, color=method, fill=method, group=interaction(method, rep))) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_density_ridges(alpha = 0.2) +
+  scale_colour_manual(values = renamed_comparison_colors) +
+  scale_fill_manual(values = renamed_comparison_colors) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(-x_buffer, x_buffer)) +
+  facet_grid(rows = vars(seasonality_ratio),
+             cols = vars(transmission_rates),
+             labeller = plot_labeller) +
+  labs(title = NULL,
+       color = "Model", fill = "Model",
+       x = "Lambda posterior recovery error",
+       y = NULL)
+```
+
+
 Some of these chains appear to not mix.
 
 ```{r}
@@ -322,10 +369,14 @@ ggplot(runtimes, aes(x = runtime, fill = method)) +
   geom_histogram(alpha = 0.7, binwidth=1) +
   geom_vline(xintercept = timelimit_per_run/60, color="red") +
   scale_fill_manual(values = renamed_comparison_colors) +
-  facet_wrap(~scenario_ID) +
+  facet_grid(rows = vars(seasonality_ratio),
+             cols = vars(transmission_rates),
+             labeller = plot_labeller) +
   labs(title = "Which methods took a long time?",
-       fill = "Method",
+       subtitle = paste("Average execution of", mean(runtimes$runtime), "minutes"),
+       fill = "Model",
        x = "Time (minutes)")
+ggsave("plots/synth_runtime.png", width=8, height=4)
 
 rhat_data = data_scenarios_long %>%
   mutate(lambda = lapply(fit, extract_lambda)) %>%
@@ -333,7 +384,15 @@ rhat_data = data_scenarios_long %>%
 rhat_threshold = 1.05
 
 nonconvergence = rhat_data %>%
-  filter(rhat > rhat_threshold)
+  filter(rhat > rhat_threshold) %>%
+  nrow()
+if (nonconvergence > 1) {
+  subtitle = paste0(nonconvergence, " runs had an rhat on lambda greater than ", rhat_threshold, " (max ", max(round(rhat_data$rhat, 2)), ")")
+} else if (nonconvergence == 1) {
+  subtitle = paste0(nonconvergence, " run had an rhat on lambda greater than ", rhat_threshold, " (max ", max(round(rhat_data$rhat, 2)), ")")
+} else {
+  subtitle = paste0("All runs had an rhat on lambda greater than ", rhat_threshold, " (max ", max(round(rhat_data$rhat, 2)), ")")
+}
 
 rhat_data %>%
   mutate(method = fct_recode(method, !!!rename_methods)) %>%
@@ -343,9 +402,10 @@ rhat_data %>%
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates),
              labeller = plot_labeller) +
-  labs(title = "Did the runs converge?",
-       subtitle = paste0(nrow(nonconvergence), " runs had an rhat on lambda greater than ", rhat_threshold, " (max ", max(round(rhat_data$rhat, 2)), ")"),
-       fill = "Method")
+  labs(title = "Convergence of chains for lambda",
+       subtitle = subtitle,
+       fill = "Model")
+ggsave("plots/synth_rhat.png", width=8, height=4)
 ```
 What are the modelled incidence trends like?
 
@@ -361,24 +421,34 @@ modelled_incidence = lapply(seq_len(nrow(data_scenarios_long)), function(i) {
 }) %>%
   bind_rows() %>%
   unnest(c(ts, trace, incidence)) %>%
-  mutate(method = fct_recode(method, !!!rename_methods))
+  mutate(method = fct_recode(method, !!!rename_methods)) %>%
+  filter(rep == 1)
 
 plot_cases = data_scenarios_long %>%
-  unnest(c(ts, cases))
+  unnest(c(ts, cases)) %>%
+  filter(rep == 1)
+if (n_repetitions > 1) {
+  subtitle = "Only first repetition shown"
+} else {
+  subtitle = NULL
+}
 
 ggplot(modelled_incidence, aes(x=ts, y=incidence, color=method, group=interaction(rep, trace, method))) +
-  geom_line(alpha=0.2) +
   geom_point(data=plot_cases, aes(x=ts, y=cases, color=NULL, group=NULL), alpha=0.25) +
+  geom_line(alpha=0.1) +
   facet_grid(rows = vars(seasonality_ratio),
              cols = vars(transmission_rates), scales="free",
              labeller = plot_labeller) +
   # coord_cartesian(ylim = c(0, NA)) +
   scale_y_log10() +
   scale_color_manual(values = renamed_comparison_colors) +
-  labs(title = "Posterior mean incidence trajectories and overlaid case data",
-       color = "Method",
+  guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  labs(title = "Case data with overlaid posterior mean incidence trajectories",
+       subtitle = subtitle,
+       color = "Model",
        x = "Time (years)",
        y = "Incidence")
+ggsave("plots/synth_modelled_incidence.png", width=8, height=4)
 ```
 
 What happens if we use these parameters in the full model?
@@ -395,7 +465,7 @@ composite = lapply(seq_len(nrow(data_scenarios_long_rep1)), function(i) {
   if (!length(post_lambda) >= 1) {
     return(NULL)
   }
-  sim = pbmclapply(seq_len(10) %>% setNames({.}), function (j) {
+  sim = pbmclapply(seq_len(n_traces) %>% setNames({.}), function (j) {
     y = .simulate_cases(alpha = df$ascertainment_rates,
                         beta = df$radical_cure_rates,
                         lambda = sample(post_lambda, 1),
@@ -429,10 +499,14 @@ ggplot(composite, aes(x=ts, y=incidence, color=method, group=interaction(method,
              cols = vars(transmission_rates), scales="free",
              labeller = plot_labeller) +
   scale_y_log10() +
+  scale_color_manual(values = renamed_comparison_colors) +
   labs(title = "Re-simulated mean incidences using the true seasonality",
-       color = "Method",
+       subtitle = subtitle,
+       color = "Model",
        x = "Years",
-       y = "Cases/mean cases (per month)")
+       y = "Cases/mean cases (per month)") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+ggsave("plots/synth_resimulation.png", width=8, height=4)
 ```
 
 ## Extension to fitting more parameters
