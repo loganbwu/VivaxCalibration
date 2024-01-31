@@ -32,11 +32,11 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 source("../R/constants.R")
-# source("../R/methods.R")
+source("../R/load_functions.R")
 
-model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
+model_champagne2022_seasonal_ext = "../stan/champagne2022_seasonal_ext.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
-model_champagne2022 = "stan/champagne2022.stan"
+model_champagne2022 = "../stan/champagne2022.stan"
 stan_model_champagne2022 = stan_model(model_champagne2022)
 
 n_cores = parallelly::availableCores()
@@ -48,7 +48,7 @@ n_years = 5
 n_iter = 500 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
-cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
+cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
@@ -115,7 +115,7 @@ rondonia.all = integrated_dataset %>%
          infection.state == "RO") %>%
   mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
   count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= 2014 & notification.year <= 2018, "grey20", "grey")) %>%
+  mutate(include = ifelse(notification.year >= 2015 & notification.year <= 2018, "grey20", "grey")) %>%
   as_tibble()
 
 ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
@@ -135,6 +135,23 @@ rondonia = rondonia.all %>%
   filter(include == "grey20")
 
 date_0 = min(rondonia$notification.date)
+```
+
+```{r}
+source("../R/decompose_data.R")
+rondonia_decomp = rondonia %>%
+  filter(notification.year >= 2015) %>%
+  dplyr::rename(Date = notification.date,
+         Cases = cases) %>%
+  mutate(logCases = log(Cases)) %>%
+  decompose_data()
+
+rondonia_decomp %>%
+  filter(name %in% c("Cases", "trend", "seasonal", "remainder")) %>%
+  ggplot(aes(x = Date, y = value, color = value)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, NA)) +
+  facet_wrap(vars(name), scales="free_y")
 ```
 
 Create data for the full model
@@ -359,7 +376,7 @@ omega_params %>%
   geom_hline(yintercept = 1, linetype="dashed") +
   coord_cartesian(ylim = c(0, NA)) +
   scale_x_continuous(breaks = 0:annual_subdivisions, expand = c(0,0)) +
-  labs(title = "Posterior estimate of ω(t)",
+  labs(title = "Posterior estimate of ω(t) for Rondonia P. vivax 2014-2018",
        x = "t (months)",
        y = "ω(t)")
 
@@ -419,15 +436,56 @@ posterior_comparison %>%
 ggsave("plots/rondonia_composite.png", width=8, height=4)
 ```
 
-With the parameter posterior distributions, we can start to discuss outcomes. We expect that the main advancement here is demonstrating heterogeneity in epidemic parameters; while it is clear there is heterogeneity in prevalence, administrative data is not normally able to demonstrate this. As James highlighted, this also raises the question of whether multiple regions should comprise a hierarchical model. The Brazilian data is very comprehensive across regions and makes this logical, but I suggest exploring this after performing independent modelling first.
+How does this fitted seasonality compare against Martens (Malaria Atlas Project)
 
-## Extension to include time-varying transmission levels
+```{r}
+library(sf)
+rondonia_file = "~/Documents/MalariaData/data-raw/brazil/rondonia/data_EPSG_4326/11MIE250GC_SIR.shp" # https://purl.stanford.edu/df159kw0955
 
-The Chinese and Brazilian datasets include longitudinal data for long enough to observe trends that must be due to changes in policy or environment Therefore, the seasonal Champagne model certainly will not be sufficient to explain this variation.
+rondonia_geom = st_read(rondonia_file) %>%
+  st_union() %>%
+  st_as_sf() %>%
+  mutate(Name = "Rondonia")
+```
 
-We will modify the Champagne model's transmission rate $\lambda$ to be time-varying, $\lambda(t)$. The functional form of $\lambda(t)$ is unclear but is constrained by the information available to fit it. For example, we will never know if a decrease in trend is due to natural decay to a low equilibrium, or due to a decreasing $\lambda(t)$. However, by finding a *reasonable* form, $\lambda(t)$ will account for long-term variation that cannot be explained by other parameters and we hope it will allow the other parameters to be recovered in scenarios where there is no form of static or dynamic steady-state at play.
 
-At a minimum, $\lambda(t)$ will be a piecewise-constant or piecewise-linear function with breakpoints set manually when there are obvious changes in transmission intensity. This may prove sufficient. Other suggestions include particle filtering methods such as Kalman filtering.
+```{r}
+map_folder = "~/Documents/MalariaData/data-raw/TSI-Martens2-Pv.2000-2022.Data.5km.Data"
+
+# map = read_map(map_folder)
+# map_sites = extract_layers(map, sites, "month", FALSE)
+tifs = tibble(path = list.files(map_folder, full.names=T)) %>%
+  mutate(filename = basename(path),
+         year = str_extract(filename, "(1|2)[0-9]{3}") %>% as.numeric()) %>%
+  filter(year >= 2014, year <= 2018)
+
+x = terra::rast(tifs$path)
+```
+
+```{r}
+rondonia_map = terra::extract(x, rondonia_geom) %>%
+  pivot_longer(-ID, names_to="layer") %>%
+  group_by(ID, layer) %>%
+  summarise(value = mean(value, na.rm=T),
+            .groups = "drop") %>%
+  mutate(Name = rondonia_geom$Name[ID],
+         year = layer %>% str_extract("[0-9]{4}") %>% as.numeric(),
+         month = layer %>% str_extract("\\.[0-9]{2}\\.") %>% str_extract("[0-9]+") %>% as.numeric(),
+         yearmonth = year*12 + month,
+         date = as.Date(paste(year, month, "15", sep="-")))
+
+rondonia_map_mean = rondonia_map %>%
+  group_by(month) %>%
+  summarise(value = mean(value))
+
+ggplot(rondonia_map, aes(x=month, y=value, color=year, group=year)) +
+  geom_line() +
+  geom_line(data=rondonia_map_mean, aes(color=NULL, group=NULL), linetype="dashed") +
+  scale_x_continuous(breaks = 1:12) +
+  scale_y_continuous(limits = 0:1)
+```
+
+End of script.
 
 ```{r}
 print("Done.")

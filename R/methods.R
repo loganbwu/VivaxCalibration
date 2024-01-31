@@ -1,14 +1,14 @@
-model_champagne2022 = "stan/champagne2022.stan"
+model_champagne2022 = "../stan/champagne2022.stan"
 stan_model_champagne2022 = stan_model(model_champagne2022)
-model_champagne2022_poisson = "stan/champagne2022_poisson.stan"
+model_champagne2022_poisson = "../stan/champagne2022_poisson.stan"
 stan_model_champagne2022_poisson = stan_model(model_champagne2022_poisson)
 
-model_champagne2022_seasonal = "stan/champagne2022_seasonal.stan"
+model_champagne2022_seasonal = "../stan/champagne2022_seasonal.stan"
 stan_model_champagne2022_seasonal = stan_model(model_champagne2022_seasonal)
-model_champagne2022_seasonal_poisson = "stan/champagne2022_seasonal_poisson.stan"
+model_champagne2022_seasonal_poisson = "../stan/champagne2022_seasonal_poisson.stan"
 stan_model_champagne2022_seasonal_poisson = stan_model(model_champagne2022_seasonal_poisson)
 
-model_champagne2022_seasonal_ext = "stan/champagne2022_seasonal_ext2.stan"
+model_champagne2022_seasonal_ext = "../stan/champagne2022_seasonal_ext.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
 
 #' For all Stan solution functions, we allow it to initialise at the true parameters and avoid it getting stuck.

@@ -33,6 +33,8 @@ library(memoise)
 library(ggridges)
 source("../R/constants.R")
 source("../R/methods.R")
+source("../R/load_functions.R")
+
 n_cores = parallelly::availableCores() -1
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
@@ -46,12 +48,12 @@ fct_recode = function(...) {
 cd = cachem::cache_disk("memoise")
 
 n_years = 5
-n_iter = 100 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 10 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*5
+timelimit_per_run = 60*30
 n_traces = 10 # limit for plotting sample trajectories
 
 methods = methods %>%
@@ -86,8 +88,8 @@ data_consts = list(n_times = n_times+1,
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
-                   alpha = 0.9,
-                   beta = 0.429/0.8, # beta, Nekkab 2021
+                   alpha = 0.7, # 0.615 works, # alpha, 0.437/0.713
+                   beta = 0.713, # beta, Nekkab 2021
                    delta = 0,
                    eps = 0,
                    kappa = 1,
@@ -109,7 +111,7 @@ Scenarios include sequences of scenarios. For example, low-transmission tropical
 ascertainment_rates = data_consts$alpha
 radical_cure_rates = data_consts$beta
 seasonality_ratio = seq(0, 1, length.out=3)
-transmission_rates = seq(0.049, 0.051, length.out=3)
+transmission_rates = seq(0.049, 0.1, length.out=3)
 importation_rate = data_consts$delta # because constant importation makes less sense in seasonal transmission
 population_size = data_consts$N
 
@@ -324,7 +326,7 @@ errors_long = data_scenarios_long %>%
 
 # calculate bounds so that we get most of all methods for all scenarios
 errors_bounds = errors_long %>%
-  group_by(method, scenario_ID,) %>%
+  group_by(method, scenario_ID) %>%
   summarise(upper = quantile(error, 0.9),
             lower = quantile(error, 0.1),
             .groups = "drop") %>%
