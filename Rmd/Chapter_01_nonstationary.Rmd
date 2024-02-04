@@ -1,0 +1,142 @@
+_---
+title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
+output:
+html_notebook:
+number_sections: true
+---
+
+
+This document is for fitting an epidemic model where the system begins out of equilibrium and gradually returns to equilibrium.
+
+Method:
+
+1. Lambda takes the form of a step function: lambda(t) = *λ* for t<0, = *λ + Δλ* for t >= 0
+2. We find an approximate solution for *λ* and *X* for t=0 by assuming equilibrium for t<0 at data point Incidence(t=0)
+3. We calibrate *Δλ* and/or other parameters by fitting to data for t>=0
+
+```{r setup}
+library(R.utils)
+library(tidyverse)
+library(rstan)
+library(rstansim) # devtools::install_github("ewan-keith/rstansim")
+library(parallel)
+library(patchwork)
+library(pbmcapply)
+library(pbapply)
+library(memoise)
+library(RColorBrewer)
+source("../R/constants.R")
+source("../R/load_functions.R")
+
+model_champagne2022_nonstationary = "../stan/champagne2022_nonstationary.stan"
+stan_model_champagne2022_nonstationary = stan_model(model_champagne2022_nonstationary)
+
+n_cores = parallelly::availableCores()
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
+rstan_options(auto_write = TRUE)
+
+n_years = 5
+n_iter = 500 # should be at least 500
+n_chains = 4
+n_repetitions = 1 # how many times to duplicate each scenario
+cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
+limit_runs = Inf # set to a finite number for testing, or Inf to run all
+timelimit_per_run = 60*60 * 5
+n_traces = 200 # limit for plotting sample trajectories
+
+param_colors = brewer.pal(4, "Set2")
+names(param_colors) = c("lambda", "phi", "eps", "kappa")
+```
+
+## Model implementation
+
+Generate some data
+
+```{r}
+# perform simulation study
+dt = years/annual_subdivisions
+t0 = -1000*years
+t = seq_len(n_years*annual_subdivisions) * dt
+n_times = length(t) + 1
+
+#initial conditions
+I_init = 0.01
+y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
+
+# constants for Stan
+data_consts = list(n_times = n_times,
+                   y0 = y0,
+                   t0 = t0,
+                   ts = seq_len(n_times) * dt,
+                   N = 100000, # population size
+                   cases = rep(99999, n_times),
+                   r = 1./60, # r
+                   gammal = 1./223, # gammal
+                   f = 1./72, # f
+                   alpha = 0.21, # alpha
+                   beta = 0.66, # beta
+                   rho = 0.21, # rho
+                   delta = 0,
+                   phase = 0
+)
+
+n_data = annual_subdivisions * 100
+data = data_consts
+data$cases = rep(1, n_data)
+data$ts = seq_len(n_data) * years / annual_subdivisions
+data$n_times = n_data
+data$phase = 365.25*0.5
+
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, dlambda=-0.001)
+
+sim = my_simulate_data(
+  file = model_champagne2022_nonstationary,
+  path = "sim_data",
+  data_name = "nonstationary",
+  input_data = data,
+  param_values = params,
+  vars = c("ts", "incidence", "sim_cases")
+)
+
+sim
+
+ggplot(sim, aes(x=ts, y=cases)) +
+  geom_line()
+```
+
+Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
+
+```{r, eval=F}
+# Fit data
+# Edit data with generated values
+data = data_consts
+data$n_times = nrow(sim)
+data$ts = sim$ts
+data$cases = sim$cases
+
+fit = sampling(stan_model_champagne2022_nonstationary,
+               data = data,
+               iter = n_iter,
+               chains = n_chains,
+               seed = 0)
+
+# pairs(fit_seasonal, pars=c("lambda", "phi_inv"))
+
+smr_pred_seasonal <- with(sim, cbind(as.data.frame(
+  summary(
+    fit_seasonal,
+    pars = "sim_cases",
+    probs = c(0.05, 0.5, 0.95)
+  )$summary),
+  t=t[1:(n_times-1)], cases=cases[1:(n_times-1)])) %>%
+  setNames(colnames({.}))
+
+ggplot(smr_pred_seasonal, mapping = aes(x = t)) +
+  geom_ribbon(aes(ymin = `5%`, ymax = `95%`), fill = c_posterior, alpha = 0.35) +
+  geom_line(mapping = aes(y = `50%`), color = c_posterior) + 
+  geom_point(mapping = aes(y = cases)) +
+  labs(x = "Day", y = "Cases") +
+  coord_cartesian(ylim = c(0, NA))
+```

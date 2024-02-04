@@ -7,6 +7,10 @@ functions {
     return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa); # no normalising beta function
   }
   
+  real lambda_plus_dlambda(real t, real lambda, real dlambda) {
+    return(lambda + dlambda * (t >= 365*5));
+  }
+  
   real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
@@ -24,10 +28,11 @@ functions {
     real delta = x_r[6];
     real phase = x_r[7];
     
+    real lambda = theta[1];
     real eps = theta[2];
     real kappa = theta[3];
-    real omega = suitability(t, eps, kappa, phase);
-    real foi = theta[1] * omega;
+    real dlambda = theta[4];
+    real foi = lambda_plus_dlambda(t, lambda, dlambda) * suitability(t, eps, kappa, phase);
     
     real dIl_dt = (1-alpha)*(foi*(Il+I0)+delta)*(S0+Sl) + (foi*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
     real dI0_dt = -(foi*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
@@ -69,10 +74,11 @@ transformed data {
 }
 
 parameters {
-  real<lower=0> lambda;
+  real<lower=0, upper=0.9> lambda;
   real<lower=0, upper=1> eps;
-  real<lower=0> kappa;
-  real<lower=0> phi_inv;
+  real<lower=0.01, upper=99> kappa;
+  real<lower=0, upper=10> phi_inv;
+  real dlambda;
 }
 
 transformed parameters{
@@ -80,10 +86,11 @@ transformed parameters{
   real<lower=0> incidence[n_times - 1];
   real phi = 1. / phi_inv;
   {
-    real theta[3];
+    real theta[4];
     theta[1] = lambda;
     theta[2] = eps;
     theta[3] = kappa;
+    theta[4] = dlambda;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
@@ -97,13 +104,13 @@ model {
   lambda ~ exponential(10);
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
+  dlambda ~ normal(0, 0.1);
   
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 1:(n_times - 1)) {
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
-  }
+  for (i in 1:(n_times - 1))
+  cases[i] ~ neg_binomial_2(incidence[i], phi);
 }
 
 generated quantities {
