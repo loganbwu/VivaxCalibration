@@ -19,7 +19,9 @@ library(pbmcapply)
 library(pbapply)
 library(RColorBrewer)
 source("../R/load_functions.R")
+```
 
+```{r}
 model_file = "../stan/test_delay_1.stan"
 model = stan_model(model_file)
 
@@ -33,9 +35,7 @@ cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots o
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
-```
 
-```{r}
 n_times = 100
 n_delays = 4
 data = list(
@@ -80,14 +80,43 @@ y %>%
 model_file = "../stan/test_delay_2.stan"
 model = stan_model(model_file)
 
+n_times = 100
+ts = 1:n_times
+cases = 1:n_times
+
+
+n_dormant = 5
+y0 = rep(0, 2 + 3*(n_dormant+1) + 3)
+y0[1] = 0.95
+y0[2] = 1 - y0[1]
+
 data = list(
-  `T` = n_times,
-  t0 = 0,
-  ts = 1:n_times,
-  n_delays = n_delays,
-  cases = rep(5, n_times),
-  y0 = c(1, rep(0, n_delays))
+  n_times = n_times,
+  t0 = -100,
+  ts = ts,
+  cases = cases,
+  alpha = 0.5,
+  beta = 0.5,
+  relapse_clinical_immunity = 0.5,
+  gamma_d = 1,
+  gamma_l = 1,
+  delta = 0,
+  phi = 0,
+  f = 1/100,
+  r = 1/100,
+  p_long = 0.5,
+  p_silent = 0.5,
+  population_size = 10000,
+
+  n_dormant = n_dormant,
+  
+  y0 = y0
 )
+
+true_params = list(
+  lambda = 0.01
+)
+
 sim_list = my_simulate_data_1(
   file = model_file,
   data_name = "test",
