@@ -132,8 +132,8 @@ functions {
       I0*infect*short_hyp +
       sum(Icl[1:n_dormant])*infect*short_hyp;
     
-    real dShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
-    real dLongIncubations = Sl[active]*f * population_size;
+    real dTrueShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
+    real dTrueLongIncubations = Sl[active]*f * population_size;
     real dTrueRelapses = Scl[active]*f * population_size;
     
     // Assign derivatives
@@ -145,8 +145,8 @@ functions {
       dydt[2+n_stages+i] = dScldt[i];
       dydt[2+2*n_stages+i] = dIcldt[i];
     }
-    dydt[n_compartments+1] = dShortIncubations;
-    dydt[n_compartments+2] = dLongIncubations;
+    dydt[n_compartments+1] = dTrueShortIncubations;
+    dydt[n_compartments+2] = dTrueLongIncubations;
     dydt[n_compartments+3] = dTrueRelapses;
     
     // dydt = rep_vector(0, num_elements(dydt));
