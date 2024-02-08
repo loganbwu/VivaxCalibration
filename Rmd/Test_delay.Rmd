@@ -93,12 +93,9 @@ y %>%
 ```
 
 ```{r}
-model_file = "../stan/test_delay_2.stan"
-model = stan_model(model_file)
-
+# Initialise values for verification runs
 n_times = 365*2
-
-data = list(
+data_null = list(
   n_times = n_times,
   t0 = 0,
   ts = 1:n_times,
@@ -120,7 +117,14 @@ data = list(
   
   run_estimation = 0
 )
-data$y0 = state_init(data, Sl2=1)
+model_file = "../stan/test_delay_2.stan"
+model = stan_model(model_file)
+```
+
+```{r short_relapse}
+data = data_null
+data$gamma_l = data$gamma_d = 0
+data$y0 = state_init(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 
 true_params = list(lambda = 0.0)
 
@@ -130,6 +134,47 @@ sim_summary = extract_summary(data, sim_out)
 plot_output(sim_summary)
 ```
 
-```{r}
+```{r long_relapse}
+data = data_null
+data$gamma_l = data$gamma_d = 0
+data$f = 2
+data$y0 = state_init(data, Sl1=1)
 
+true_params = list(lambda = 0.0)
+
+sim_out = sampling(model, data = data, chains = 1, iter = 1)
+sim_summary = extract_summary(data, sim_out)
+
+plot_output(sim_summary)
+
+sim_summary %>%
+  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  pivot_longer(-time) %>%
+  ggplot(aes(x=time, y=value, color=name)) +
+  geom_line()
+```
+
+```{r all_stages_relapse}
+# Under contrived situations (zero transmission, zero natural clearance, 100\% ascertainment), the measured mean and variance of long-delay relapses is within 1\% of theory (Erlang distribution plus exponential).
+
+data = data_null
+data$gamma_l = data$gamma_d = 0
+data$y0 = state_init(data, Sl1=1)
+
+true_params = list(lambda = 0.0)
+
+sim_out = sampling(model, data = data, chains = 1, iter = 1)
+sim_summary = extract_summary(data, sim_out)
+
+plot_output(sim_summary)
+```
+
+```{r}
+data = data_null
+data$alpha = 0.5
+data$beta = 0.5
+data$p_long = 0
+data$n_dormant = 30
+data$gamma_l = data$gamma_d = 0
+data$omega = function(t) {ifelse(t<1, 1, 0)}
 ```
