@@ -31,6 +31,14 @@ aggregate_data = function(.data) {
   .data
 }
 
+my_simulate_data_1 = function(...) {
+  synth_data = simulate_data(...)
+  
+  synth_data_rds = readRDS(synth_data$datasets[1])
+  file.remove(synth_data$datasets[1])
+  return(synth_data_rds)
+}
+
 my_simulate_data = function(...) {
   synth_data = simulate_data(...)
   

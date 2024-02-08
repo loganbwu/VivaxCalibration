@@ -38,8 +38,8 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 500 # should be at least 500
-n_chains = 4
+n_iter = 100 # should be at least 500
+n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -57,7 +57,7 @@ Generate some data
 ```{r}
 # perform simulation study
 dt = years/annual_subdivisions
-t0 = -1000*years
+t0 = -100*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t) + 1
 
@@ -82,12 +82,11 @@ data_consts = list(n_times = n_times,
                    phase = 0
 )
 
-n_data = annual_subdivisions * 100
+n_data = annual_subdivisions * 10
 data = data_consts
 data$cases = rep(1, n_data)
 data$ts = seq_len(n_data) * years / annual_subdivisions
 data$n_times = n_data
-data$phase = 365.25*0.5
 
 params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, dlambda=-0.001)
 
@@ -102,23 +101,57 @@ sim = my_simulate_data(
 
 sim
 
-ggplot(sim, aes(x=ts, y=cases)) +
-  geom_line()
+ggplot(sim, aes(x=ts, y=incidence)) +
+  geom_line() +
+  geom_point(aes(y = cases))
 ```
 
 Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
 
-```{r, eval=F}
+```{r,}
 # Fit data
 # Edit data with generated values
-data = data_consts
-data$n_times = nrow(sim)
-data$ts = sim$ts
-data$cases = sim$cases
+data_sim = data_consts
+data_sim$n_times = nrow(sim)
+data_sim$ts = sim$ts
+data_sim$cases = sim$cases
+```
 
+```{r}
+optimised = optimizing(
+  stan_model_champagne2022_nonstationary,
+  data = data_sim,
+  init = lapply(params, function(x) {x*1.5})
+)
+
+theta_mle = as.list(optimised$par[names(params)])
+
+plot_data = optimised$par %>%
+  as.data.frame() %>%
+  bind_cols(rownames(.), .) %>%
+  setNames(c("name", "value")) %>%
+  as_tibble() %>%
+  mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
+         time = t[index_i],
+         index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
+         compartment = names(y0)[index_j],
+         variable = name %>% str_remove("\\[.*")) %>%
+  mutate(variable = coalesce(compartment, variable))
+
+plot_data %>%
+  drop_na(time) %>%
+  ggplot(aes(x=time, y=value, color=variable, group=variable)) +
+  geom_line() +
+  facet_wrap(vars(variable), scales="free_y") +
+  coord_cartesian(ylim = c(0, NA))
+```
+
+```{r}
+n_chains = 1
 fit = sampling(stan_model_champagne2022_nonstationary,
-               data = data,
+               data = data_sim,
                iter = n_iter,
+               init = list(rep(params, n_chains)),
                chains = n_chains,
                seed = 0)
 
@@ -126,11 +159,11 @@ fit = sampling(stan_model_champagne2022_nonstationary,
 
 smr_pred_seasonal <- with(sim, cbind(as.data.frame(
   summary(
-    fit_seasonal,
-    pars = "sim_cases",
+    fit,
+    pars = "incidence",
     probs = c(0.05, 0.5, 0.95)
   )$summary),
-  t=t[1:(n_times-1)], cases=cases[1:(n_times-1)])) %>%
+  t=t[1:(nrow(sim)-1)], cases=cases[1:(nrow(sim)-1)])) %>%
   setNames(colnames({.}))
 
 ggplot(smr_pred_seasonal, mapping = aes(x = t)) +
@@ -139,4 +172,22 @@ ggplot(smr_pred_seasonal, mapping = aes(x = t)) +
   geom_point(mapping = aes(y = cases)) +
   labs(x = "Day", y = "Cases") +
   coord_cartesian(ylim = c(0, NA))
+```
+
+```{r}
+posteriors = rstan::extract(fit, c("lambda", "phi_inv")) %>%
+  as_tibble()
+
+# Plot posterior densities
+posterior_nonseasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  # coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Non-seasonal model")
 ```

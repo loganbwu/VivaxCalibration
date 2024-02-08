@@ -1,8 +1,7 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
 functions {
-  real[] champagne(real t, real[] y, real[] theta, 
-  real[] x_r, int[] x_i) {
+  real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
     real I0 = y[2];

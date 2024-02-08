@@ -1,0 +1,98 @@
+_---
+title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
+output:
+html_notebook:
+number_sections: true
+---
+
+This is to test a model with variable numbers of compartments.
+
+```{r setup}
+library(R.utils)
+library(tidyverse)
+library(rstan)
+library(rstansim) # devtools::install_github("ewan-keith/rstansim")
+library(parallel)
+library(patchwork)
+library(pbmcapply)
+library(pbapply)
+library(RColorBrewer)
+source("../R/load_functions.R")
+
+model_file = "../stan/test_delay_1.stan"
+model = stan_model(model_file)
+
+rstan_options(auto_write = TRUE)
+
+n_years = 5
+n_iter = 100 # should be at least 500
+n_chains = 2
+n_repetitions = 1 # how many times to duplicate each scenario
+cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
+limit_runs = Inf # set to a finite number for testing, or Inf to run all
+timelimit_per_run = 60*60 * 5
+n_traces = 200 # limit for plotting sample trajectories
+```
+
+```{r}
+n_times = 100
+n_delays = 4
+data = list(
+  `T` = n_times,
+  t0 = 0,
+  ts = 1:n_times,
+  n_delays = n_delays,
+  cases = rep(5, n_times),
+  y0 = c(1, rep(0, n_delays)),
+  dummy = 10
+)
+
+true_params = list(
+  sigma = 1,
+  alpha = 0.1
+)
+
+sim_list = my_simulate_data_1(
+  file = model_file,
+  data_name = "test",
+  input_data = data,
+  vars = "all",
+  param_values = true_params
+)
+
+y = sim_list$y %>%
+  as_tibble()
+
+y %>%
+  mutate(t = sim_list$ts) %>%
+  pivot_longer(-t) %>%
+  ggplot(aes(x = t, y = value, color= name)) +
+  geom_line()
+
+# fit = sampling(
+#   model,
+#   data = data
+# )
+```
+
+```{r}
+model_file = "../stan/test_delay_2.stan"
+model = stan_model(model_file)
+
+data = list(
+  `T` = n_times,
+  t0 = 0,
+  ts = 1:n_times,
+  n_delays = n_delays,
+  cases = rep(5, n_times),
+  y0 = c(1, rep(0, n_delays))
+)
+sim_list = my_simulate_data_1(
+  file = model_file,
+  data_name = "test",
+  input_data = data,
+  vars = "all",
+  param_values = true_params
+)
+```
