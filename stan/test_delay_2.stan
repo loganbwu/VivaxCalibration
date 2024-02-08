@@ -26,6 +26,7 @@ functions {
     // Convenience quantities
     int n_stages = n_dormant + 1;
     int n_compartments = 2 + 3*n_stages;
+    int active = n_dormant + 1;
     real recover = r;
     real silent = p_silent;
     real primary = 1 - p_silent;
@@ -37,17 +38,12 @@ functions {
     real untreatedrelapse = 1-treatedrelapse;
     real complete = beta;
     real incomplete = 1-beta;
-    // real clearance = c(rep(gamma_d, n_dormant), gamma_l);
     real clear_d = gamma_d;
     real clear_l = gamma_l;
     real advance = delta*n_dormant;
     real relapse = f;
     real long_hyp = p_long;
     real short_hyp = 1-long_hyp;
-    // array[n_dormant] int inactive = 1:n_dormant;
-    int inactive[n_dormant];
-    for (i in 1:n_dormant) inactive[i] = i;
-    int active = n_dormant + 1;
     
     // Give reasonable names to variables
     real S0 = y[1];
@@ -66,21 +62,27 @@ functions {
     
     // Compute derivatives
     // S0
-    real dS0dt = -S0*infect*(short_hyp*(treatedprimary*incomplete*incomplete+untreatedprimary) + long_hyp*primary*(treatedprimary*incomplete+untreatedprimary)) +
-      sum(Sl)*(infect*(short_hyp*treatedprimary*complete+long_hyp*(primary*treatedprimary*complete+silent*treatedsilent*complete))) + Sl[n_stages]*relapse*treatedprimary*complete + sum(Sl[1:n_dormant])*clear_d + Sl[active]*clear_l +
-      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*(primary*treatedprimary*complete + silent*treatedsilent*complete)) + Scl[n_stages]*relapse*treatedrelapse*complete + sum(Scl[1:n_dormant])*clear_d + Scl[active]*clear_l;
+    real dS0dt = -S0*infect*(short_hyp*(treatedprimary*incomplete+untreatedprimary) + long_hyp*primary*(treatedprimary*incomplete + untreatedprimary)) +
+      sum(Sl)*(infect*(short_hyp*treatedprimary*complete+long_hyp*(primary*treatedprimary*complete+silent*treatedsilent*complete))) +
+      Sl[active]*relapse*treatedprimary*complete +
+      sum(Sl[1:n_dormant])*clear_d +
+      Sl[active]*clear_l +
+      sum(Scl)*infect*(short_hyp*treatedprimary*complete + long_hyp*(primary*treatedprimary*complete + silent*treatedsilent*complete)) +
+      Scl[active]*relapse*treatedrelapse*complete +
+      sum(Scl[1:n_dormant])*clear_d +
+      Scl[active]*clear_l +
+      I0*recover;
     
     // Sl
     real dSldt[n_stages];
     dSldt[1] = -Sl[1]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
-      S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
+    S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
     for (i in 2:n_stages-1) {
-      dSldt[i] = -Sl[1]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
-        Sl[i-1]*advance;
+      dSldt[i] = -Sl[i]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
+      Sl[i-1]*advance;
     }
-    dSldt[n_stages] = -Sl[n_stages]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) +
-          relapse + advance + clear_l) +
-        Sl[n_stages-1]*advance;
+    dSldt[n_stages] = -Sl[n_stages]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + relapse + clear_l) +
+      Sl[n_stages-1]*advance;
     
     // Scl
     real dScldt[n_stages];
@@ -95,17 +97,19 @@ functions {
         Icl[i]*recover;
     }
     dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete+untreatedrelapse) + clear_l) +
-      S0*infect*long_hyp*primary*treatedprimary*incomplete +
-      Scl[n_stages-1]*advance +
+      S0*infect*short_hyp*treatedprimary*incomplete +
+      sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
       Sl[n_stages]*infect*long_hyp*primary*treatedprimary*incomplete +
       Sl[n_stages]*relapse*treatedprimary*incomplete +
+      sum(Scl[1:n_dormant])*infect*short_hyp*treatedprimary*incomplete +
+      Scl[n_stages-1]*advance +
       Icl[n_stages]*recover;
-      
+    
     // I0
-    real dI0dt = -I0*(infect+recover) +
+    real dI0dt = -I0*(infect + recover) +
       sum(Icl[1:n_dormant])*clear_d +
       Icl[active]*clear_l;
-      
+    
     // Icl
     real dIcldt[n_stages];
     dIcldt[1] = -Icl[1]*(infect*short_hyp + advance + clear_d + recover) +
@@ -115,11 +119,17 @@ functions {
       I0*(infect*long_hyp);
     for (i in 2:n_stages-1) {
       dIcldt[i] = -Icl[i]*(infect*short_hyp + advance + clear_d + recover) +
-        Sl[i]*infect*long_hyp*primary*untreatedprimary +
-        Scl[i]*infect*long_hyp*primary*untreatedprimary +
-        Icl[i-1]*advance;
+      Sl[i]*infect*long_hyp*primary*untreatedprimary +
+      Scl[i]*infect*long_hyp*primary*untreatedprimary +
+      Icl[i-1]*advance;
     }
     dIcldt[n_stages] = -Icl[n_stages]*(clear_l+recover) +
+      S0*infect*short_hyp*untreatedprimary +
+      Sl[n_stages]*infect*(short_hyp*untreatedprimary+long_hyp*primary*untreatedprimary) +
+      Sl[n_stages]*relapse*untreatedprimary +
+      Scl[n_stages]*infect*(short_hyp*untreatedprimary + long_hyp*primary*untreatedprimary) +
+      Scl[n_stages]*relapse*untreatedrelapse +
+      I0*infect*short_hyp +
       sum(Icl[1:n_dormant])*infect*short_hyp;
     
     real dShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
@@ -139,7 +149,7 @@ functions {
     dydt[n_compartments+2] = dLongIncubations;
     dydt[n_compartments+3] = dTrueRelapses;
     
-    dydt = rep_vector(0, num_elements(dydt));
+    // dydt = rep_vector(0, num_elements(dydt));
     return dydt;
   }
 }
@@ -166,6 +176,7 @@ data {
   int n_dormant;
   
   vector[2 + 3*(n_dormant+1) + 3] y0; # last 3 elements are trueshortincubations, truelongincubations, and truerelapses
+  int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 
 transformed data {
@@ -190,22 +201,40 @@ transformed data {
   
   int n_stages = n_dormant + 1;
   int n_compartments = 2 + 3*n_stages;
+  int len_y = n_compartments + 3;
 }
 
 parameters {
-  real lambda;
+  real<lower=0> lambda;
 }
 
 transformed parameters {
   vector[1] theta;
   theta[1] = lambda;
   
-  array[n_times] vector[n_compartments] y = ode_bdf(my_ode, y0, t0, ts, theta, x_r, x_i);
+  array[n_times] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts, theta, x_r, x_i);
 }
 
 model {
-  theta[1] ~ uniform(0, 1);
+  theta[1] ~ exponential(5);
   
+  real trueshortincubations;
+  real truelongincubations;
+  real truerelapses;
+  real incidence;
+  if (run_estimation == 1) {
+    for (i in 1:n_times-1) {
+      trueshortincubations = y[i+1][n_compartments+1] - y[i][n_compartments+1];
+      truelongincubations = y[i+1][n_compartments+2] - y[i][n_compartments+2];
+      truerelapses = y[i+1][n_compartments+3] - y[i][n_compartments+3];
+      incidence = trueshortincubations + truelongincubations + truerelapses;
+      cases[i] ~ poisson(incidence);
+    }
+  }
+}
+
+generated quantities {
+  vector[n_times-1] cases_sim;
   real trueshortincubations;
   real truelongincubations;
   real truerelapses;
@@ -214,7 +243,7 @@ model {
     trueshortincubations = y[i+1][n_compartments+1] - y[i][n_compartments+1];
     truelongincubations = y[i+1][n_compartments+2] - y[i][n_compartments+2];
     truerelapses = y[i+1][n_compartments+3] - y[i][n_compartments+3];
-    incidence = trueshortincubations + truelongincubations + incidence;
-    cases[i] ~ poisson(incidence);
+    incidence = trueshortincubations + truelongincubations + truerelapses;
+    cases_sim[i] = poisson_rng(fmax(1e-12, incidence));
   }
 }
