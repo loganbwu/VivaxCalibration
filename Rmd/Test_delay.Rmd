@@ -94,7 +94,7 @@ y %>%
 
 ```{r}
 # Initialise values for verification runs
-n_times = 365*2
+n_times = 365*10
 data_null = list(
   n_times = n_times,
   t0 = 0,
@@ -112,7 +112,7 @@ data_null = list(
   p_long = 0,
   p_silent = 0,
   population_size = 1,
-
+  
   n_dormant = 11,
   
   run_estimation = 0
@@ -128,7 +128,7 @@ data$y0 = state_init(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 
 true_params = list(lambda = 0.0)
 
-sim_out = sampling(model, data = data, chains = 1, iter = 10)
+sim_out = sampling(model, data = data, chains = 1, iter = 1)
 sim_summary = extract_summary(data, sim_out)
 
 plot_output(sim_summary)
@@ -170,11 +170,54 @@ plot_output(sim_summary)
 ```
 
 ```{r}
+model_file = "../stan/test_delay_3.stan"
+model = stan_model(model_file)
+
 data = data_null
 data$alpha = 0.5
-data$beta = 0.5
-data$p_long = 0
-data$n_dormant = 30
-data$gamma_l = data$gamma_d = 0
-data$omega = function(t) {ifelse(t<1, 1, 0)}
+data$beta = 0.9
+data$lambda = 0.05
+data$p_long = 0.5
+data$eps = 0.001
+data$kappa = 1
+data$phase = 0
+# data$ts = seq(0, 365.25*10, length.out = 1000)
+# data$n_times = length(data$ts)
+# data$cases = rpois(data$n_times, 100)
+data$y0 = state_init(data, I0 = 0.01)
+real_params = list(lambda = 10)
+
+sim_out = my_simulate_data_list(
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = real_params,
+  vars = c("y")
+)$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  mutate(time = time,
+         Infectious = rowSums(across(starts_with("I"))),
+         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+         Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
+         Susceptible = S0,
+         Prevalence = 1 - S0,
+         # Below incidence rates are in units of people per day
+         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+         ReportedShortIncubations = TrueShortIncubations * data$alpha,
+         ReportedLongIncubations = TrueLongIncubations * data$alpha,
+         ReportedRelapses = TrueRelapses * (1-data$relapse_clinical_immunity) * data$alpha,
+         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+         .keep = "used")
+
+sim_out %>%
+  pivot_longer(-time) %>%
+  filter(name %in% names(data$y0),
+         !name %>% str_detect("True")) %>%
+  ggplot(aes(x = time, y = value, color = name)) +
+  geom_line()
+
+plot_output(sim_out)
 ```

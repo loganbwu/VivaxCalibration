@@ -31,7 +31,7 @@ aggregate_data = function(.data) {
   .data
 }
 
-my_simulate_data_1 = function(...) {
+my_simulate_data_list = function(...) {
   synth_data = simulate_data(...)
   
   synth_data_rds = readRDS(synth_data$datasets[1])

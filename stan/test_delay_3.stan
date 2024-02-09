@@ -1,6 +1,13 @@
 // These models are for testing a variable-length chain of delays in an ODE model
 
+// Changes from v2: omega is now 'suitability' function
+
 functions {
+  real suitability(real t, real eps, real kappa, real phase) {
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa);
+    // return(1);
+  }
+  
   vector my_ode(real time, vector y, vector theta, real[] x_r, int[] x_i) {
     
     // Unpack theta
@@ -19,6 +26,9 @@ functions {
     real p_long = x_r[10];
     real p_silent = x_r[11];
     real population_size = x_r[12];
+    real eps = x_r[13];
+    real kappa = x_r[14];
+    real phase = x_r[15];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -57,7 +67,8 @@ functions {
       Icl[i] = y[2+2*n_stages+i];
     }
     
-    real infect = lambda * (I0 + sum(Icl));
+    // Force of infection
+    real infect = lambda * suitability(time, eps, kappa, phase) * (I0 + sum(Icl));
     
     // Compute derivatives
     // S0
@@ -171,6 +182,9 @@ data {
   real p_long;
   real p_silent;
   real population_size;
+  real eps;
+  real kappa;
+  real phase;
   
   int n_dormant;
   
@@ -179,7 +193,7 @@ data {
 }
 
 transformed data {
-  real x_r[13] = {
+  real x_r[15] = {
     alpha,
     beta,
     relapse_clinical_immunity,
@@ -191,7 +205,10 @@ transformed data {
     r,
     p_long,
     p_silent,
-    population_size
+    population_size,
+    eps,
+    kappa,
+    phase
   };
   
   int x_i[1] = {
