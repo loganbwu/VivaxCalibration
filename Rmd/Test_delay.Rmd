@@ -15,6 +15,7 @@ library(rstan)
 library(rstansim) # devtools::install_github("ewan-keith/rstansim")
 library(parallel)
 library(patchwork)
+library(ggrepel)
 library(pbmcapply)
 library(pbapply)
 library(RColorBrewer)
@@ -120,14 +121,13 @@ data_null = list(
   
   run_estimation = 0
 )
-model_file = "../stan/test_delay_2.stan"
+# model_file = "../stan/test_delay_2.stan"
+# model = stan_model(model_file)
+model_file = "../stan/test_delay_3.stan"
 model = stan_model(model_file)
 ```
 
 ```{r short_relapse}
-model_file = "../stan/test_delay_3.stan"
-model = stan_model(model_file)
-
 n_times = 365*2
 ts = 1:n_times
 cases = rpois(n_times, 100)
@@ -167,11 +167,20 @@ sim_summary = extract_summary(data, sim_out)
 
 plot_output(sim_summary)
 
-sim_summary %>%
+plot_data = sim_summary %>%
   select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
-  pivot_longer(-time) %>%
-  ggplot(aes(x=time, y=value, color=name)) +
-  geom_line()
+  pivot_longer(-time, names_to="Compartment", values_to="Proportion")
+plot_labels = plot_data %>%
+  group_by(Compartment) %>%
+  arrange(desc(Proportion)) %>%
+  slice(1) %>%
+  filter(Proportion > 0)
+
+ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
+  geom_line() +
+  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6) +
+  theme(legend.position = "none") +
+  labs(subtitle = "Begin with long-relapse hypnozoites, instant latent relapse, and complete treatment")
 ```
 
 ```{r all_stages_relapse}
@@ -194,6 +203,21 @@ sim_out = sampling(model, data = data, chains = 1, iter = 1)
 sim_summary = extract_summary(data, sim_out)
 
 plot_output(sim_summary)
+
+plot_data = sim_summary %>%
+  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  pivot_longer(-time, names_to="Compartment", values_to="Proportion")
+plot_labels = plot_data %>%
+  group_by(Compartment) %>%
+  arrange(desc(Proportion)) %>%
+  slice(1) %>%
+  filter(Proportion > 0)
+
+ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
+  geom_line() +
+  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6) +
+  theme(legend.position = "none") +
+  labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
 ```
 
 ```{r scenario_1}
@@ -257,7 +281,7 @@ data = data_init(data_null,
                  phase = 0,
                  gamma_l = 0,
                  gamma_d = 0,
-                 r = 0.5)
+                 r = 50)
 data_1 = data_2 = data_3 = data
 data_1$y0 = state_init(data, Sl12 = 1)
 data_2$y0 = state_init(data, Sl1 = 0.5, Sl12 = 0.5)
@@ -277,23 +301,23 @@ sims_out = list(
       param_values = real_params,
       vars = c("y")
     )$y %>%
-  as_tibble() %>%
-  setNames(names(x$y0)) %>%
-  mutate(time = x$ts, .before=0) %>%
-  mutate(time = time,
-         Infectious = rowSums(across(starts_with("I"))),
-         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
-         Susceptible = S0,
-         Prevalence = 1 - S0,
-         # Below incidence rates are in units of people per day
-         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
-         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
-         ReportedShortIncubations = TrueShortIncubations * x$alpha,
-         ReportedLongIncubations = TrueLongIncubations * x$alpha,
-         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
-         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
-         .keep = "used")
+      as_tibble() %>%
+      setNames(names(x$y0)) %>%
+      mutate(time = x$ts, .before=0) %>%
+      mutate(time = time,
+             Infectious = rowSums(across(starts_with("I"))),
+             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Susceptible = S0,
+             Prevalence = 1 - S0,
+             # Below incidence rates are in units of people per day
+             across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+             TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+             ReportedShortIncubations = TrueShortIncubations * x$alpha,
+             ReportedLongIncubations = TrueLongIncubations * x$alpha,
+             ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+             ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+             .keep = "used")
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
@@ -302,7 +326,8 @@ plot_data = sims_out %>% bind_rows(.id = "Var") %>%
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
   geom_line() +
-  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y")
+  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y") +
+  labs(subtitle = "The proportion beginning in Sl1 vs Sl[n] combines short and long relapse peaks")
 ```
 
 ```{r scenario_3}
@@ -328,7 +353,7 @@ data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
 data_2$p_silent = 0.5
 data_3$p_silent = 1
-real_params = list(lambda = 0.05)
+real_params = list(lambda = 0.1)
 
 sims_out = list(
   `p_silent=0` = data_1,
@@ -343,27 +368,28 @@ sims_out = list(
       param_values = real_params,
       vars = c("y")
     )$y %>%
-  as_tibble() %>%
-  setNames(names(x$y0)) %>%
-  mutate(time = x$ts, .before=0) %>%
-  mutate(time = time,
-         Infectious = rowSums(across(starts_with("I"))),
-         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
-         Susceptible = S0,
-         Prevalence = 1 - S0,
-         # Below incidence rates are in units of people per day
-         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
-         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
-         ReportedShortIncubations = TrueShortIncubations * x$alpha,
-         ReportedLongIncubations = TrueLongIncubations * x$alpha,
-         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
-         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
-         .keep = "used")
+      as_tibble() %>%
+      setNames(names(x$y0)) %>%
+      mutate(time = x$ts, .before=0) %>%
+      mutate(time = time,
+             Infectious = rowSums(across(starts_with("I"))),
+             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Susceptible = S0,
+             Prevalence = 1 - S0,
+             # Below incidence rates are in units of people per day
+             across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+             TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+             ReportedShortIncubations = TrueShortIncubations * x$alpha,
+             ReportedLongIncubations = TrueLongIncubations * x$alpha,
+             ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+             ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+             .keep = "used")
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Total = Infectious + Dormant + Latent + Susceptible) %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible, Total)) %>%
   mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
@@ -407,23 +433,23 @@ sims_out = list(
       param_values = real_params,
       vars = c("y")
     )$y %>%
-  as_tibble() %>%
-  setNames(names(x$y0)) %>%
-  mutate(time = x$ts, .before=0) %>%
-  mutate(time = time,
-         Infectious = rowSums(across(starts_with("I"))),
-         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
-         Susceptible = S0,
-         Prevalence = 1 - S0,
-         # Below incidence rates are in units of people per day
-         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
-         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
-         ReportedShortIncubations = TrueShortIncubations * x$alpha,
-         ReportedLongIncubations = TrueLongIncubations * x$alpha,
-         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
-         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
-         .keep = "used")
+      as_tibble() %>%
+      setNames(names(x$y0)) %>%
+      mutate(time = x$ts, .before=0) %>%
+      mutate(time = time,
+             Infectious = rowSums(across(starts_with("I"))),
+             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Susceptible = S0,
+             Prevalence = 1 - S0,
+             # Below incidence rates are in units of people per day
+             across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+             TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+             ReportedShortIncubations = TrueShortIncubations * x$alpha,
+             ReportedLongIncubations = TrueLongIncubations * x$alpha,
+             ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+             ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+             .keep = "used")
   })
 
 plot_data = sims_out %>%
@@ -432,8 +458,8 @@ plot_data = sims_out %>%
   pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
   mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
 
-
 ggplot(plot_data, aes(x=time, y=value, color=name, linetype=Var)) +
   geom_line() +
-  facet_grid(rows=vars(Type), scales="free_y")
+  facet_grid(rows=vars(Type), scales="free_y") +
+  labs("More dormant stages (more 'exact' timing) leads to peaky manifestation of seasonality")
 ```

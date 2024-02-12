@@ -260,6 +260,6 @@ generated quantities {
     truelongincubations = y[i+1][n_compartments+2] - y[i][n_compartments+2];
     truerelapses = y[i+1][n_compartments+3] - y[i][n_compartments+3];
     incidence = trueshortincubations + truelongincubations + truerelapses;
-    cases_sim[i] = poisson_rng(fmax(1e-12, incidence));
+    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, incidence)));
   }
 }
