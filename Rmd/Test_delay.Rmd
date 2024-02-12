@@ -69,7 +69,7 @@ true_params = list(
   alpha = 0.1
 )
 
-sim_list = my_simulate_data_1(
+sim_list = my_simulate_data_list(
   file = model_file,
   data_name = "test",
   input_data = data,
@@ -111,9 +111,12 @@ data_null = list(
   r = 1/60,
   p_long = 0,
   p_silent = 0,
-  population_size = 1,
+  population_size = 10000,
   
   n_dormant = 11,
+  eps = 1,
+  kappa = 1,
+  phase = 0,
   
   run_estimation = 0
 )
@@ -122,8 +125,18 @@ model = stan_model(model_file)
 ```
 
 ```{r short_relapse}
-data = data_null
-data$gamma_l = data$gamma_d = 0
+model_file = "../stan/test_delay_3.stan"
+model = stan_model(model_file)
+
+n_times = 365*2
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 gamma_l = 0,
+                 gamma_d = 0)
 data$y0 = state_init(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 
 true_params = list(lambda = 0.0)
@@ -135,9 +148,16 @@ plot_output(sim_summary)
 ```
 
 ```{r long_relapse}
-data = data_null
-data$gamma_l = data$gamma_d = 0
-data$f = 2
+n_times = 365*2
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 gamma_l = 0,
+                 gamma_d = 0,
+                 f = 2)
 data$y0 = state_init(data, Sl1=1)
 
 true_params = list(lambda = 0.0)
@@ -157,8 +177,15 @@ sim_summary %>%
 ```{r all_stages_relapse}
 # Under contrived situations (zero transmission, zero natural clearance, 100\% ascertainment), the measured mean and variance of long-delay relapses is within 1\% of theory (Erlang distribution plus exponential).
 
-data = data_null
-data$gamma_l = data$gamma_d = 0
+n_times = 365*2
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 gamma_l = 0,
+                 gamma_d = 0)
 data$y0 = state_init(data, Sl1=1)
 
 true_params = list(lambda = 0.0)
@@ -169,23 +196,17 @@ sim_summary = extract_summary(data, sim_out)
 plot_output(sim_summary)
 ```
 
-```{r}
-model_file = "../stan/test_delay_3.stan"
-model = stan_model(model_file)
+```{r scenario_1}
+# Under seasonal transmission short relapses should skew infections; i.e., cause a long tail.
+data = data_init(data_null,
+                 alpha = 0.93,
+                 gamma_l = 0,
+                 gamma_d = 0,
+                 eps = 0.001,
+                 kappa = 1)
 
-data = data_null
-data$alpha = 0.5
-data$beta = 0.9
-data$lambda = 0.05
-data$p_long = 0.5
-data$eps = 0.001
-data$kappa = 1
-data$phase = 0
-# data$ts = seq(0, 365.25*10, length.out = 1000)
-# data$n_times = length(data$ts)
-# data$cases = rpois(data$n_times, 100)
-data$y0 = state_init(data, I0 = 0.01)
-real_params = list(lambda = 10)
+data$y0 = state_init(data, "I0" = 0.01)
+real_params = list(lambda = 1)
 
 sim_out = my_simulate_data_list(
   file = model_file,
@@ -210,14 +231,209 @@ sim_out = my_simulate_data_list(
          ReportedLongIncubations = TrueLongIncubations * data$alpha,
          ReportedRelapses = TrueRelapses * (1-data$relapse_clinical_immunity) * data$alpha,
          ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
-         .keep = "used")
-
-sim_out %>%
-  pivot_longer(-time) %>%
-  filter(name %in% names(data$y0),
-         !name %>% str_detect("True")) %>%
-  ggplot(aes(x = time, y = value, color = name)) +
-  geom_line()
+         .keep = "used") %>%
+  select(time, ReportedCases, ReportedRelapses, ReportedCases, ReportedShortIncubations)
 
 plot_output(sim_out)
+# short relapses skew peak timing late
+```
+
+
+```{r scenario_2}
+# Examine effect of p_long
+n_times = 365*2
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 alpha = 0.5,
+                 beta = 0.9,
+                 p_long = 0.5,
+                 p_silent = 0.0,
+                 eps = 0.001,
+                 kappa = 1,
+                 phase = 0,
+                 gamma_l = 0,
+                 gamma_d = 0,
+                 r = 0.5)
+data_1 = data_2 = data_3 = data
+data_1$y0 = state_init(data, Sl12 = 1)
+data_2$y0 = state_init(data, Sl1 = 0.5, Sl12 = 0.5)
+data_3$y0 = state_init(data, Sl1 = 1)
+real_params = list(lambda = 1e-12)
+
+sims_out = list(
+  `p_long=0` = data_1,
+  `p_long=0.5` = data_2,
+  `p_long=1` = data_3
+) %>%
+  lapply(function(x) {
+    my_simulate_data_list(
+      file = model_file,
+      data_name = "dummy_data",
+      input_data = x,
+      param_values = real_params,
+      vars = c("y")
+    )$y %>%
+  as_tibble() %>%
+  setNames(names(x$y0)) %>%
+  mutate(time = x$ts, .before=0) %>%
+  mutate(time = time,
+         Infectious = rowSums(across(starts_with("I"))),
+         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+         Susceptible = S0,
+         Prevalence = 1 - S0,
+         # Below incidence rates are in units of people per day
+         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+         ReportedShortIncubations = TrueShortIncubations * x$alpha,
+         ReportedLongIncubations = TrueLongIncubations * x$alpha,
+         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+         .keep = "used")
+  })
+
+plot_data = sims_out %>% bind_rows(.id = "Var") %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
+
+ggplot(plot_data, aes(x=time, y=value, color=name)) +
+  geom_line() +
+  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y")
+```
+
+```{r scenario_3}
+# Examine effect of p_silent
+n_times = 365*1
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 alpha = 0.5,
+                 beta = 0.9,
+                 p_long = 0.5,
+                 p_silent = 0.0,
+                 eps = 0.001,
+                 kappa = 1,
+                 phase = 0,
+                 gamma_l = 0,
+                 gamma_d = 0)
+data$y0 = state_init(data, I0 = 0.01)
+data_1 = data_2 = data_3 = data
+data_1$p_silent = 0
+data_2$p_silent = 0.5
+data_3$p_silent = 1
+real_params = list(lambda = 0.05)
+
+sims_out = list(
+  `p_silent=0` = data_1,
+  `p_silent=0.5` = data_2,
+  `p_silent=1` = data_3
+) %>%
+  lapply(function(x) {
+    my_simulate_data_list(
+      file = model_file,
+      data_name = "dummy_data",
+      input_data = x,
+      param_values = real_params,
+      vars = c("y")
+    )$y %>%
+  as_tibble() %>%
+  setNames(names(x$y0)) %>%
+  mutate(time = x$ts, .before=0) %>%
+  mutate(time = time,
+         Infectious = rowSums(across(starts_with("I"))),
+         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+         Susceptible = S0,
+         Prevalence = 1 - S0,
+         # Below incidence rates are in units of people per day
+         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+         ReportedShortIncubations = TrueShortIncubations * x$alpha,
+         ReportedLongIncubations = TrueLongIncubations * x$alpha,
+         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+         .keep = "used")
+  })
+
+plot_data = sims_out %>% bind_rows(.id = "Var") %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
+
+ggplot(plot_data, aes(x=time, y=value, color=name)) +
+  geom_line() +
+  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y")
+```
+
+```{r scenario_4}
+# Examine effect of the number of dormant stages
+n_times = 365*5
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 alpha = 0.5,
+                 eps = 0,
+                 p_long = 1,
+                 gamma_l = 0,
+                 gamma_d = 0)
+data_1 = data_2 = data_3 = data
+data_1$n_dormant = 1
+data_1$y0 = state_init(data_1, I0 = 0.01)
+data_2$n_dormant = 11
+data_2$y0 = state_init(data_2, I0 = 0.01)
+data_3$n_dormant = 50
+data_3$y0 = state_init(data_3, I0 = 0.01)
+real_params = list(lambda = 0.04)
+
+sims_out = list(
+  `n_dormant=1` = data_1,
+  `n_dormant=11` = data_2,
+  `n_dormant=50` = data_3
+) %>%
+  lapply(function(x) {
+    my_simulate_data_list(
+      file = model_file,
+      data_name = "dummy_data",
+      input_data = x,
+      param_values = real_params,
+      vars = c("y")
+    )$y %>%
+  as_tibble() %>%
+  setNames(names(x$y0)) %>%
+  mutate(time = x$ts, .before=0) %>%
+  mutate(time = time,
+         Infectious = rowSums(across(starts_with("I"))),
+         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+         Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+         Susceptible = S0,
+         Prevalence = 1 - S0,
+         # Below incidence rates are in units of people per day
+         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+         ReportedShortIncubations = TrueShortIncubations * x$alpha,
+         ReportedLongIncubations = TrueLongIncubations * x$alpha,
+         ReportedRelapses = TrueRelapses * (1-x$relapse_clinical_immunity) * x$alpha,
+         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+         .keep = "used")
+  })
+
+plot_data = sims_out %>%
+  bind_rows(.id = "Var") %>%
+  mutate(Var = fct_inorder(Var)) %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
+
+
+ggplot(plot_data, aes(x=time, y=value, color=name, linetype=Var)) +
+  geom_line() +
+  facet_grid(rows=vars(Type), scales="free_y")
 ```
