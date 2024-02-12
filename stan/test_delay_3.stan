@@ -72,9 +72,9 @@ functions {
     
     // Compute derivatives
     // S0
-    real dS0dt = -S0*infect*(short_hyp*(treatedprimary*incomplete+untreatedprimary) + long_hyp*primary*(treatedprimary*incomplete + untreatedprimary)) +
+    real dS0dt = -S0*infect*(short_hyp*(treatedprimary*incomplete+untreatedprimary) + long_hyp*(primary*(treatedprimary*incomplete + untreatedprimary) + silent*(treatedsilent*incomplete + untreatedsilent))) +
       sum(Sl)*(infect*(short_hyp*treatedprimary*complete+long_hyp*(primary*treatedprimary*complete+silent*treatedsilent*complete))) +
-      Sl[active]*relapse*treatedprimary*complete +
+      Sl[active]*relapse*treatedrelapse*complete +
       sum(Sl[1:n_dormant])*clear_d +
       Sl[active]*clear_l +
       sum(Scl)*infect*(short_hyp*treatedprimary*complete + long_hyp*(primary*treatedprimary*complete + silent*treatedsilent*complete)) +
@@ -86,7 +86,7 @@ functions {
     // Sl
     real dSldt[n_stages];
     dSldt[1] = -Sl[1]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
-    S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
+      S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
     for (i in 2:n_stages-1) {
       dSldt[i] = -Sl[i]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
       Sl[i-1]*advance;
@@ -106,11 +106,11 @@ functions {
         Sl[i]*infect*long_hyp*primary*treatedprimary*incomplete +
         Icl[i]*recover;
     }
-    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete+untreatedrelapse) + clear_l) +
+    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete+untreatedrelapse) + clear_l) +
       S0*infect*short_hyp*treatedprimary*incomplete +
       sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
       Sl[n_stages]*infect*long_hyp*primary*treatedprimary*incomplete +
-      Sl[n_stages]*relapse*treatedprimary*incomplete +
+      Sl[n_stages]*relapse*treatedrelapse*incomplete +
       sum(Scl[1:n_dormant])*infect*short_hyp*treatedprimary*incomplete +
       Scl[n_stages-1]*advance +
       Icl[n_stages]*recover;
@@ -126,7 +126,7 @@ functions {
       S0*(infect*long_hyp*primary*untreatedprimary) +
       Sl[1]*infect*long_hyp*primary*untreatedprimary +
       Scl[1]*infect*long_hyp*primary*untreatedprimary +
-      I0*(infect*long_hyp);
+      I0*infect*long_hyp;
     for (i in 2:n_stages-1) {
       dIcldt[i] = -Icl[i]*(infect*short_hyp + advance + clear_d + recover) +
       Sl[i]*infect*long_hyp*primary*untreatedprimary +
@@ -135,12 +135,21 @@ functions {
     }
     dIcldt[n_stages] = -Icl[n_stages]*(clear_l+recover) +
       S0*infect*short_hyp*untreatedprimary +
-      Sl[n_stages]*infect*(short_hyp*untreatedprimary+long_hyp*primary*untreatedprimary) +
-      Sl[n_stages]*relapse*untreatedprimary +
-      Scl[n_stages]*infect*(short_hyp*untreatedprimary + long_hyp*primary*untreatedprimary) +
+      
+      sum(Sl)*infect*short_hyp*untreatedprimary +
+      Sl[n_stages]*infect*long_hyp*primary*untreatedprimary +
+      Sl[n_stages]*relapse*untreatedrelapse +
+      
+      // Sl[n_stages]*infect*(short_hyp*untreatedprimary+long_hyp*primary*untreatedprimary) + ## CHECK-original
+      // Sl[n_stages]*relapse*untreatedprimary +
+      sum(Scl)*infect*short_hyp*untreatedprimary +
+      Scl[n_stages]*infect*long_hyp*primary*untreatedprimary +
       Scl[n_stages]*relapse*untreatedrelapse +
+      // Scl[n_stages]*infect*(short_hyp*untreatedprimary + long_hyp*primary*untreatedprimary) +
+      // Scl[n_stages]*relapse*untreatedrelapse +
       I0*infect*short_hyp +
-      sum(Icl[1:n_dormant])*infect*short_hyp;
+      sum(Icl[1:n_dormant])*infect*short_hyp +
+      Icl[n_stages-1]*advance;
     
     real dTrueShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
     real dTrueLongIncubations = Sl[active]*f * population_size;
@@ -186,7 +195,7 @@ data {
   real kappa;
   real phase;
   
-  int n_dormant;
+  int<lower=1> n_dormant;
   
   vector[2 + 3*(n_dormant+1) + 3] y0; # last 3 elements are trueshortincubations, truelongincubations, and truerelapses
   int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html

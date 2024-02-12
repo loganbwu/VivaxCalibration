@@ -112,7 +112,7 @@ data_null = list(
   r = 1/60,
   p_long = 0,
   p_silent = 0,
-  population_size = 10000,
+  population_size = 1,
   
   n_dormant = 11,
   eps = 1,
@@ -220,6 +220,71 @@ ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
 ```
 
+```{r continuous_transmission}
+data = data_init(data_null,
+                 alpha = 0.5,
+                 p_silent = 0, # this is unrelated
+                 p_long = 1, # something about p_long>0 makes it lose summation to 1
+                 gamma_l = 0,
+                 gamma_d = 0,
+                 r = 0,
+                 f = 0,
+                 n_dormant = 3,
+                 relapse_clinical_immunity = 1,
+                 delta = 0.1) # people get lost when the long relapse occurs
+
+data$y0 = state_init(data, "Icl1" = 1)
+real_params = list(lambda = 1e-12)
+
+sim_out = my_simulate_data_list(
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = real_params,
+  vars = c("y")
+)$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  mutate(time = time,
+         Infectious = rowSums(across(starts_with("I"))),
+         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+         Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
+         Susceptible = S0,
+         Prevalence = 1 - S0,
+         Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
+         # Below incidence rates are in units of people per day
+         across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
+         TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
+         ReportedShortIncubations = TrueShortIncubations * data$alpha,
+         ReportedLongIncubations = TrueLongIncubations * data$alpha,
+         ReportedRelapses = TrueRelapses * (1-data$relapse_clinical_immunity) * data$alpha,
+         ReportedCases = ReportedShortIncubations + ReportedLongIncubations + ReportedRelapses,
+         .keep = "used")
+
+# plot_output(sim_out)
+
+plot_data = sim_out %>%
+  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  # select(time, Susceptible, Latent, Dormant, Infectious, Total) %>%
+  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
+  filter(!Compartment %in% c("I0", ""),
+         time <= 10)
+
+plot_labels = plot_data %>%
+  group_by(Compartment) %>%
+  arrange(desc(Proportion)) %>%
+  slice(1) %>%
+  filter(Proportion > 0)
+
+ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
+  geom_line() +
+  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=1, max.overlaps=1e6) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position = "none") +
+  labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
+```
+
 ```{r scenario_1}
 # Under seasonal transmission short relapses should skew infections; i.e., cause a long tail.
 data = data_init(data_null,
@@ -272,16 +337,12 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
-                 alpha = 0.5,
-                 beta = 0.9,
-                 p_long = 0.5,
-                 p_silent = 0.0,
-                 eps = 0.001,
-                 kappa = 1,
-                 phase = 0,
+                 alpha = 1,
+                 beta = 1,
+                 p_long = 0,
+                 p_silent = 1,
                  gamma_l = 0,
-                 gamma_d = 0,
-                 r = 50)
+                 gamma_d = 0)
 data_1 = data_2 = data_3 = data
 data_1$y0 = state_init(data, Sl12 = 1)
 data_2$y0 = state_init(data, Sl1 = 0.5, Sl12 = 0.5)
@@ -310,6 +371,7 @@ sims_out = list(
              Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
              Susceptible = S0,
              Prevalence = 1 - S0,
+             Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
              # Below incidence rates are in units of people per day
              across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
              TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
@@ -321,7 +383,7 @@ sims_out = list(
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible, Total)) %>%
   mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
@@ -332,7 +394,7 @@ ggplot(plot_data, aes(x=time, y=value, color=name)) +
 
 ```{r scenario_3}
 # Examine effect of p_silent
-n_times = 365*1
+n_times = 365*10
 ts = 1:n_times
 cases = rpois(n_times, 100)
 data = data_init(data_null,
@@ -342,9 +404,8 @@ data = data_init(data_null,
                  alpha = 0.5,
                  beta = 0.9,
                  p_long = 0.5,
-                 p_silent = 0.0,
                  eps = 0.001,
-                 kappa = 1,
+                 kappa = 5,
                  phase = 0,
                  gamma_l = 0,
                  gamma_d = 0)
@@ -353,7 +414,7 @@ data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
 data_2$p_silent = 0.5
 data_3$p_silent = 1
-real_params = list(lambda = 0.1)
+real_params = list(lambda = 0.05)
 
 sims_out = list(
   `p_silent=0` = data_1,
@@ -377,6 +438,7 @@ sims_out = list(
              Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
              Susceptible = S0,
              Prevalence = 1 - S0,
+             Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
              # Below incidence rates are in units of people per day
              across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
              TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
@@ -388,13 +450,30 @@ sims_out = list(
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  mutate(Total = Infectious + Dormant + Latent + Susceptible) %>%
-  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible, Total)) %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Total)) %>%
   mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
   geom_line() +
   facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y")
+
+plot_data = sims_out %>% 
+  bind_rows(.id = "Var") %>%
+  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent")) %>%
+  pivot_longer(-c(Var, time), names_to="Compartment", values_to="Proportion")
+
+plot_labels = plot_data %>%
+  group_by(Compartment, Var) %>%
+  arrange(desc(Proportion)) %>%
+  slice(1) %>%
+  filter(Proportion > 0)
+
+ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
+  geom_line() +
+  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6) +
+  facet_wrap(vars(Var), scales="free_y") +
+  theme(legend.position = "none") +
+  labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
 ```
 
 ```{r scenario_4}
@@ -442,6 +521,7 @@ sims_out = list(
              Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
              Susceptible = S0,
              Prevalence = 1 - S0,
+             Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
              # Below incidence rates are in units of people per day
              across(matches("True"), ~ (lead(.x) - .x) / as.numeric(lead(time) - time)),
              TrueCases = TrueShortIncubations + TrueLongIncubations + TrueRelapses,
@@ -455,7 +535,7 @@ sims_out = list(
 plot_data = sims_out %>%
   bind_rows(.id = "Var") %>%
   mutate(Var = fct_inorder(Var)) %>%
-  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible)) %>%
+  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent, Susceptible, Total)) %>%
   mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name, linetype=Var)) +
