@@ -248,8 +248,8 @@ sim_out = my_simulate_data_list(
   mutate(time = data$ts, .before=0) %>%
   mutate(time = time,
          Infectious = rowSums(across(starts_with("I"))),
-         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
-         Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
+         Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+         Latent = rowSums(across(matches(paste0("^Sc?l", data$n_dormant+1, "$")))),
          Susceptible = S0,
          Prevalence = 1 - S0,
          Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
@@ -309,8 +309,8 @@ sim_out = my_simulate_data_list(
   mutate(time = data$ts, .before=0) %>%
   mutate(time = time,
          Infectious = rowSums(across(starts_with("I"))),
-         Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
-         Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
+         Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+         Latent = rowSums(across(matches(paste0("^Sc?l", data$n_dormant+1, "$")))),
          Susceptible = S0,
          Prevalence = 1 - S0,
          # Below incidence rates are in units of people per day
@@ -367,8 +367,8 @@ sims_out = list(
       mutate(time = x$ts, .before=0) %>%
       mutate(time = time,
              Infectious = rowSums(across(starts_with("I"))),
-             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent = rowSums(across(matches(paste0("^Sc?l", x$n_dormant+1, "$")))),
              Susceptible = S0,
              Prevalence = 1 - S0,
              Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
@@ -406,9 +406,7 @@ data = data_init(data_null,
                  p_long = 0.5,
                  eps = 0.001,
                  kappa = 5,
-                 phase = 0,
-                 gamma_l = 0,
-                 gamma_d = 0)
+                 phase = 0)
 data$y0 = state_init(data, I0 = 0.01)
 data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
@@ -434,8 +432,8 @@ sims_out = list(
       mutate(time = x$ts, .before=0) %>%
       mutate(time = time,
              Infectious = rowSums(across(starts_with("I"))),
-             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent = rowSums(across(matches(paste0("^Sc?l", x$n_dormant+1, "$")))),
              Susceptible = S0,
              Prevalence = 1 - S0,
              Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
@@ -459,14 +457,16 @@ ggplot(plot_data, aes(x=time, y=value, color=name)) +
 
 plot_data = sims_out %>% 
   bind_rows(.id = "Var") %>%
-  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent")) %>%
-  pivot_longer(-c(Var, time), names_to="Compartment", values_to="Proportion")
+  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  pivot_longer(-c(Var, time), names_to="Compartment", values_to="Proportion") %>%
+  filter(Compartment %>% str_detect("12"))
 
 plot_labels = plot_data %>%
   group_by(Compartment, Var) %>%
   arrange(desc(Proportion)) %>%
   slice(1) %>%
-  filter(Proportion > 0)
+  filter(Proportion > 0,
+         Compartment %>% str_detect("12"))
 
 ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   geom_line() +
@@ -517,8 +517,8 @@ sims_out = list(
       mutate(time = x$ts, .before=0) %>%
       mutate(time = time,
              Infectious = rowSums(across(starts_with("I"))),
-             Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
-             Latent := !!rlang::sym(paste0("Sl", x$n_dormant+1)),
+             Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(x$n_dormant), collapse="|"), ")$")))),
+             Latent = rowSums(across(matches(paste0("^Sc?l", x$n_dormant+1, "$")))),
              Susceptible = S0,
              Prevalence = 1 - S0,
              Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
