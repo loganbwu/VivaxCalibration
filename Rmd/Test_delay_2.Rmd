@@ -21,12 +21,13 @@ library(pbapply)
 library(RColorBrewer)
 source("../R/load_functions.R")
 
+year = 365.25
 
 plot_output = function(output) {
   plot_data = output %>%
     pivot_longer(-time) %>%
     mutate(Type = case_match(name,
-                             c("Cases", "ReportedShortIncubations", "Relapses", "ReportedRelapses", "ReportedShortIncubations", "ReportedCases", "ReportedShortIncubations", "ReportedLongIncubations") ~ "Cases",
+                             c("Cases", "ReportedShortIncubations", "Relapses", "ReportedRelapses", "ReportedShortIncubations", "ReportedCases", "ReportedShortIncubations", "ReportedLongIncubations", "ClinicalIncidence") ~ "Cases",
                              c("Infectious", "Dormant", "Latent", "Susceptible") ~ "Compartment",
                              .default = name)) %>%
     filter(name != "Susceptible",
@@ -36,64 +37,7 @@ plot_output = function(output) {
     geom_line() +
     facet_wrap(vars(Type), ncol=1, scales="free_y")
 }
-```
 
-```{r}
-model_file = "../stan/test_delay_1.stan"
-model = stan_model(model_file)
-
-rstan_options(auto_write = TRUE)
-
-n_years = 5
-n_iter = 100 # should be at least 500
-n_chains = 2
-n_repetitions = 1 # how many times to duplicate each scenario
-cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
-limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*60 * 5
-n_traces = 200 # limit for plotting sample trajectories
-
-n_times = 100
-n_delays = 4
-data = list(
-  `T` = n_times,
-  t0 = 0,
-  ts = 1:n_times,
-  n_delays = n_delays,
-  cases = rep(5, n_times),
-  y0 = c(1, rep(0, n_delays)),
-  dummy = 10
-)
-
-true_params = list(
-  sigma = 1,
-  alpha = 0.1
-)
-
-sim_list = my_simulate_data_list(
-  file = model_file,
-  data_name = "test",
-  input_data = data,
-  vars = "all",
-  param_values = true_params
-)
-
-y = sim_list$y %>%
-  as_tibble()
-
-y %>%
-  mutate(t = sim_list$ts) %>%
-  pivot_longer(-t) %>%
-  ggplot(aes(x = t, y = value, color= name)) +
-  geom_line()
-
-# fit = sampling(
-#   model,
-#   data = data
-# )
-```
-
-```{r}
 # Initialise values for verification runs
 n_times = 365*10
 data_null = list(
@@ -121,9 +65,8 @@ data_null = list(
   
   run_estimation = 0
 )
-# model_file = "../stan/test_delay_2.stan"
-# model = stan_model(model_file)
-model_file = "../stan/test_delay_3.stan"
+
+model_file = "../stan/test_delay_4.stan"
 model = stan_model(model_file)
 ```
 
@@ -135,14 +78,15 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
+                 n_dormant = 1,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
+data$y0 = state_init_2(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 
 true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary(data, sim_out)
+sim_summary = extract_summary_2(data, sim_out)
 
 plot_output(sim_summary)
 ```
@@ -157,28 +101,30 @@ data = data_init(data_null,
                  cases = cases,
                  gamma_l = 0,
                  gamma_d = 0,
-                 f = 2)
-data$y0 = state_init(data, Sl1=1)
+                 f = 99)
+data$y0 = state_init_2(data, Sl1=1)
 
 true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary(data, sim_out)
+sim_summary = extract_summary_2(data, sim_out)
 
 plot_output(sim_summary)
 
 plot_data = sim_summary %>%
   select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
-  pivot_longer(-time, names_to="Compartment", values_to="Proportion")
+  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
+  mutate(Type = ifelse(Compartment == "ClinicalIncidence", "Incidence", "Compartment"))
 plot_labels = plot_data %>%
   group_by(Compartment) %>%
   arrange(desc(Proportion)) %>%
   slice(1) %>%
-  filter(Proportion > 0)
+  filter(Proportion > 1e-12)
 
 ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   geom_line() +
-  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6) +
+  geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6, fill = alpha(c("white"),0.5), label.padding=0.1) +
+  facet_wrap(vars(Type), ncol=1, scales="free_y") +
   theme(legend.position = "none") +
   labs(subtitle = "Begin with long-relapse hypnozoites, instant latent relapse, and complete treatment")
 ```
@@ -195,33 +141,35 @@ data = data_init(data_null,
                  cases = cases,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init(data, Sl1=1)
+data$y0 = state_init_2(data, Sl1=1)
 
 true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary(data, sim_out)
+sim_summary = extract_summary_2(data, sim_out)
 
 plot_output(sim_summary)
 
 plot_data = sim_summary %>%
-  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  select(-matches("True|Reported|Clinical|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
   pivot_longer(-time, names_to="Compartment", values_to="Proportion")
 plot_labels = plot_data %>%
   group_by(Compartment) %>%
   arrange(desc(Proportion)) %>%
   slice(1) %>%
-  filter(Proportion > 0)
+  filter(Proportion > 1e-12)
 
 ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   geom_line() +
-  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6) +
+  geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=5, max.overlaps=1e6, fill = alpha(c("white"),0.5), label.padding=0.1) +
   theme(legend.position = "none") +
   labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
 ```
 
 ```{r alpha}
 # Examine effect of alpha
+a1 = 0
+a2 = 1
 n_times = 365*3
 ts = 1:n_times
 cases = rpois(n_times, 100)
@@ -229,18 +177,18 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
-                 alpha = 0.5,
+                 alpha = a1,
+                 r = 0,
+                 # f = 0,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init(data, Sl1 = 1)
+data$y0 = state_init_2(data, Sl1 = 1)
 data_1 = data_2 = data
-data_2$alpha = 1
-real_params = list(lambda = 1e-12)
+data_2$alpha = a2
+real_params = list(lambda = 0.01)
 
-sims_out = list(
-  `alpha=0.5` = data_1,
-  `alpha=1` = data_2
-) %>%
+sims_out = list(data_1, data_2) %>%
+  setNames(paste0("alpha=", c(a1, a2))) %>%
   lapply(function(x) {
     my_simulate_data_list(
       file = model_file,
@@ -252,14 +200,14 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities(x)
+      calculate_quantities_2(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedCases, ReportedLongIncubations, ReportedShortIncubations, ReportedRelapses, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported|True"), "Incidence", "Compartment"))
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical"), "Incidence", "Compartment"))
 
-ggplot(plot_data, aes(x=time, y=value, color=name)) +
+ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
   facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y") +
   labs(subtitle = "Varying alpha")
@@ -277,7 +225,7 @@ data = data_init(data_null,
                  beta = 0.5,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init(data, Sl1 = 1)
+data$y0 = state_init_2(data, Sl1 = 1)
 data_1 = data_2 = data
 data_2$beta = 1
 real_params = list(lambda = 1e-12)
@@ -297,12 +245,12 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities(x)
+      calculate_quantities_2(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedCases, ReportedLongIncubations, ReportedShortIncubations, ReportedRelapses, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported|True"), "Incidence", "Compartment"))
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical"), "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
   geom_line() +
@@ -325,7 +273,7 @@ data = data_init(data_null,
                  gamma_d = 0)
 
 
-data$y0 = state_init(data, "Sl1" = 1)
+data$y0 = state_init_2(data, "Sl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
@@ -338,12 +286,12 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities(data)
+  calculate_quantities_2(data)
 
 plot_data = sim_out %>%
-  select(time, ReportedShortIncubations, ReportedRelapses)
-sum(plot_data$ReportedRelapses/data$population_size, na.rm=T)
-  
+  select(time, ClinicalIncidence)
+sum(plot_data$ClinicalIncidence/data$population_size, na.rm=T)
+
 plot_output(plot_data)
 ```
 
@@ -360,7 +308,7 @@ data = data_init(data_null,
                  relapse_clinical_immunity = 1,
                  delta = 0.1) # people get lost when the long relapse occurs
 
-data$y0 = state_init(data, "Icl1" = 1)
+data$y0 = state_init_2(data, "Icl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
@@ -373,12 +321,12 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities(data)
+  calculate_quantities_2(data)
 
 # plot_output(sim_out)
 
 plot_data = sim_out %>%
-  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  select(-matches("True|Reported|Clinical|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
   # select(time, Susceptible, Latent, Dormant, Infectious, Total) %>%
   pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
   filter(!Compartment %in% c("I0", ""),
@@ -392,7 +340,7 @@ plot_labels = plot_data %>%
 
 ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   geom_line() +
-  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=1, max.overlaps=1e6) +
+  geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=1, max.overlaps=1e6, fill = alpha(c("white"),0.5), label.padding=0.1) +
   coord_cartesian(ylim = c(0, 1)) +
   theme(legend.position = "none") +
   labs(subtitle = "Begin with long-relapse hypnozoites, normal latent relapse, and complete treatment")
@@ -404,10 +352,10 @@ data = data_init(data_null,
                  alpha = 0.93,
                  gamma_l = 0,
                  gamma_d = 0,
-                 eps = 1,
+                 eps = 0,
                  kappa = 1)
 
-data$y0 = state_init(data, "I0" = 0.01)
+data$y0 = state_init_2(data, "I0" = 0.01)
 real_params = list(lambda = 1)
 
 sim_out = my_simulate_data_list(
@@ -420,35 +368,26 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities(data) 
+  calculate_quantities_2(data) 
 
 plot_data = sim_out %>%
-  select(time, ReportedCases, ReportedRelapses, ReportedCases, ReportedShortIncubations) %>%
-  filter(time <= 365*4)
-
-plot_output(plot_data)
-# short relapses skew peak timing late
-
-plot_data = sim_out %>%
-  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible|Total")) %>%
-  # select(time, Susceptible, Latent, Dormant, Infectious, Total) %>%
-  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  filter(!Compartment %in% c("I0"),
-         time <= 365*4)
+  select(time, ClinicalIncidence, matches("^(I|S).{,5}$")) %>%
+  pivot_longer(-time) %>%
+  mutate(Type = ifelse(name == "ClinicalIncidence", "Incidence", "Compartment")) %>%
+  filter(time <= year*4)
 
 plot_labels = plot_data %>%
-  group_by(Compartment) %>%
-  arrange(desc(Proportion)) %>%
+  group_by(name) %>%
+  arrange(desc(value)) %>%
   slice(1) %>%
-  filter(Proportion > 0)
+  filter(value > 1e-12)
 
-ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
+ggplot(plot_data, aes(x=time, y=value, color=name)) +
   geom_line() +
-  geom_text_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=1, max.overlaps=1e6) +
-  coord_cartesian(ylim = c(0, 1)) +
+  geom_label_repel(data=plot_labels, aes(label=name), direction="y", nudge_x=1, max.overlaps=1e6, fill = alpha(c("white"),0.5), label.padding=0.1) +
+  facet_wrap(vars(Type), ncol=1, scales="free_y") +
   theme(legend.position = "none")
 ```
-
 
 ```{r scenario_2}
 # Examine effect of p_long
@@ -466,9 +405,9 @@ data = data_init(data_null,
                  gamma_l = 0,
                  gamma_d = 0)
 data_1 = data_2 = data_3 = data
-data_1$y0 = state_init(data, Sl12 = 1)
-data_2$y0 = state_init(data, Sl1 = 0.5, Sl12 = 0.5)
-data_3$y0 = state_init(data, Sl1 = 1)
+data_1$y0 = state_init_2(data, Sl12 = 1)
+data_2$y0 = state_init_2(data, Sl1 = 0.5, Sl12 = 0.5)
+data_3$y0 = state_init_2(data, Sl1 = 1)
 real_params = list(lambda = 1e-12)
 
 sims_out = list(
@@ -487,14 +426,14 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities(x)
+      calculate_quantities_2(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedShortIncubations, ReportedLongIncubations, ReportedRelapses, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_starts("Reported"), "Incidence", "Compartment"))
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %>% str_starts("Reported|Clinical"), "Incidence", "Compartment"))
 
-ggplot(plot_data, aes(x=time/365.25, y=value, color=name)) +
+ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
   facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y") +
   labs(subtitle = "The proportion beginning in Sl1 vs Sl[n] combines short and long relapse peaks")
@@ -515,7 +454,7 @@ data = data_init(data_null,
                  eps = 0.001,
                  kappa = 5,
                  phase = 0)
-data$y0 = state_init(data, I0 = 0.01)
+data$y0 = state_init_2(data, I0 = 0.01)
 data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
 data_2$p_silent = 0.5
@@ -538,20 +477,20 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities(x)
+      calculate_quantities_2(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ReportedCases, Infectious, Dormant, Latent)) %>%
-  mutate(Type = ifelse(name %in% c("ReportedCases", "Omega"), name, "Compartment"))
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent), names_to="Compartment", values_to="Proportion") %>%
+  mutate(Type = ifelse(Compartment %in% c("ReportedCases", "Omega", "ClinicalIncidence"), Compartment, "Compartment"))
 
-ggplot(plot_data, aes(x=time, y=value, color=name)) +
+ggplot(plot_data, aes(x=time, y=Proportion, color=Compartment)) +
   geom_line() +
   facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y")
 
 plot_data = sims_out %>% 
   bind_rows(.id = "Var") %>%
-  select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
+  select(-matches("True|Reported|Clinical|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
   pivot_longer(-c(Var, time), names_to="Compartment", values_to="Proportion") %>%
   filter(Compartment != "Total")
 
@@ -578,29 +517,24 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
-                 alpha = 1,
+                 alpha = 0.5,
                  eps = 0.001,
                  kappa = 5,
-                 p_long = 0,
+                 p_long = 1,
                  p_silent = 0.5,
-                 # r = 0,
                  gamma_l = 0,
                  gamma_d = 0)
+real_params = list(lambda = 1)
 data_1 = data_2 = data_3 = data
 data_1$n_dormant = 4
-data_1$y0 = state_init(data_1, I0 = 0.1)
 data_2$n_dormant = 11
-data_2$y0 = state_init(data_2, I0 = 0.1)
-data_3$n_dormant = 20
-data_3$y0 = state_init(data_3, I0 = 0.1)
-real_params = list(lambda = 1)
+data_3$n_dormant = 30
+init_I0 = 0.1
 
-sims_out = list(
-  `n_dormant=1` = data_1,
-  `n_dormant=11` = data_2,
-  `n_dormant=20` = data_3
-) %>%
+sims_out = list(data_1, data_2, data_3) %>%
+  setNames(paste0("n_dormant=", c(data_1$n_dormant, data_2$n_dormant, data_3$n_dormant))) %>%
   lapply(function(x) {
+    x$y0 = state_init_2(x, I0 = init_I0)
     my_simulate_data_list(
       file = model_file,
       data_name = "dummy_data",
@@ -611,18 +545,61 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities(x)
+      calculate_quantities_2(x)
   })
 
 plot_data = sims_out %>%
   bind_rows(.id = "Var") %>%
   mutate(Var = fct_inorder(Var)) %>%
-  pivot_longer(c(ReportedShortIncubations, ReportedLongIncubations, ReportedRelapses, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported"), "Incidence", "Compartment")) %>%
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
+  mutate(Type = ifelse(name %>% str_detect("Reported|Clinical"), "Incidence", "Compartment")) %>%
   filter(time <= 365*5)
 
-ggplot(plot_data, aes(x=time/365.25, y=value, color=name, linetype=Var)) +
+ggplot(plot_data, aes(x=time/year, y=value, color=name, linetype=Var)) +
   geom_line() +
   facet_grid(rows=vars(Type), scales="free_y") +
-  labs("More dormant stages (more 'exact' timing) leads to peaky manifestation of seasonality")
+  labs("More dormant stages (more 'exact' timing) leads to peaky manifestation of seasonality",
+       color = NULL, linetype = NULL)
+```
+
+```{r why_are_relapses_acting_weird}
+# Examine effect of the number of dormant stages
+n_times = 365*10
+ts = 1:n_times
+cases = rpois(n_times, 100)
+data = data_init(data_null,
+                 n_times = n_times,
+                 ts = ts,
+                 cases = cases,
+                 alpha = 0,
+                 gamma_l = 0,
+                 gamma_d = 0,
+                 n_dormant = 1)
+data$y0 = state_init_2(data, I0 = 0.1)
+data$y0 = state_init_2(data, Sl1 = 1)
+real_params = list(lambda = 1)
+
+sim_out = my_simulate_data_list(
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = real_params,
+  vars = c("y", "omega")
+)
+
+sim_out = sim_out$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  calculate_quantities_2(data) %>%
+  mutate(omega = sim_out$omega)
+
+plot_data = sim_out %>%
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible, omega)) %>%
+  mutate(Type = ifelse(name %>% str_detect("Reported|Clinical"), "Incidence", "Compartment")) %>%
+  filter(time <= 365)
+
+ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
+  geom_line() +
+  facet_grid(rows=vars(Type), scales="free_y")
 ```

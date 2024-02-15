@@ -1,6 +1,7 @@
 // These models are for testing a variable-length chain of delays in an ODE model
 
 // Changes from v2: omega is now 'suitability' function and equations are verified against the clinical pathways
+// Changes from v3: changed observation model for cases/relapses
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -146,9 +147,15 @@ functions {
       sum(Icl[1:n_dormant])*infect*short_hyp +
       Icl[n_stages-1]*advance;
     
-    real dTrueShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
-    real dTrueLongIncubations = Sl[active]*f * population_size;
-    real dTrueRelapses = Scl[active]*f * population_size;
+    // real dTrueShortIncubations = (S0 + sum(Sl) + sum(Scl))*infect*short_hyp * population_size;
+    // real dTrueLongIncubations = Sl[active]*f * population_size;
+    // real dTrueRelapses = Scl[active]*f * population_size;
+    // A case is defined by the number of treatments. It is not affected by the outcome of treatment.
+    real dClinicalIncidence = (S0*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
+      sum(Sl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
+      Sl[active]*relapse*treatedprimary +
+      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
+      Scl[active]*relapse*treatedrelapse) * population_size;
     
     // Assign derivatives
     vector[num_elements(y)] dydt;
@@ -159,9 +166,7 @@ functions {
       dydt[2+n_stages+i] = dScldt[i];
       dydt[2+2*n_stages+i] = dIcldt[i];
     }
-    dydt[n_compartments+1] = dTrueShortIncubations;
-    dydt[n_compartments+2] = dTrueLongIncubations;
-    dydt[n_compartments+3] = dTrueRelapses;
+    dydt[n_compartments+1] = dClinicalIncidence;
     
     // dydt = rep_vector(0, num_elements(dydt));
     return dydt;
@@ -192,7 +197,7 @@ data {
   
   int<lower=1> n_dormant;
   
-  vector[2 + 3*(n_dormant+1) + 3] y0; # last 3 elements are trueshortincubations, truelongincubations, and truerelapses
+  vector[2 + 3*(n_dormant+1) + 1] y0; # last element is clinical incidence
   int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 
@@ -221,7 +226,7 @@ transformed data {
   
   int n_stages = n_dormant + 1;
   int n_compartments = 2 + 3*n_stages;
-  int len_y = n_compartments + 3;
+  int len_y = n_compartments + 1;
 }
 
 parameters {
@@ -238,34 +243,26 @@ transformed parameters {
 model {
   theta[1] ~ exponential(5);
   
-  real trueshortincubations;
-  real truelongincubations;
-  real truerelapses;
-  real incidence;
+  // real clinicalincidence;
   if (run_estimation == 1) {
-    for (i in 1:n_times-1) {
-      trueshortincubations = y[i+1][n_compartments+1] - y[i][n_compartments+1];
-      truelongincubations = y[i+1][n_compartments+2] - y[i][n_compartments+2];
-      truerelapses = y[i+1][n_compartments+3] - y[i][n_compartments+3];
-      incidence = trueshortincubations + truelongincubations + truerelapses;
-      cases[i] ~ poisson(incidence);
+    for (i in 2:n_times) {
+      // clinicalincidence = y[i+1][n_compartments+1] - y[i][n_compartments+1];
+      cases[i] ~ poisson(y[i][n_compartments+1] - y[i-1][n_compartments+1]);
     }
   }
 }
 
 generated quantities {
-  vector[n_times-1] cases_sim;
-  real trueshortincubations;
-  real truelongincubations;
-  real truerelapses;
-  real incidence;
-  real dt;
-  for (i in 1:n_times-1) {
-    dt = ts[i+1] - ts[i];
-    trueshortincubations = (y[i+1][n_compartments+1] - y[i][n_compartments+1]) / dt;
-    truelongincubations = (y[i+1][n_compartments+2] - y[i][n_compartments+2]) / dt;
-    truerelapses = (y[i+1][n_compartments+3] - y[i][n_compartments+3]) / dt;
-    incidence = trueshortincubations + truelongincubations + truerelapses;
-    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, incidence)));
+  vector[n_times] cases_sim;
+  vector[n_times] omega;
+  // real clinicalincidence;
+  // real dt;
+  for (i in 2:n_times) {
+    // dt = ts[i] - ts[i-1];
+    // clinicalincidence = y[i+1][n_compartments+1] - y[i][n_compartments+1];
+    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, y[i][n_compartments+1] - y[i-1][n_compartments+1])));
+  }
+  for (i in 1:n_times) {
+    omega[i] = suitability(ts[i], eps, kappa, phase);
   }
 }

@@ -31,19 +31,30 @@ extract_summary = function(data, sim_out) {
            .keep = "used")
 }
 
-# .extract_summary = function(data, sim_out) {
-#   with(data, cbind(as.data.frame(
-#     summary(
-#       sim_out,
-#       pars = "y",
-#       probs = c(0.05, 0.5, 0.95)
-#     )$summary))) %>%
-#     rownames_to_column(var = "name") %>%
-#     mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
-#            time = data$ts[index_i],
-#            index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
-#            compartment = names(y0)[index_j],
-#            variable = name %>% str_remove("\\[.*")) %>%
-#     as_tibble() %>%
-#     group_by(time)
-# }
+#' Adapted for updated clinical incidence model
+extract_summary_2 = function(data, sim_out) {
+  with(data, cbind(as.data.frame(
+    summary(
+      sim_out,
+      pars = "y",
+      probs = c(0.05, 0.5, 0.95)
+    )$summary))) %>%
+    rownames_to_column(var = "name") %>%
+    mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
+           time = data$ts[index_i],
+           index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
+           compartment = names(data$y0)[index_j],
+           variable = name %>% str_remove("\\[.*")) %>%
+    as_tibble() %>%
+    select(time, variable=compartment, mean) %>%
+    pivot_wider(names_from=variable, values_from=mean) %>%
+    mutate(time = time,
+           Infectious = rowSums(across(starts_with("I"))),
+           Dormant = rowSums(across(matches(paste0("^Sl(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+           Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
+           Susceptible = S0,
+           Prevalence = 1 - S0,
+           ClinicalIncidence = ClinicalIncidence - lag(ClinicalIncidence),
+           # checksum = rowSums(across(-one_of("Cases"))),
+           .keep = "used")
+}
