@@ -66,7 +66,7 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/test_delay_4.stan"
+model_file = "../stan/temperate_4.stan"
 model = stan_model(model_file)
 ```
 
@@ -571,13 +571,13 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
-                 alpha = 0,
+                 alpha = 0.5,
+                 p_long = 0,
+                 p_silent = 0.5,
                  gamma_l = 0,
-                 gamma_d = 0,
-                 n_dormant = 1)
+                 gamma_d = 0)
 data$y0 = state_init_2(data, I0 = 0.1)
-data$y0 = state_init_2(data, Sl1 = 1)
-real_params = list(lambda = 1)
+real_params = list(lambda = 0.1)
 
 sim_out = my_simulate_data_list(
   file = model_file,
@@ -596,10 +596,10 @@ sim_out = sim_out$y %>%
 
 plot_data = sim_out %>%
   pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible, omega)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported|Clinical"), "Incidence", "Compartment")) %>%
-  filter(time <= 365)
+  mutate(Type = ifelse(name =="ClinicalIncidence", "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
-  facet_grid(rows=vars(Type), scales="free_y")
+  facet_grid(rows=vars(Type), scales="free_y") +
+  labs(color = NULL)
 ```
