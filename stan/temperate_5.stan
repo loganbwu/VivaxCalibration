@@ -175,20 +175,20 @@ data {
   real ts[n_times];
   int cases[n_times];
   
-  real alpha;
-  real beta;
-  real relapse_clinical_immunity;
-  real gamma_d;
-  real gamma_l;
-  real delta;
-  real phi;
-  real f;
-  real r;
-  real p_long;
-  real p_silent;
-  real population_size;
-  real eps;
-  real kappa;
+  real<lower=0, upper=1> alpha;
+  real<lower=0, upper=1> beta;
+  real<lower=0, upper=1> relapse_clinical_immunity;
+  real<lower=0> gamma_d;
+  real<lower=0> gamma_l;
+  real<lower=0> delta;
+  real<lower=0> phi;
+  real<lower=0> f;
+  real<lower=0> r;
+  real<lower=0, upper=1> p_long;
+  real<lower=0, upper=1> p_silent;
+  real<lower=0> population_size;
+  real<lower=0, upper=1> eps;
+  real<lower=0> kappa;
   real phase;
   
   int<lower=1> n_dormant;
@@ -256,7 +256,7 @@ generated quantities {
   for (i in 2:n_times) {
       clinicalincidence = y[i][n_compartments+1] - y[i-1][n_compartments+1] +
         y[i][n_compartments+2] - y[i-1][n_compartments+2];
-    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, clinicalincidence)));
+    cases_sim[i] = poisson_rng(fmin(1e6, fmax(0, clinicalincidence)));
   }
   for (i in 1:n_times) {
     omega[i] = suitability(ts[i], eps, kappa, phase);
