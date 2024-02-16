@@ -31,7 +31,9 @@ extract_summary = function(data, sim_out) {
            .keep = "used")
 }
 
+
 #' Adapted for updated clinical incidence model
+#' Also split into primary cases and relapses
 extract_summary_2 = function(data, sim_out) {
   with(data, cbind(as.data.frame(
     summary(
@@ -54,7 +56,10 @@ extract_summary_2 = function(data, sim_out) {
            Latent := !!rlang::sym(paste0("Sl", data$n_dormant+1)),
            Susceptible = S0,
            Prevalence = 1 - S0,
-           ClinicalIncidence = ClinicalIncidence - lag(ClinicalIncidence),
+           ClinicalPrimary = ClinicalPrimary - lag(ClinicalPrimary),
+           ClinicalRelapse = ClinicalRelapse - lag(ClinicalRelapse),
+           ClinicalIncidence = ClinicalPrimary + ClinicalRelapse,
            # checksum = rowSums(across(-one_of("Cases"))),
            .keep = "used")
 }
+

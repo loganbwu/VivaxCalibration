@@ -135,7 +135,6 @@ functions {
     }
     dIcldt[n_stages] = -Icl[n_stages]*(clear_l+recover) +
       S0*infect*short_hyp*untreatedprimary +
-      
       sum(Sl)*infect*short_hyp*untreatedprimary +
       Sl[n_stages]*infect*long_hyp*primary*untreatedprimary +
       Sl[n_stages]*relapse*untreatedprimary +
@@ -146,13 +145,12 @@ functions {
       sum(Icl[1:n_dormant])*infect*short_hyp +
       Icl[n_stages-1]*advance;
     
-    // A case is defined by the number of treatments. It is not affected by the outcome of treatment.
-    real dClinicalIncidence = (S0*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
-    
+    // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
+    real dClinicalPrimary = (S0*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
       sum(Sl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
-      Sl[active]*relapse*treatedprimary +
+      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary)) * population_size;
       
-      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
+    real dClinicalRelapse = (Sl[active]*relapse*treatedprimary +
       Scl[active]*relapse*treatedrelapse) * population_size;
     
     // Assign derivatives
@@ -164,7 +162,8 @@ functions {
       dydt[2+n_stages+i] = dScldt[i];
       dydt[2+2*n_stages+i] = dIcldt[i];
     }
-    dydt[n_compartments+1] = dClinicalIncidence;
+    dydt[n_compartments+1] = dClinicalPrimary;
+    dydt[n_compartments+2] = dClinicalRelapse;
     
     return dydt;
   }
@@ -194,7 +193,7 @@ data {
   
   int<lower=1> n_dormant;
   
-  vector[2 + 3*(n_dormant+1) + 1] y0; # last element is clinical incidence
+  vector[2 + 3*(n_dormant+1) + 2] y0; # last element is clinical incidence
   int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 
@@ -223,7 +222,7 @@ transformed data {
   
   int n_stages = n_dormant + 1;
   int n_compartments = 2 + 3*n_stages;
-  int len_y = n_compartments + 1;
+  int len_y = n_compartments + 2;
 }
 
 parameters {
@@ -239,10 +238,13 @@ transformed parameters {
 
 model {
   theta[1] ~ exponential(5);
+  real clinicalincidence;
   
   if (run_estimation == 1) {
     for (i in 2:n_times) {
-      cases[i] ~ poisson(y[i][n_compartments+1] - y[i-1][n_compartments+1]);
+      clinicalincidence = y[i][n_compartments+1] - y[i-1][n_compartments+1] +
+        y[i][n_compartments+2] - y[i-1][n_compartments+2];
+      cases[i] ~ poisson(clinicalincidence);
     }
   }
 }
@@ -250,8 +252,11 @@ model {
 generated quantities {
   vector[n_times] cases_sim;
   vector[n_times] omega;
+  real clinicalincidence;
   for (i in 2:n_times) {
-    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, y[i][n_compartments+1] - y[i-1][n_compartments+1])));
+      clinicalincidence = y[i][n_compartments+1] - y[i-1][n_compartments+1] +
+        y[i][n_compartments+2] - y[i-1][n_compartments+2];
+    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, clinicalincidence)));
   }
   for (i in 1:n_times) {
     omega[i] = suitability(ts[i], eps, kappa, phase);

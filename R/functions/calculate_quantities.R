@@ -36,6 +36,8 @@ calculate_quantities_2 = function(x, data) {
            Susceptible = S0,
            Prevalence = 1 - S0,
            Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
-           ClinicalIncidence = ClinicalIncidence - lag(ClinicalIncidence),
+           ClinicalPrimary = ClinicalPrimary - lag(ClinicalPrimary),
+           ClinicalRelapse = ClinicalRelapse - lag(ClinicalRelapse),
+           ClinicalIncidence = ClinicalPrimary + ClinicalRelapse,
            .keep = "used")
 }

@@ -31,7 +31,9 @@ state_init_2 = function(parameters, ...) {
                          paste0("Scl", seq_len(n_stages)),
                          paste0("Icl", seq_len(n_stages)))
   
-  state = rep(0, length(names_compartments)) %>% setNames(names_compartments) %>% c(ClinicalIncidence = 0)
+  state = rep(0, length(names_compartments)) %>%
+    setNames(names_compartments) %>%
+    c(ClinicalPrimary = 0, ClinicalRelapse = 0)
   for (n in names(listargs)[names(listargs) %in% names(state)]) {
     state[n] = listargs[[n]]
   }
