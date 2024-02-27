@@ -29,9 +29,6 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-model_champagne2022_nonstationary = "../stan/champagne2022_nonstationary.stan"
-stan_model_champagne2022_nonstationary = stan_model(model_champagne2022_nonstationary)
-
 n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
@@ -57,7 +54,6 @@ Generate some data
 ```{r}
 # perform simulation study
 dt = years/annual_subdivisions
-t0 = -100*years
 t = seq_len(n_years*annual_subdivisions) * dt
 n_times = length(t) + 1
 
@@ -68,7 +64,7 @@ y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 # constants for Stan
 data_consts = list(n_times = n_times,
                    y0 = y0,
-                   t0 = t0,
+                   t0 = -100*years,
                    ts = seq_len(n_times) * dt,
                    N = 100000, # population size
                    cases = rep(99999, n_times),
@@ -79,7 +75,8 @@ data_consts = list(n_times = n_times,
                    beta = 0.66, # beta
                    rho = 0.21, # rho
                    delta = 0,
-                   phase = 0
+                   phase = years/2,
+                   tstar = 365*3
 )
 
 n_data = annual_subdivisions * 10
@@ -91,7 +88,7 @@ data$n_times = n_data
 params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, dlambda=-0.001)
 
 sim = my_simulate_data(
-  file = model_champagne2022_nonstationary,
+  file = "../stan/champagne2022_nonstationary.stan",
   path = "sim_data",
   data_name = "nonstationary",
   input_data = data,
@@ -101,9 +98,10 @@ sim = my_simulate_data(
 
 sim
 
-ggplot(sim, aes(x=ts, y=incidence)) +
+ggplot(sim, aes(x=ts/years, y=incidence)) +
   geom_line() +
-  geom_point(aes(y = cases))
+  geom_point(aes(y = cases)) +
+  scale_x_continuous(breaks = 0:100)
 ```
 
 Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
@@ -119,7 +117,7 @@ data_sim$cases = sim$cases
 
 ```{r}
 optimised = optimizing(
-  stan_model_champagne2022_nonstationary,
+  stan_model("../stan/champagne2022_nonstationary.stan"),
   data = data_sim,
   init = lapply(params, function(x) {x*1.5})
 )
@@ -147,8 +145,7 @@ plot_data %>%
 ```
 
 ```{r}
-n_chains = 1
-fit = sampling(stan_model_champagne2022_nonstationary,
+fit = sampling(stan_model("../stan/champagne2022_nonstationary.stan"),
                data = data_sim,
                iter = n_iter,
                init = list(rep(params, n_chains)),
@@ -180,6 +177,101 @@ posteriors = rstan::extract(fit, c("lambda", "phi_inv")) %>%
 
 # Plot posterior densities
 posterior_nonseasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  # coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Non-seasonal model")
+```
+
+Can we perform this with the t-cutoff as a parameter?
+
+```{r}
+fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+               data = data_sim,
+               iter = n_iter,
+               chains = n_chains,
+               seed = 0)
+```
+
+```{r}
+posteriors = rstan::extract(fit, c("lambda", "phi_inv", "tstar")) %>%
+  as_tibble()
+
+# Plot posterior densities
+posterior_nonseasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  # coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Non-seasonal model")
+```
+
+Get the Rondonia data
+
+```{r}
+path = "/Users/wu.l/Documents/MalariaData/data-raw/brazil/integrated_dataset_Baroni2020.RData"
+load(path)
+rondonia.all = integrated_dataset %>%
+  filter(exam.result == "vivax",
+         infection.state == "RO") %>%
+  mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
+  count(notification.year, notification.date, name = "cases") %>%
+  mutate(include = ifelse(notification.year >= 2009 & notification.year <= 2018, "grey20", "grey")) %>%
+  as_tibble()
+
+ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
+  geom_col() +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_date(date_breaks = "years", date_labels = "%Y") +
+  scale_fill_identity() +
+  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
+       x = "Notification date",
+       y = "Cases")
+
+ggsave("plots/rondonia_selected.png", width=8, height=4)
+
+rondonia = rondonia.all %>%
+  filter(include == "grey20")
+```
+
+Set up data and run
+
+```{r}
+data_nonst = data_init(data_consts,
+                       t0 = -100*years,
+                       n_times = nrow(rondonia),
+                       ts = seq_len(nrow(rondonia)) * years / annual_subdivisions,
+                       cases = rondonia$cases,
+                       eps = 0.5,
+                       kappa = 5,
+                       tstar = years*2)
+tictoc::tic()
+fit_nonst = sampling(stan_model("../stan/champagne2022_nonstationary.stan"),
+                     data = data_nonst,
+                     iter = n_iter,
+                     chains = n_chains,
+                     # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                     cores = n_cores)
+tictoc::toc()
+```
+
+```{r}
+posteriors = rstan::extract(fit_nonst, c("lambda", "phi_inv")) %>%
+  as_tibble()
+
+# Plot posterior densities
+posteriors %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%

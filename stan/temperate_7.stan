@@ -2,25 +2,28 @@
 
 // Changes from v2: omega is now 'suitability' function and equations are verified against the clinical pathways
 // Changes from v3: changed observation model for cases/relapses
+// Changes from v5: observation model is negative binomial not poisson
+// Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa);
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+cos(2*pi()*(t - phase)/365.25))/2)^kappa);
   }
   
   vector my_ode(real time, vector y, vector theta, real[] x_r, int[] x_i) {
     
     // Unpack theta
     real lambda = theta[1];
+    real relapse_clinical_immunity = theta[2];
     
     // Unpack x_r
     real alpha = x_r[1];
     real beta = x_r[2];
-    real relapse_clinical_immunity = x_r[3];
+    // real relapse_clinical_immunity = x_r[3];
     real gamma_d = x_r[4];
     real gamma_l = x_r[5];
     real delta = x_r[6];
-    real phi = x_r[7];
+    // real phi_2 = x_r[7];
     real f = x_r[8];
     real r = x_r[9];
     real p_long = x_r[10];
@@ -68,7 +71,8 @@ functions {
     }
     
     // Force of infection
-    real infect = lambda * suitability(time, eps, kappa, phase) * (I0 + sum(Icl)) + phi;
+    // real infect = lambda * suitability(time, eps, kappa, phase) * (I0 + sum(Icl)) + phi_2;
+    real infect = lambda * suitability(time, eps, kappa, phase) * (I0 + sum(Icl));
     
     // Compute derivatives
     // S0
@@ -106,7 +110,7 @@ functions {
         Sl[i]*infect*long_hyp*primary*treatedprimary*incomplete +
         Icl[i]*recover;
     }
-    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete+untreatedrelapse) + clear_l) +
+    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete + untreatedrelapse) + clear_l) +
       S0*infect*short_hyp*treatedprimary*incomplete +
       sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
       Sl[n_stages]*infect*long_hyp*primary*treatedprimary*incomplete +
@@ -133,7 +137,7 @@ functions {
       Scl[i]*infect*long_hyp*primary*untreatedprimary +
       Icl[i-1]*advance;
     }
-    dIcldt[n_stages] = -Icl[n_stages]*(clear_l+recover) +
+    dIcldt[n_stages] = -Icl[n_stages]*(clear_l + recover) +
       S0*infect*short_hyp*untreatedprimary +
       sum(Sl)*infect*short_hyp*untreatedprimary +
       Sl[n_stages]*infect*long_hyp*primary*untreatedprimary +
@@ -177,11 +181,11 @@ data {
   
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  real<lower=0, upper=1> relapse_clinical_immunity;
+  // real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
-  real<lower=0> phi;
+  // real<lower=0> phi_2;
   real<lower=0> f;
   real<lower=0> r;
   real<lower=0, upper=1> p_long;
@@ -190,6 +194,7 @@ data {
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
   real phase;
+  
   
   int<lower=1> n_dormant;
   
@@ -201,11 +206,11 @@ transformed data {
   real x_r[15] = {
     alpha,
     beta,
-    relapse_clinical_immunity,
+    0, // relapse_clinical_immunity
     gamma_d,
     gamma_l,
     delta,
-    phi,
+    0, // phi_2,
     f,
     r,
     p_long,
@@ -227,34 +232,39 @@ transformed data {
 
 parameters {
   real<lower=0> lambda;
+  real<lower=0> phi_inv;
+  real<lower=0, upper=1> relapse_clinical_immunity;
 }
 
 transformed parameters {
-  vector[1] theta;
+  vector[2] theta;
   theta[1] = lambda;
+  theta[2] = relapse_clinical_immunity;
+  real phi = 1. / phi_inv;
+  
+  real incidence[n_times];
   
   array[n_times] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts, theta, x_r, x_i);
+  for (i in 2:n_times) {
+    incidence[i] = fmax(1e-12, y[i][n_compartments+1] - y[i-1][n_compartments+1] +
+        y[i][n_compartments+2] - y[i-1][n_compartments+2]);
+  }
 }
 
 model {
-  theta[1] ~ exponential(5);
-  real clinicalincidence;
+  lambda ~ exponential(5);
+  phi_inv ~ exponential(5);
   
   if (run_estimation == 1) {
     for (i in 2:n_times) {
-      clinicalincidence = y[i][n_compartments+1] - y[i-1][n_compartments+1] +
-        y[i][n_compartments+2] - y[i-1][n_compartments+2];
-      cases[i] ~ poisson(fmax(1e-12, clinicalincidence));
+      cases[i] ~ neg_binomial_2(incidence[i], phi);
     }
   }
 }
 
 generated quantities {
   vector[n_times] cases_sim;
-  real clinicalincidence;
   for (i in 2:n_times) {
-      clinicalincidence = y[i][n_compartments+1] - y[i-1][n_compartments+1] +
-        y[i][n_compartments+2] - y[i-1][n_compartments+2];
-    cases_sim[i] = poisson_rng(fmin(1e6, fmax(1e-12, clinicalincidence)));
+    cases_sim[i] = neg_binomial_2_rng(fmin(1e6, incidence[i]), phi);
   }
 }

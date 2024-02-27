@@ -1,6 +1,6 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
-
+// changes from v1: tstar is now a parameter
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -59,19 +59,17 @@ data {
   real<lower=0, upper=1> beta;
   real<lower=0> delta;
   real<lower=0> phase;
-  real tstar;
 }
 
 transformed data {
-  real x_r[8] = {
+  real x_r[7] = {
     r,
     gammal,
     f,
     alpha,
     beta,
     delta,
-    phase,
-    tstar
+    phase
   };
   int x_i[1] = { N };
 }
@@ -82,6 +80,7 @@ parameters {
   real<lower=0.01, upper=99> kappa;
   real<lower=0, upper=10> phi_inv;
   real<lower=0> flambda;
+  real tstar;
 }
 
 transformed parameters{
@@ -90,17 +89,19 @@ transformed parameters{
   real phi = 1. / phi_inv;
   real dlambda = (lambda * flambda) - lambda; // so dlambda can never be less thanlambda
   {
-    real theta[4];
+    real theta[5];
     theta[1] = lambda;
     theta[2] = eps;
     theta[3] = kappa;
     theta[4] = dlambda;
+    theta[5] = tstar;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
-  for (i in 1:n_times-1)
-  incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+  for (i in 1:n_times-1) {
+    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+  }
 }
 
 model {
@@ -109,12 +110,15 @@ model {
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   flambda ~ exponential(1);
+  tstar ~ normal(0, 1000);
   
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 1:(n_times - 1))
-  cases[i] ~ neg_binomial_2(incidence[i], phi);
+  for (i in 1:(n_times - 1)) {
+    cases[i] ~ neg_binomial_2(incidence[i], phi);
+  }
+  print("lambda: ", lambda);
 }
 
 generated quantities {

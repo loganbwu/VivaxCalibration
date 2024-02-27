@@ -22,12 +22,15 @@ library(RColorBrewer)
 source("../R/load_functions.R")
 
 year = 365.25
+param_colors = brewer.pal(2, "Set2")
+names(param_colors) = c("lambda", "phi")
+n_chains = 4
 
 # Initialise values for verification runs
 n_times = 365*10
 data_null = list(
   n_times = n_times,
-  t0 = 0,
+  t0 = -20*year,
   ts = 1:n_times,
   cases = rpois(n_times, 100),
   alpha = 1,
@@ -72,16 +75,16 @@ data$y0 = state_init_2(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)
 true_params = list(lambda = 1)
 
 sim_summary = my_simulate_data_list(
-      file = model_file,
-      data_name = "dummy_data",
-      input_data = data,
-      param_values = true_params,
-      vars = c("y")
-    )$y %>%
-      as_tibble() %>%
-      setNames(names(data$y0)) %>%
-      mutate(time = data$ts, .before=0) %>%
-      calculate_quantities_2(data)
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = true_params,
+  vars = c("y")
+)$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  calculate_quantities_2(data)
 
 plot_data = sim_summary %>%
   pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
@@ -119,16 +122,16 @@ data$y0 = state_init_2(data, Sl1=1)
 true_params = list(lambda = 1)
 
 sim_summary = my_simulate_data_list(
-      file = model_file,
-      data_name = "dummy_data",
-      input_data = data,
-      param_values = true_params,
-      vars = c("y")
-    )$y %>%
-      as_tibble() %>%
-      setNames(names(data$y0)) %>%
-      mutate(time = data$ts, .before=0) %>%
-      calculate_quantities_2(data)
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = true_params,
+  vars = c("y")
+)$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  calculate_quantities_2(data)
 
 # sim_out = sampling(model, data = data, chains = 1, iter = 1)
 # sim_summary = extract_summary_2(data, sim_out)
@@ -263,8 +266,8 @@ ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
 We construct a scenario by hand that appears realistic for Chinese temperate data:
 
 ```{r}
-dt = year/100
-ts = seq(dt, 50*year, by=dt)
+dt = year/12
+ts = seq(0, 5*year, by=dt)
 n_times = length(ts)
 cases = rpois(n_times, 100)
 data = data_init(data_null,
@@ -275,7 +278,7 @@ data = data_init(data_null,
                  beta = 0.5,
                  relapse_clinical_immunity = 0.8,
                  p_long = 1,
-                 p_silent = 0.2,
+                 p_silent = 0,
                  eps = 0,
                  kappa = 3)
 data$y0 = state_init_2(data, I0=0.01)
@@ -283,16 +286,21 @@ data$y0 = state_init_2(data, I0=0.01)
 true_params = list(lambda = 0.045)
 
 sim_out = my_simulate_data_list(
-      file = model_file,
-      data_name = "dummy_data",
-      input_data = data,
-      param_values = true_params,
-      vars = c("y")
-    )$y %>%
-      as_tibble() %>%
-      setNames(names(data$y0)) %>%
-      mutate(time = data$ts, .before=0) %>%
-      calculate_quantities_2(data)
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = true_params,
+  vars = c("y")
+)$y %>%
+  as_tibble() %>%
+  setNames(names(data$y0)) %>%
+  mutate(time = data$ts, .before=0) %>%
+  calculate_quantities_2(data)
+
+tibble(t = 0:365,
+       omega = make_m(0, 3)(t)) %>%
+  ggplot(aes(x=t, y=omega)) +
+  geom_line()
 
 
 plot_data = sim_out %>%
@@ -309,9 +317,8 @@ plot_labels = plot_data %>%
 ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
   geom_line() +
   geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
-  ggforce::facet_zoom(xlim = c(48, 50)) +
+  # ggforce::facet_zoom(xlim = c(max(data$ts)/year - 2)) +
   coord_cartesian(ylim=c(0, NA)) +
-  theme(legend.position = "none") +
   labs(subtitle = "Manual parameters")
 
 plot_data = sim_out %>%
@@ -328,8 +335,239 @@ plot_labels = plot_data %>%
 ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
   geom_line() +
   geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
-  ggforce::facet_zoom(xlim = c(48, 50)) +
+  # ggforce::facet_zoom(xlim = c(48, 50)) +
   coord_cartesian(ylim=c(0, NA)) +
-  theme(legend.position = "none") +
+  # theme(legend.position = "none") +
   labs(subtitle = "Manual parameters")
+```
+
+What happens when we simulate data?
+
+```{r}
+data_sim = data
+data_sim$phi_2 = 0
+# data_sim$t0 = 0
+
+tictoc::tic()
+true_params = list(lambda = 0.02, phi_inv = 0.1)
+synth_df = tibble(
+  time = data_sim$ts,
+  cases = my_simulate_data_list(
+    file = "../stan/temperate_6.stan",
+    path = "sim_data",
+    data_name = paste0("data"),
+    input_data = data_sim,
+    param_values = true_params,
+    vars = c("cases_sim")
+  )$cases_sim) %>%
+  drop_na()
+tictoc::toc()
+
+ggplot(synth_df, aes(x=time/year, y=cases)) +
+  geom_col()
+```
+
+How well does parameter recovery work?
+
+```{r}
+data_recovery = data_init(data_sim,
+                          n_times = nrow(synth_df),
+                          ts = synth_df$time,
+                          cases = synth_df$cases,
+                          run_estimation = 1)
+
+tictoc::tic()
+samp = sampling(stan_model("../stan/temperate_6.stan"),
+                data = data_recovery,
+                iter = 100,
+                chains = n_chains,
+                # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                cores = n_chains)
+tictoc::toc()
+```
+
+```{r}
+# inspect parameter posteriors
+posterior_seasonal = rstan::extract(samp, c("lambda", "phi_inv")) %>%
+  as_tibble()
+
+posterior_seasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Parameter estimates")
+
+# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
+
+# Plot credible intervals
+n_traces = 100
+incidence = rstan::extract(samp, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  group_by(j) %>%
+  mutate(ts = data_recovery$ts[j],
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
+         legend = "95% prediction interval")
+
+
+ggplot(mapping = aes(x=ts)) +
+  geom_ribbon(data = incidence_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
+              alpha = 0.5) +
+  geom_point(data = tibble(ts = data_recovery$ts, cases = data_recovery$cases),
+             aes(y = cases, group = NULL, color="Incidence data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(subtitle = "Seasonal model, monthly synthetic data",
+       x = "Year",
+       y = "Annual incidence")
+```
+
+Can we also fit `relapse_clinical_immunity` at the same time?
+
+```{r}
+data_recovery = data_init(data_sim,
+                          n_times = nrow(synth_df),
+                          ts = synth_df$time,
+                          cases = synth_df$cases,
+                          run_estimation = 1)
+theta_init = list(
+  lambda = 0.02,
+  phi_inv = 0.1,
+  relapse_clinical_immunity = 0.8
+)
+
+tictoc::tic("Fitting relapse clinical immunity")
+samp_immunity = sampling(stan_model("../stan/temperate_7.stan"),
+                data = data_recovery,
+                iter = 100,
+                chains = 4,
+                init = rep(list(theta_init), n_chains), # Start from MLE solution
+                cores = 4)
+tictoc::toc()
+```
+
+```{r}
+# inspect parameter posteriors
+posterior_seasonal = rstan::extract(samp_immunity, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
+  as_tibble()
+
+posterior_seasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Parameter estimates")
+
+# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
+
+# Plot credible intervals
+n_traces = 100
+incidence = rstan::extract(samp_immunity, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+plot_data_immunity = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  mutate(ts = data_recovery_2$ts[j])
+
+ggplot(mapping = aes(x=ts)) +
+  geom_line(data = plot_data_immunity,
+            aes(y=incidence, color=paste(n_traces, "traces of mean incidence"), group=trace),
+            alpha = 0.1) +
+  geom_point(data = tibble(ts = data_recovery$ts, cases = data_recovery$cases),
+             aes(y = cases, group = NULL, color="Case data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", paste(n_traces, "traces of mean incidence"), "Case data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval",paste(n_traces, "traces of mean incidence"), "Case data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(title = "Seasonal model, monthly data",
+       subtitle = "Refit using correct model",
+       x = "Year",
+       y = "Annual incidence")
+```
+
+What if we refit the model not using correct parameters?
+
+```{r}
+# We reuse temperate model 6 and set it to have no clinical immunity
+data_recovery_2 = data_init(data_recovery,
+                            relapse_clinical_immunity = 0)
+tictoc::tic("Fitting relapse clinical immunity")
+samp_noimmunity = sampling(stan_model("../stan/temperate_6.stan"),
+                           data = data_recovery_2,
+                           iter = 100,
+                           chains = 4,
+                           # init = rep(list(theta_init), n_chains), # Start from MLE solution
+                           cores = 4)
+tictoc::toc()
+```
+
+```{r}
+# inspect parameter posteriors
+posterior_seasonal = rstan::extract(samp_noimmunity, c("lambda", "phi_inv")) %>%
+  as_tibble()
+
+posterior_seasonal %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Parameter estimates")
+
+# Plot credible intervals
+n_traces = 100
+incidence = rstan::extract(samp_noimmunity, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+plot_data_noimmunity = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  mutate(ts = data_recovery_2$ts[j])
+
+ggplot(mapping = aes(x=ts)) +
+  geom_line(data = plot_data_noimmunity,
+            aes(y=incidence, color=paste(n_traces, "traces of mean incidence"), group=trace),
+            alpha = 0.1) +
+  geom_point(data = tibble(ts = data_recovery$ts, cases = data_recovery$cases),
+             aes(y = cases, group = NULL, color="Case data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", paste(n_traces, "traces of mean incidence"), "Case data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval",paste(n_traces, "traces of mean incidence"), "Case data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(title = "Seasonal model, monthly data",
+       subtitle = "Refit where relapse_clinical_immunity = 0",
+       x = "Year",
+       y = "Annual incidence")
 ```

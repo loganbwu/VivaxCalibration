@@ -1,0 +1,202 @@
+_---
+title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
+output:
+html_notebook:
+number_sections: true
+---
+
+
+```{r setup}
+library(R.utils)
+library(tidyverse)
+library(rstan)
+library(rstansim) # devtools::install_github("ewan-keith/rstansim")
+library(parallel)
+library(patchwork)
+library(pbmcapply)
+library(pbapply)
+library(memoise)
+library(RColorBrewer)
+source("../R/constants.R")
+source("../R/load_functions.R")
+
+n_cores = parallelly::availableCores()
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
+rstan_options(auto_write = TRUE)
+
+n_years = 5
+n_iter = 500 # should be at least 500
+n_chains = 4
+n_repetitions = 1 # how many times to duplicate each scenario
+cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
+limit_runs = Inf # set to a finite number for testing, or Inf to run all
+timelimit_per_run = 60*60 * 5
+n_traces = 200 # limit for plotting sample trajectories
+
+methods = methods %>%
+  head(4)
+
+param_colors = brewer.pal(4, "Set2")
+names(param_colors) = c("lambda", "phi", "eps", "kappa")
+```
+
+```{r}
+library(rgho)
+library(patchwork)
+library(ggforce)
+
+indig = get_gho_data("MALARIA_INDIG",
+                     filter = list(COUNTRY = "CHN"))
+imported = get_gho_data("MALARIA_IMPORTED",
+                        filter = list(COUNTRY = "CHN"))
+est_cases = get_gho_data("MALARIA_EST_CASES",
+                         filter = list(COUNTRY = "CHN"))
+
+cases = bind_rows(
+  "Estimated" = est_cases %>% filter(YEAR < min(indig$YEAR)),
+  "Indigenous" = indig,
+  "Imported" = imported,
+  .id = "Metric"
+) %>%
+  mutate(Metric = fct_inorder(Metric)) %>%
+  filter(YEAR <= 2020)
+
+
+ggplot(cases, aes(x = YEAR, y = NumericValue, color = Metric)) +
+  geom_col(aes(fill = Metric), data=cases %>% filter(Metric!="Total")) +
+  scale_x_continuous(expand=c(0,0,0,0)) +
+  scale_y_continuous(labels = label_auto, expand=c(0,0,0.05,0)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Year", y = "Reported cases", fill = "Source", color = "Source",
+       subtitle = "Reported malaria cases in China")
+
+ggsave("../plots/china_cases.png", width=8, height=2)
+```
+
+## Model implementation
+
+We begin with extending Champagne's 2022 model for tropical vivax to include seasonality.
+
+First we implement and verify the parameter recovery ability of Stan with the Champagne model as published in 2022.
+
+```{r}
+# perform simulation study
+dt = years/annual_subdivisions
+t0 = -50*years
+t = seq_len(n_years*annual_subdivisions) * dt
+n_times = length(t)
+N = 1.8e6/100 # population size
+
+#initial conditions
+I_init = 0.01
+y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
+
+# constants for Stan
+data_consts = list(n_times = n_times+1,
+                   y0 = y0,
+                   t0 = t0,
+                   ts = seq_len(n_times+1) * dt,
+                   N = N,
+                   cases = rep(99999, n_times+1),
+                   r = 1./60, # r
+                   gammal = 1./223, # gammal
+                   f = 1./72, # f
+                   alpha = 0.8, # alpha,
+                   beta = 0.429/0.8, # beta, Nekkab 2021
+                   delta = 0,
+                   eps = 0,
+                   kappa = 1,
+                   phase = 0
+)
+```
+
+## Parameter recovery on real data
+
+We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
+
+Data:
+
+- Hainan data (tropical China) but this has been difficult to acquire.
+We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
+- Brazilian 'integrated data set', available per county or municipality and very detailed.
+
+```{r}
+china_selections = tribble(
+  ~Region, ~min, ~max,
+  "Dengzhou", "2004-01-01", "2009-01-01",
+  "Guantang", "1977-01-01", "1982-01-01",
+  "Huangchuan", NA, NA,
+  "Xiayi", NA, NA
+) %>%
+  mutate(min = as.Date(min),
+         max = as.Date(max))
+
+library(MalariaData)
+regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
+china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
+  bind_rows(.id = "Region") %>%
+  select(Region, Date, Cases) %>%
+  left_join(china_selections, by="Region") %>%
+  mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
+         include = replace_na(include, "grey"))
+
+china_data = china_data_all %>%
+  filter(include == "grey20") %>%
+  select(-include)
+
+ggplot(china_data_all) +
+  geom_rect(data=china_selections, aes(xmin=min, xmax=max, ymin=1, ymax=Inf, x=NULL, y=NULL), alpha=0.4, fill="tomato") +
+  geom_col(aes(x=Date, y=Cases, fill=include)) +
+  facet_wrap(vars(Region), ncol=1, scales="free_y") +
+  scale_x_date(breaks = seq(as.Date("1900-01-01"), as.Date("2025-01-01"), by="2 years"), date_labels = "%Y", limits=c(NA_Date_, as.Date("2009-12-31"))) +
+  scale_y_log10() +
+  scale_fill_identity() +
+  labs(title = "Selected monthly P. vivax cases infected in central China",
+       x = "Notification date",
+       y = "Cases")
+
+ggsave("../plots/china_selected.png", width=8, height=4)
+```
+
+```{r}
+source("../R/functions/decompose_data.R")
+china_decomp = lapply(unique(china_data$Region) %>% setNames({.}), function(x) {
+  china_data %>%
+    filter(Region == x) %>%
+    mutate(logCases = log(Cases+1)) %>%
+    decompose_data()
+}) %>%
+  bind_rows(.id = "Region")
+
+china_decomp %>%
+  filter(name %in% c("Cases", "trend", "seasonal", "remainder")) %>%
+  mutate(name = name %>% str_to_title()) %>%
+  ggplot(aes(x = Date, y = value, color = name)) +
+  geom_line() +
+  scale_x_date(date_breaks = "years", date_labels = "%Y") +
+  facet_grid(rows=vars(name), cols=vars(Region), scales="free")
+
+ggsave("../plots/china_decomp.png", width=8, height=4)
+```
+
+Now we fit the model for Dengzhou
+
+```{r}
+ts_dengzhou = china_data %>%
+  filter(Region == "Dengzhou") %>%
+  mutate(ts = as.numeric(Date - as.Date("1977-01-01")))
+data_dengzhou = data_init(data_null,
+                          p_long = 1,
+                          n_times = nrow(ts_dengzhou),
+                          ts = ts_dengzhou$ts,
+                          cases = ts_dengzhou$Cases)
+```
+
+End of script.
+
+```{r}
+print("Done.")
+```
