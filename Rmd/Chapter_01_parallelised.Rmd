@@ -48,10 +48,9 @@ fct_recode = function(...) {
 cd = cachem::cache_disk("memoise")
 
 n_years = 5
-n_iter = 500 # should be at least 500
-n_chains = 2
+n_iter = 100 # should be at least 500
+n_chains = 1 # 1 for final results
 n_repetitions = 3 # how many times to duplicate each scenario
-cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*30 # in seconds
 n_traces = 10 # limit for plotting sample trajectories

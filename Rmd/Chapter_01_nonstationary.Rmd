@@ -34,7 +34,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 50 # should be at least 500
+n_iter = 100 # should be at least 500
 n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -121,7 +121,7 @@ smr_pred_seasonal <- with(sim, cbind(as.data.frame(
     pars = "incidence",
     probs = c(0.05, 0.5, 0.95)
   )$summary),
-  t=t[1:(nrow(sim)-1)], cases=cases[1:(nrow(sim)-1)])) %>%
+  t=t, cases=cases)) %>%
   setNames(colnames({.}))
 
 ggplot(smr_pred_seasonal, mapping = aes(x = t)) +
@@ -208,7 +208,7 @@ ggplot(mapping = aes(x=ts)) +
        y = "Monthly incidence")
 ```
 
-Can we make a variety of scenarios
+# Can we make a variety of scenarios?
 Define a function to simulate cases for a scenario
 
 ```{r}
@@ -219,14 +219,14 @@ simulate_cases = function(data_consts, tstar, xi) {
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
   params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
-  synth_df = suppressMessages(my_simulate_data(
+  synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",
     data_name = "nonstationary",
     input_data = data,
     param_values = params,
     vars = c("ts", "incidence", "sim_cases")
-  ))
+  )
 }
 ```
 
@@ -236,7 +236,7 @@ Create scenarios
 # Define the scenarios
 n_reps = 1
 range_tstar = c(0.25, 0.5, 0.75) * n_years * years
-range_xi = c(0, 0.25, 0.5, 0.75, 1)
+range_xi = c(0.25, 0.5, 0.75, 1)
 scenarios = expand_grid(
   tstar = range_tstar,
   xi = range_xi,
@@ -254,6 +254,23 @@ cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 # Attach simulation results to the scenarios dataframe
 scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
 scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
+```
+
+What do our synthetic data look like?
+
+```{r}
+scenarios %>%
+  # distinct(scenario_ID, .keep_all=T) %>%
+  unnest(cols = c("ts", "cases")) %>%
+  ggplot(aes(x = ts/years, y = cases, group=interaction(tstar, xi, rep))) +
+  geom_line(alpha = 0.6) +
+  scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
+  scale_y_log10(labels = label_auto2) +
+  facet_grid(rows = vars(tstar),
+             cols = vars(xi),
+             labeller = plot_labeller) +
+  labs(x = "Year",
+       y = "Monthly cases")
 ```
 
 Define a function to perform the model fit, then apply it to each scenario
@@ -291,71 +308,4 @@ scenarios$est_tstar = lapply(estimates_scenarios, function(x) {x$tstar})
 scenarios$est_xi = lapply(estimates_scenarios, function(x) {x$xi})
 
 # Attach posterior predictions
-```
-
-
-Get the Rondonia data
-
-```{r}
-path = "/Users/wu.l/Documents/MalariaData/data-raw/brazil/integrated_dataset_Baroni2020.RData"
-load(path)
-rondonia.all = integrated_dataset %>%
-  filter(exam.result == "vivax",
-         infection.state == "RO") %>%
-  mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
-  count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= 2009 & notification.year <= 2018, "grey20", "grey")) %>%
-  as_tibble()
-
-ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
-  geom_col() +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
-       x = "Notification date",
-       y = "Cases")
-
-ggsave("plots/rondonia_selected.png", width=8, height=4)
-
-rondonia = rondonia.all %>%
-  filter(include == "grey20")
-```
-
-Set up data and run
-
-```{r}
-data_nonst = data_init(data_consts,
-                       t0 = -100*years,
-                       n_times = nrow(rondonia),
-                       ts = seq_len(nrow(rondonia)) * years / annual_subdivisions,
-                       cases = rondonia$cases,
-                       eps = 0.5,
-                       kappa = 5,
-                       tstar = years*2)
-tictoc::tic()
-fit_rond = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
-                    data = data_nonst,
-                    iter = n_iter,
-                    chains = n_chains,
-                    cores = n_chains)
-tictoc::toc()
-```
-
-```{r}
-posteriors = rstan::extract(fit_rond, c("lambda", "phi_inv", "tstar", "xi")) %>%
-  as_tibble()
-
-# Plot posterior densities
-posteriors %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
-  ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_density(alpha=0.5) +
-  scale_fill_manual(values = param_colors, drop=F) +
-  scale_color_manual(values = param_colors, drop=F) +
-  # coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
-  labs(subtitle = "Non-seasonal model")
 ```

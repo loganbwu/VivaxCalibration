@@ -58,7 +58,7 @@ plot_labeller <- function(variable, value){
   } else if (variable == "transmission_rates") {
     var = "lambda"
   } else {
-    var = "facet"
+    var = as.character(variable)
   }
   return(paste0(var, ": ", value))
 }

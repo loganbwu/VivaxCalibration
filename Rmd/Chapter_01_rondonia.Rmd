@@ -34,7 +34,7 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-model_champagne2022_seasonal_ext = "../stan/champagne2022_seasonal_ext.stan"
+model_champagne2022_seasonal_ext = "../stan/champagne2022_seasonal_ext_2.stan"
 stan_model_champagne2022_seasonal_ext = stan_model(model_champagne2022_seasonal_ext)
 model_champagne2022 = "../stan/champagne2022.stan"
 stan_model_champagne2022 = stan_model(model_champagne2022)
@@ -44,9 +44,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_years = 5
-n_iter = 100 # should be at least 500
-n_chains = 4
+n_iter = 500 # should be at least 500
+n_chains = 8
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -56,8 +55,8 @@ n_traces = 200 # limit for plotting sample trajectories
 methods = methods %>%
   head(4)
 
-param_colors = brewer.pal(4, "Set2")
-names(param_colors) = c("lambda", "phi", "eps", "kappa")
+param_colors = brewer.pal(5, "Set2")
+names(param_colors) = c("lambda", "phi", "eps", "kappa", "phase")
 ```
 
 ## Model implementation
@@ -67,33 +66,20 @@ We begin with extending Champagne's 2022 model for tropical vivax to include sea
 First we implement and verify the parameter recovery ability of Stan with the Champagne model as published in 2022.
 
 ```{r}
-# perform simulation study
-dt = years/annual_subdivisions
-t0 = -50*years
-t = seq_len(n_years*annual_subdivisions) * dt
-n_times = length(t)
-N = 1.8e6/100 # population size
-
 #initial conditions
 I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 
 # constants for Stan
-data_consts = list(n_times = n_times+1,
-                   y0 = y0,
-                   t0 = t0,
-                   ts = seq_len(n_times+1) * dt,
-                   N = N,
-                   cases = rep(99999, n_times+1),
+data_consts = list(y0 = y0,
+                   t0 = -50*years,
+                   N = 1.8e6/100, # population size,
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
                    alpha = 0.8, # alpha,
                    beta = 0.429/0.8, # beta, Nekkab 2021
-                   delta = 0,
-                   eps = 0,
-                   kappa = 1,
-                   phase = 0
+                   delta = 0
 )
 ```
 
@@ -121,16 +107,21 @@ integrated_dataset %>%
 ggsave("../plots/brazil_cases.png", width=8, height=2)
 ```
 
+Define our usable data
+
 ```{r}
+min_year = 2015
+max_year = 2018
+
 rondonia.all = integrated_dataset %>%
   filter(exam.result == "vivax",
          infection.state == "RO") %>%
   count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= 2015 & notification.year <= 2018, "grey20", "grey")) %>%
+  mutate(include = ifelse(notification.year >= min_year & notification.year <= max_year, "grey20", "grey")) %>%
   as_tibble()
 
 ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date("2015-01-01"), xmax=as.Date("2018-12-31"), ymin=-Inf, ymax=Inf,
+  annotate("rect", xmin=as.Date("min_year-01-01"), xmax=as.Date("max_year-12-31"), ymin=-Inf, ymax=Inf,
            fill = "blue", alpha = 0.15) +
   geom_col() +
   coord_cartesian(ylim = c(0, NA)) +
@@ -151,7 +142,7 @@ date_0 = min(rondonia$notification.date)
 ```{r}
 source("../R/functions/decompose_data.R")
 rondonia_decomp = rondonia %>%
-  filter(notification.year >= 2015, notification.year <= 2018) %>%
+  filter(notification.year >= min_year, notification.year <= max_year) %>%
   dplyr::rename(Date = notification.date,
                 Cases = cases) %>%
   mutate(logCases = log(Cases)) %>%
@@ -168,12 +159,10 @@ rondonia_decomp %>%
 Create data for the full model
 
 ```{r}
-data_ro = data_consts
-
-data_ro$cases = rondonia$cases
-data_ro$ts = seq_len(nrow(rondonia)) * years / annual_subdivisions
-data_ro$n_times = nrow(rondonia)
-data_ro$phase = 365.25*0.5
+data_ro = data_init(data_consts,
+                    cases = rondonia$cases,
+                    ts = seq_len(nrow(rondonia)) * years / annual_subdivisions,
+                    n_times = nrow(rondonia))
 ```
 
 Create data for the nonseasonal model
@@ -182,18 +171,15 @@ Create data for the nonseasonal model
 rondonia_agg = integrated_dataset %>%
   filter(exam.result == "vivax",
          infection.state == "RO",
-         notification.year >= 2014) %>%
+         notification.year >= min_year) %>%
   mutate(notification.date = as.Date(paste(notification.year, "01", "01", sep="-")) + years(1) - days(1)) %>%
   count(notification.date, name = "cases")
 
 # Aggregate data to a yearly level
-data_ro_agg = data_consts
-
-data_ro_agg$cases = rondonia_agg$cases
-data_ro_agg$ts = seq_len(nrow(rondonia_agg)) * years
-data_ro_agg$n_times = nrow(rondonia_agg)
-data_ro_agg$y0 = data_consts$y0
-data_ro_agg$t0 = data_consts$t0
+data_ro_agg = data_init(data_consts,
+                        cases = rondonia_agg$cases,
+                        ts = seq_len(nrow(rondonia_agg)) * years,
+                        n_times = nrow(rondonia_agg))
 
 tibble(ts = data_ro_agg$ts,
        cases = data_ro_agg$cases) %>%
@@ -209,22 +195,21 @@ samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
                     chains = n_chains,
-                    # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                     cores = n_cores)
 
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
                                 iter = n_iter,
                                 chains = n_chains,
-                                # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                                 cores = n_cores)
 ```
 
 
 ```{r}
 # inspect parameter posteriors
-posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa")) %>%
-  as_tibble()
+posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
+  as_tibble() %>%
+  mutate(phase = phase %% years)
 
 p_seasonal_posterior = posterior_seasonal %>%
   mutate(phi = 1/phi_inv,
@@ -237,6 +222,7 @@ p_seasonal_posterior = posterior_seasonal %>%
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free") +
   labs(subtitle = "Seasonal model")
+p_seasonal_posterior
 
 # ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
 
@@ -249,8 +235,8 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   group_by(j) %>%
   mutate(ts = data_ro$ts[j],
-         lower = quantile(incidence, 0.025),
-         upper = quantile(incidence, 0.975),
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
 sim_cases = rstan::extract(samp_ext, "sim_cases")[[1]]
@@ -259,8 +245,8 @@ sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
   pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
   group_by(j) %>%
   mutate(ts = data_ro$ts[j],
-         lower = quantile(sim_cases, 0.025),
-         upper = quantile(sim_cases, 0.975),
+         lower = quantile(sim_cases, 0.025, na.rm=T),
+         upper = quantile(sim_cases, 0.975, na.rm=T),
          legend = "95% prediction interval") %>%
   distinct(j, .keep_all=T)
 
@@ -283,6 +269,7 @@ p_seasonal_ci = ggplot(mapping = aes(x=ts + date_0)) +
   labs(subtitle = "Seasonal model, monthly data",
        x = "Year",
        y = "Annual incidence")
+p_seasonal_ci
 
 # ggsave("plots/rondonia_seasonal_ci.png", width=8, height=4)
 ```
@@ -306,6 +293,7 @@ p_ns_posterior = posterior_nonseasonal %>%
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free") +
   labs(subtitle = "Non-seasonal model")
+p_ns_posterior
 
 # ggsave("plots/rondonia_ns_posterior.png", width=8, height=4)
 
@@ -316,8 +304,8 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   mutate(ts = data_ro_agg$ts[j],
-         lower = quantile(incidence, 0.025),
-         upper = quantile(incidence, 0.975),
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
 sim_cases = rstan::extract(samp_ext_nonseasonal, "sim_cases")[[1]]
@@ -325,8 +313,8 @@ sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
   mutate(ts = data_ro_agg$ts[j],
-         lower = quantile(sim_cases, 0.025),
-         upper = quantile(sim_cases, 0.975),
+         lower = quantile(sim_cases, 0.025, na.rm=T),
+         upper = quantile(sim_cases, 0.975, na.rm=T),
          legend = "95% prediction interval") %>%
   distinct(ts, .keep_all=T)
 
@@ -349,6 +337,7 @@ p_ns_ci = ggplot(mapping = aes(x=ts + date_0)) +
   labs(subtitle = "Non-seasonal model, annual data",
        x = "Year",
        y = "Annual incidence")
+p_ns_ci
 
 # ggsave("plots/rondonia_ns_ci.png", width=8, height=4)
 ```
@@ -364,7 +353,7 @@ ggsave("plots/rondonia_ci.png", width=8, height=4)
 p_seasonal_posterior + theme(legend.position="none") + p_ns_posterior + theme(legend.position="none") +
   plot_layout(guides = "collect") +
   plot_annotation(title = "Posterior parameter estimates",
-                  subtitle = "P. vivax transmission in Rondonia, 2015-2018",
+                  subtitle = "P. vivax transmission in Rondonia, min_year-max_year",
                   tag_levels = "A")
 
 ggsave("plots/rondonia_posterior.png", width=8, height=4)
@@ -377,13 +366,13 @@ omega = function(t, eps, kappa, phase=365.25/2) {
   return(eps + (1-eps)*pi/beta(0.5, kappa+0.5)*((1+sin(2*pi*(t - phase)/365.25))/2)^kappa)
 }
 
-omega_params = rstan::extract(samp_ext, c("eps", "kappa")) %>%
+omega_params = rstan::extract(samp_ext, c("eps", "kappa", "phase")) %>%
   as_tibble() %>%
   mutate(i = row_number())
 
-tt = seq(0, 365.25, length.out=101)
+tt = seq(0, years, length.out=101)
 omega_ts = lapply(seq_len(nrow(omega_params)), function(i) {
-  omega(tt, omega_params$eps[i], omega_params$kappa[i])
+  omega(tt, omega_params$eps[i], omega_params$kappa[i], omega_params$phase[i])
 })
 omega_params$omega = omega_ts
 omega_params$t = rep(list(tt), nrow(omega_params))
@@ -394,7 +383,7 @@ omega_params %>%
   geom_hline(yintercept = 1, linetype="dashed") +
   coord_cartesian(ylim = c(0, NA)) +
   scale_x_continuous(breaks = 0:annual_subdivisions, expand = c(0,0)) +
-  labs(title = "Posterior estimate of ω(t) for Rondonia P. vivax 2014-2018",
+  labs(title = paste0("Posterior estimate of ω(t) for Rondonia P. vivax ", min_year, "-", max_year),
        x = "t (months)",
        y = "ω(t)")
 
@@ -410,7 +399,8 @@ composite_list = pbmclapply(seq_len(n_samples), function(i) {
     lambda = sample(posterior_nonseasonal$lambda, 1),
     phi_inv = 0.1, # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
     eps = sample(posterior_seasonal$eps, 1),
-    kappa = sample(posterior_seasonal$kappa, 1)
+    kappa = sample(posterior_seasonal$kappa, 1),
+    phase = sample(posterior_seasonal$phase, 1)
   )
   
   my_simulate_data(
@@ -475,7 +465,7 @@ map_folder = "~/Documents/MalariaData/data-raw/TSI-Martens2-Pv.2000-2022.Data.5k
 tifs = tibble(path = list.files(map_folder, full.names=T)) %>%
   mutate(filename = basename(path),
          year = str_extract(filename, "(1|2)[0-9]{3}") %>% as.numeric()) %>%
-  filter(year >= 2014, year <= 2018)
+  filter(year >= min_year, year <= max_year)
 
 x = terra::rast(tifs$path)
 ```
@@ -512,11 +502,11 @@ rondonia.nonstationary = integrated_dataset %>%
          infection.state == "RO") %>%
   mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
   count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= 2009 & notification.year <= 2018, "grey20", "grey")) %>%
+  mutate(include = ifelse(notification.year >= 2009 & notification.year <= max_year, "grey20", "grey")) %>%
   as_tibble()
 
 p1 = ggplot(rondonia.nonstationary, aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date("2009-01-01"), xmax=as.Date("2018-12-31"), ymin=-Inf, ymax=Inf,
+  annotate("rect", xmin=as.Date("2009-01-01"), xmax=as.Date("max_year-12-31"), ymin=-Inf, ymax=Inf,
            fill = "blue", alpha = 0.15) +
   geom_col() +
   coord_cartesian(ylim = c(0, NA)) +
@@ -543,11 +533,6 @@ plotdata_nonstationary = bind_rows(
   .id = "Region"
 )
 ggplot(plotdata_nonstationary, aes(x = notification.date, y=cases, fill=include)) +
-  # annotate("rect",
-  #          xmin=min(hainan.nonstationary$notification.date),
-  #          xmax=max(hainan.nonstationary$notification.date),
-  #          ymin=-Inf, ymax=Inf,
-  #          fill = "blue", alpha = 0.15) +
   geom_col() +
   geom_vline(data=t0_nonstationary, aes(xintercept = notification.date), color="tomato") +
   ggrepel::geom_label_repel(data=t0_nonstationary, aes(x = notification.date, y=0, fill=NULL, label="t0"), color="tomato") +
