@@ -34,7 +34,6 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_years = 5
 n_iter = 50 # should be at least 500
 n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
@@ -55,6 +54,8 @@ Generate some data
 #initial conditions
 I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
+n_years = 10
+tstar_for_testing = 5*years
 
 # constants for Stan
 data_consts = list(y0 = y0,
@@ -73,9 +74,9 @@ data_consts = list(y0 = y0,
 n_times = annual_subdivisions * n_years
 data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
-                 cases = rep(1, n_data),
+                 cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=0.9, tstar=365*5)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=0.9, tstar=tstar_for_testing)
 
 sim = my_simulate_data(
   file = "../stan/champagne2022_nonstationary_2.stan",
@@ -97,10 +98,11 @@ Insert the new seasonal data into a data list and run the seasonal model (MLE an
 ```{r,}
 # Fit data
 # Edit data with generated values
-data_sim = data_consts
-data_sim$n_times = nrow(sim)
-data_sim$ts = sim$ts
-data_sim$cases = sim$cases
+data_sim = data_init(data_consts,
+                     n_times = nrow(sim),
+                     ts = sim$ts,
+                     cases = sim$cases,
+                     tstar = tstar_for_testing)
 ```
 
 ```{r}
@@ -211,11 +213,11 @@ Define a function to simulate cases for a scenario
 
 ```{r}
 simulate_cases = function(data_consts, tstar, xi) {
-  n_data = annual_subdivisions * n_years
+  n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
-                   cases = rep(1, n_data),
-                   ts = seq_len(n_data) * years / annual_subdivisions,
-                   n_times = n_data)
+                   cases = rep(1, n_times),
+                   ts = seq_len(n_times) * years / annual_subdivisions,
+                   n_times = n_times)
   params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
   synth_df = suppressMessages(my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
@@ -232,7 +234,6 @@ Create scenarios
 
 ```{r}
 # Define the scenarios
-n_years = 10
 n_reps = 1
 range_tstar = c(0.25, 0.5, 0.75) * n_years * years
 range_xi = c(0, 0.25, 0.5, 0.75, 1)
@@ -260,11 +261,11 @@ Define a function to perform the model fit, then apply it to each scenario
 ```{r}
 # Define function that takes simulated data
 my_sampling = function(data_consts, ts, cases) {
-  n_data = length(ts)
+  n_times = length(ts)
   data = data_init(data_consts,
                    cases = cases,
                    ts = ts,
-                   n_times = n_data)
+                   n_times = n_times)
   fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                  data = data,
                  iter = n_iter,
