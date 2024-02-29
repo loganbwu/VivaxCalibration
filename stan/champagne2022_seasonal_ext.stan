@@ -33,7 +33,7 @@ functions {
     real dI0_dt = -(foi*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
     real dSl_dt = -(1-alpha*(1-beta))*(foi*(Il+I0)+delta+f)*Sl + alpha*(1-beta)*(foi*(Il+I0)+delta)*S0 - gammal*Sl + r*Il;
     real dS0_dt = -(1-alpha*beta)*(foi*(Il+I0)+delta)*S0 + (foi*(I0+Il)+delta)*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
-    real dCumulativeInfections = (foi*(Il+I0)+delta)*(S0+Sl);
+    real dCumulativeInfections = (foi*(Il+I0)+delta)*(S0+Sl) + f*Sl;
     
     return {dIl_dt, dI0_dt, dSl_dt, dS0_dt, dCumulativeInfections};
   }
@@ -77,7 +77,7 @@ parameters {
 
 transformed parameters{
   real y[n_times, 5];
-  real<lower=0> incidence[n_times - 1];
+  real<lower=0> incidence[n_times];
   real phi = 1. / phi_inv;
   {
     real theta[3];
@@ -88,8 +88,8 @@ transformed parameters{
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
-  for (i in 1:n_times-1)
-  incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+  for (i in 2:n_times)
+  incidence[i] = fmax(1e-12, (y[i, 5] - y[i-1, 5]) * N * alpha);
 }
 
 model {
@@ -101,27 +101,27 @@ model {
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 1:(n_times - 1)) {
+  for (i in 2:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
 }
 
 generated quantities {
-  real sim_cases[n_times-1];
-  real susceptible[n_times-1];
-  real infectious[n_times-1];
-  real latent[n_times-1];
-  real R0[n_times-1];
-  real Rc[n_times-1];
-  real foi[n_times-1];
+  real sim_cases[n_times];
+  real susceptible[n_times];
+  real infectious[n_times];
+  real latent[n_times];
+  real R0[n_times];
+  real Rc[n_times];
+  real foi[n_times];
   
-  for (i in 1:(n_times - 1)) {
+  for (i in 2:n_times) {
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
     susceptible[i] = y[i, 4];
     infectious[i] = y[i, 1] + y[i, 2];
     latent[i] = y[i, 3];
-    foi[i] = lambda * suitability(ts[i], eps, kappa, phase);
-    R0[i] = foi[i]/r + lambda * suitability(ts[i], eps, kappa, phase) * f / (gammal * (f + gammal + r));
+    foi[i] = lambda * suitability((ts[i]+ts[i-1])/2, eps, kappa, phase);
+    R0[i] = foi[i]/r + foi[i] * f / (gammal * (f + gammal + r));
     Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
   }
 }

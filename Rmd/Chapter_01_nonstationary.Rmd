@@ -35,7 +35,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 100 # should be at least 500
+n_iter = 50 # should be at least 500
 n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -75,8 +75,7 @@ data_consts = list(n_times = n_times,
                    beta = 0.66, # beta
                    rho = 0.21, # rho
                    delta = 0,
-                   phase = years/2,
-                   tstar = 365*3
+                   phase = years/2
 )
 
 n_data = annual_subdivisions * 10
@@ -85,18 +84,16 @@ data$cases = rep(1, n_data)
 data$ts = seq_len(n_data) * years / annual_subdivisions
 data$n_times = n_data
 
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, dlambda=-0.001)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=0.9, tstar=365*5)
 
 sim = my_simulate_data(
-  file = "../stan/champagne2022_nonstationary.stan",
+  file = "../stan/champagne2022_nonstationary_2.stan",
   path = "sim_data",
   data_name = "nonstationary",
   input_data = data,
   param_values = params,
   vars = c("ts", "incidence", "sim_cases")
 )
-
-sim
 
 ggplot(sim, aes(x=ts/years, y=incidence)) +
   geom_line() +
@@ -113,35 +110,6 @@ data_sim = data_consts
 data_sim$n_times = nrow(sim)
 data_sim$ts = sim$ts
 data_sim$cases = sim$cases
-```
-
-```{r}
-optimised = optimizing(
-  stan_model("../stan/champagne2022_nonstationary.stan"),
-  data = data_sim,
-  init = lapply(params, function(x) {x*1.5})
-)
-
-theta_mle = as.list(optimised$par[names(params)])
-
-plot_data = optimised$par %>%
-  as.data.frame() %>%
-  bind_cols(rownames(.), .) %>%
-  setNames(c("name", "value")) %>%
-  as_tibble() %>%
-  mutate(index_i = name %>% str_extract("(?<=\\[)[0-9]+") %>% as.numeric(),
-         time = t[index_i],
-         index_j = name %>% str_extract("(?<=,)[0-9]+") %>% as.numeric(),
-         compartment = names(y0)[index_j],
-         variable = name %>% str_remove("\\[.*")) %>%
-  mutate(variable = coalesce(compartment, variable))
-
-plot_data %>%
-  drop_na(time) %>%
-  ggplot(aes(x=time, y=value, color=variable, group=variable)) +
-  geom_line() +
-  facet_wrap(vars(variable), scales="free_y") +
-  coord_cartesian(ylim = c(0, NA))
 ```
 
 ```{r}
@@ -192,19 +160,19 @@ posterior_nonseasonal %>%
 Can we perform this with the t-cutoff as a parameter?
 
 ```{r}
-fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
-               data = data_sim,
-               iter = n_iter,
-               chains = n_chains,
-               seed = 0)
+fit_tstar = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+                     data = data_sim,
+                     iter = n_iter,
+                     chains = n_chains,
+                     seed = 0)
 ```
 
 ```{r}
-posteriors = rstan::extract(fit, c("lambda", "phi_inv", "tstar")) %>%
+posterior = rstan::extract(fit_tstar, c("lambda", "phi_inv", "tstar", "xi")) %>%
   as_tibble()
 
 # Plot posterior densities
-posterior_nonseasonal %>%
+posterior %>%
   mutate(phi = 1/phi_inv,
          phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
@@ -215,7 +183,124 @@ posterior_nonseasonal %>%
   # coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free") +
   labs(subtitle = "Non-seasonal model")
+
+n_traces = 100
+incidence = rstan::extract(fit_tstar, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  group_by(j) %>%
+  mutate(ts = data_sim$ts[j],
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
+         legend = "95% prediction interval")
+
+ggplot(mapping = aes(x=ts)) +
+  geom_ribbon(data = incidence_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
+              alpha = 0.5) +
+  geom_point(data = tibble(ts = data_sim$ts, cases = data_sim$cases),
+             aes(y = cases, group = NULL, color="Incidence data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(subtitle = "Seasonal model, monthly synthetic data",
+       x = "Day",
+       y = "Monthly incidence")
 ```
+
+Can we make a variety of scenarios
+Define a function to simulate cases for a scenario
+
+```{r}
+simulate_cases = function(data_consts, tstar, xi) {
+  n_data = annual_subdivisions * n_years
+  data = data_init(data_consts,
+                   cases = rep(1, n_data),
+                   ts = seq_len(n_data) * years / annual_subdivisions,
+                   n_times = n_data)
+  params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
+  synth_df = suppressMessages(my_simulate_data(
+    file = "../stan/champagne2022_nonstationary_2.stan",
+    path = "sim_data",
+    data_name = "nonstationary",
+    input_data = data,
+    param_values = params,
+    vars = c("ts", "incidence", "sim_cases")
+  ))
+}
+```
+
+Create scenarios
+
+```{r}
+# Define the scenarios
+n_years = 10
+n_reps = 1
+range_tstar = c(0.25, 0.5, 0.75) * n_years * years
+range_xi = c(0, 0.25, 0.5, 0.75, 1)
+scenarios = expand_grid(
+  tstar = range_tstar,
+  xi = range_xi,
+  rep = seq_len(n_reps)
+) %>%
+  mutate(ID = LETTERS[row_number()], .before=0)
+
+# Simulate cases for each scenario
+cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+  tstar = scenarios$tstar[i]
+  xi = scenarios$xi[i]
+  simulate_cases(data_consts, tstar, xi)
+})
+
+# Attach simulation results to the scenarios dataframe
+scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
+scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
+```
+
+Define a function to perform the model fit, then apply it to each scenario
+
+```{r}
+# Define function that takes simulated data
+my_sampling = function(data_consts, ts, cases) {
+  n_data = length(ts)
+  data = data_init(data_consts,
+                   cases = cases,
+                   ts = ts,
+                   n_times = n_data)
+  fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+                 data = data,
+                 iter = n_iter,
+                 chains = 1,
+                 seed = 0)
+}
+
+# Apply function to simulated data
+fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+  my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]])
+})
+
+# Extract parameters into dataframe
+estimates_scenarios = lapply(fits_scenarios, function(x) {
+  posterior = rstan::extract(x, c("lambda", "phi_inv", "tstar", "xi")) %>%
+    as_tibble()
+})
+
+# Attach re-estimated parameters
+scenarios$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
+scenarios$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
+scenarios$est_tstar = lapply(estimates_scenarios, function(x) {x$tstar})
+scenarios$est_xi = lapply(estimates_scenarios, function(x) {x$xi})
+
+# Attach posterior predictions
+```
+
 
 Get the Rondonia data
 
@@ -257,17 +342,16 @@ data_nonst = data_init(data_consts,
                        kappa = 5,
                        tstar = years*2)
 tictoc::tic()
-fit_nonst = sampling(stan_model("../stan/champagne2022_nonstationary.stan"),
-                     data = data_nonst,
-                     iter = n_iter,
-                     chains = n_chains,
-                     # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                     cores = n_cores)
+fit_rond = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+                    data = data_nonst,
+                    iter = n_iter,
+                    chains = n_chains,
+                    cores = n_chains)
 tictoc::toc()
 ```
 
 ```{r}
-posteriors = rstan::extract(fit_nonst, c("lambda", "phi_inv")) %>%
+posteriors = rstan::extract(fit_rond, c("lambda", "phi_inv", "tstar", "xi")) %>%
   as_tibble()
 
 # Plot posterior densities

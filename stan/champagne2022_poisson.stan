@@ -24,7 +24,7 @@ functions {
     real dI0_dt = -(lambda*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
     real dSl_dt = -(1-alpha*(1-beta))*(lambda*(Il+I0)+delta+f)*Sl + alpha*(1-beta)*(lambda*(Il+I0)+delta)*S0 - gammal*Sl + r*Il;
     real dS0_dt = -(1-alpha*beta)*(lambda*(Il+I0)+delta)*S0 + (lambda*(I0+Il)+delta)*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
-    real dCumulativeInfections = (lambda*(Il+I0)+delta)*(S0+Sl);
+    real dCumulativeInfections = (lambda*(Il+I0)+delta)*(S0+Sl) + f*Sl;
     
     return {dIl_dt, dI0_dt, dSl_dt, dS0_dt, dCumulativeInfections};
   }
@@ -64,7 +64,7 @@ parameters {
 
 transformed parameters{
   real y[n_times, 5];
-  real incidence[n_times - 1];
+  real incidence[n_times];
   {
     real theta[1];
     theta[1] = lambda;
@@ -72,8 +72,9 @@ transformed parameters{
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
-  for (i in 1:n_times-1)
-    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N); # incorrect, just for testing
+  for (i in 2:n_times) {
+    incidence[i] = fmax(1e-12, (y[i, 5] - y[i-1, 5]) * N); # incorrect, just for testing
+  }
 }
 
 model {
@@ -82,13 +83,15 @@ model {
   delta ~ normal(0, 1e4);
   
   //sampling distribution
-  for (i in 1:(n_times - 1))
+  for (i in 2:n_times) {
     cases[i] ~ poisson(incidence[i]);
+  }
 }
 
 generated quantities {
-  real sim_cases[n_times-1];
+  real sim_cases[n_times];
   
-  for (i in 1:(n_times - 1))
+  for (i in 2:n_times) {
     sim_cases[i] = poisson_rng(incidence[i]);
+  }
 }
