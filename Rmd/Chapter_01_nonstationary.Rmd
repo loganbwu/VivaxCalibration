@@ -55,7 +55,7 @@ Generate some data
 # perform simulation study
 dt = years/annual_subdivisions
 t = seq_len(n_years*annual_subdivisions) * dt
-n_times = length(t) + 1
+n_times = length(t)
 
 #initial conditions
 I_init = 0.01
