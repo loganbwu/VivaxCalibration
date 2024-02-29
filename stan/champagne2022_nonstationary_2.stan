@@ -110,17 +110,15 @@ model {
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   xi ~ exponential(1);
-  // tstar ~ normal(0, 1000);
-  // tstar ~ exponential(0.1);
   tstar ~ uniform(min(ts), max(ts));
   
   phi_inv ~ exponential(5);
   
   //sampling distribution
+  incidence[0] = 1e-12;
   for (i in 2:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
-  // print("lambda: ", lambda);
 }
 
 generated quantities {
