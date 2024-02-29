@@ -132,11 +132,14 @@ generated quantities {
   real Rc[n_times];
   real foi[n_times];
   
-  for (i in 2:n_times) {
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+  for (i in 1:n_times) {
     susceptible[i] = y[i, 4];
     infectious[i] = y[i, 1] + y[i, 2];
     latent[i] = y[i, 3];
+  }
+  
+  for (i in 2:n_times) {
+    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
     foi[i] = lambda * suitability((ts[i]+ts[i-1])/2, eps, kappa, phase);
     R0[i] = foi[i]/r + foi[i] * f / (gammal * (f + gammal + r));
     Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));

@@ -10,7 +10,6 @@ functions {
     real S0 = y[4];
     real CumulativeInfections = y[5];
     
-    // int N = x_i[1]; # unused
     real r = x_r[1];
     real gammal = x_r[2];
     real f = x_r[3];
@@ -19,7 +18,6 @@ functions {
     real delta = x_r[6];
     
     real lambda = theta[1];
-    // real delta = theta[2];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
     real dI0_dt = -(lambda*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
@@ -60,8 +58,6 @@ transformed data {
 
 parameters {
   real<lower=0, upper=0.9> lambda;
-  // real<lower=0> delta;
-  
   real<lower=0, upper=9> phi_inv;
 }
 
@@ -72,13 +68,13 @@ transformed parameters{
   {
     real theta[1];
     theta[1] = lambda;
-    // theta[2] = delta;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
-  for (i in 2:n_times)
+  for (i in 2:n_times) {
     incidence[i] = fmax(1e-12, (y[i, 5] - y[i-1, 5]) * N); # incorrect, just for testing
+  }
 }
 
 model {
@@ -89,13 +85,15 @@ model {
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 2:n_times)
+  for (i in 2:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
+  }
 }
 
 generated quantities {
   real sim_cases[n_times];
   
-  for (i in 2:n_times)
+  for (i in 2:n_times) {
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+  }
 }

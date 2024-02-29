@@ -13,7 +13,6 @@ functions {
     real S0 = y[4];
     real CumulativeInfections = y[5];
     
-    // int N = x_i[1]; # unused
     real r = x_r[1];
     real gammal = x_r[2];
     real f = x_r[3];
@@ -26,7 +25,6 @@ functions {
     
     real omega = suitability(t, eps, kappa, phase);
     real lambda = theta[1] * omega;
-    // real delta = theta[2];
     
     real dIl_dt = (1-alpha)*(lambda*(Il+I0)+delta)*(S0+Sl) + (lambda*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
     real dI0_dt = -(lambda*(Il+I0)+delta)*I0 + gammal*Il - r*I0;
@@ -81,7 +79,6 @@ transformed parameters{
   {
     real theta[1];
     theta[1] = lambda;
-    // theta[2] = delta;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
@@ -109,10 +106,12 @@ generated quantities {
   real Rc[n_times];
   real foi[n_times];
   
+  for (i in 1:n_times) {
+    susceptible[i] = y[i, 4];
+  }
+  
   for (i in 2:n_times) {
     sim_cases[i] = poisson_rng(incidence[i]);
-    susceptible[i] = y[i, 4];
-    
     foi[i] = lambda * suitability((ts[i]+ts[i-1])/2, eps, kappa, phase);
     R0[i] = foi[i]/r + foi[i] * f / (gammal * (f + gammal + r));
     Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));

@@ -1,15 +1,15 @@
 
 #' Aggregate time in twelve month blocks
 aggregate_time = function(ts) {
-  every_twelfth = seq(1, length(ts), annual_subdivisions) # c(1, 13, 25, ...)
+  every_twelfth = seq(annual_subdivisions, length(ts), annual_subdivisions) # c(1, 13, 25, ...)
   return(ts[every_twelfth])
 }
 
 aggregate_cases = function(cases) {
-  every_twelfth = seq(1, length(cases), annual_subdivisions)
+  every_twelfth = seq(annual_subdivisions, length(cases), annual_subdivisions)
   cases = sapply(every_twelfth, function(mo) {
     ixs = seq_along(.data$cases)
-    sum(.data$cases[ixs >= mo & ixs < (mo+annual_subdivisions)])
+    sum(.data$cases[ixs >= (mo - annual_subdivisions) & ixs < mo])
   })
   return(cases)
 }
@@ -21,12 +21,12 @@ aggregate_eps = function(eps=NULL) {
 #' Aggregate in twelve month blocks
 aggregate_data = function(.data) {
   .data$n_times = floor(.data$n_times / annual_subdivisions)
-  every_twelfth = seq(1, length(.data$ts), annual_subdivisions) # c(1, 13, 25, ...)
+  every_twelfth = seq(annual_subdivisions, length(.data$ts), annual_subdivisions) # c(1, 13, 25, ...)
   .data$ts = .data$ts[every_twelfth]
   .data$eps = 1
   .data$cases = sapply(every_twelfth, function(mo) {
     ixs = seq_along(.data$cases)
-    sum(.data$cases[ixs >= mo & ixs < (mo+annual_subdivisions)])
+    sum(.data$cases[ixs >= (mo - annual_subdivisions) & ixs < mo])
   })
   .data
 }

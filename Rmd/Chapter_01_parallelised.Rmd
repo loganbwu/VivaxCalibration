@@ -50,10 +50,10 @@ cd = cachem::cache_disk("memoise")
 n_years = 5
 n_iter = 500 # should be at least 500
 n_chains = 2
-n_repetitions = 10 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*30
+timelimit_per_run = 60*30 # in seconds
 n_traces = 10 # limit for plotting sample trajectories
 
 methods = methods %>%
@@ -79,12 +79,12 @@ I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 
 # constants for Stan
-data_consts = list(n_times = n_times+1,
+data_consts = list(n_times = n_times,
                    y0 = y0,
                    t0 = t0,
-                   ts = seq_len(n_times+1) * dt,
+                   ts = seq_len(n_times) * dt,
                    N = N,
-                   cases = rep(99999, n_times+1),
+                   cases = rep(99999, n_times),
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
@@ -152,7 +152,7 @@ data_scenarios = expand_grid(
 
 # Add cases onto a dataframe of scenarios based on its parameter columns
 simulate_cases = function(.scenarios) {
-  cases_scenarios = pbmclapply(seq_len(nrow(.scenarios)), function(i) {
+  cases_scenarios = lapply(seq_len(nrow(.scenarios)), function(i) {
     dat = .scenarios[i,]
     x = .simulate_cases(alpha = dat$ascertainment_rates,
                         beta = dat$radical_cure_rates,
@@ -229,7 +229,7 @@ tictoc::tic()
 # fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
 #   run_scenario_method_memo(..., force=T)
 # })
-fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+fits_all = lapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
 data_scenarios_long$fit = fits_all
 
 tictoc::toc()
@@ -463,7 +463,7 @@ composite = lapply(seq_len(nrow(data_scenarios_long_rep1)), function(i) {
   if (!length(post_lambda) >= 1) {
     return(NULL)
   }
-  sim = pbmclapply(seq_len(n_traces) %>% setNames({.}), function (j) {
+  sim = lapply(seq_len(n_traces) %>% setNames({.}), function (j) {
     y = .simulate_cases(alpha = df$ascertainment_rates,
                         beta = df$radical_cure_rates,
                         lambda = sample(post_lambda, 1),

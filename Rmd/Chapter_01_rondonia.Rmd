@@ -45,7 +45,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 500 # should be at least 500
+n_iter = 100 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -194,6 +194,12 @@ data_ro_agg$ts = seq_len(nrow(rondonia_agg)) * years
 data_ro_agg$n_times = nrow(rondonia_agg)
 data_ro_agg$y0 = data_consts$y0
 data_ro_agg$t0 = data_consts$t0
+
+tibble(ts = data_ro_agg$ts,
+       cases = data_ro_agg$cases) %>%
+  ggplot(aes(x = ts, y = cases)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, NA))
 ```
 
 Perform MCMC sampling for both models
