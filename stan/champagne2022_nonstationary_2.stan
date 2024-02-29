@@ -85,7 +85,7 @@ parameters {
 
 transformed parameters{
   real y[n_times, 5];
-  real<lower=0> incidence[n_times - 1];
+  real<lower=0> incidence[n_times];
   real phi = 1. / phi_inv;
   real dlambda = (lambda * xi) - lambda; // so dlambda can never be less than lambda
   {
@@ -117,7 +117,7 @@ model {
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  for (i in 1:(n_times - 1)) {
+  for (i in 2:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
   // print("lambda: ", lambda);
