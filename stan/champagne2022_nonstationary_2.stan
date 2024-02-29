@@ -99,6 +99,7 @@ transformed parameters{
     y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
   }
   
+  incidence[1] = 1e-12;
   for (i in 2:n_times) {
     incidence[i] = fmax(1e-12, (y[i, 5] - y[i-1, 5]) * N * alpha);
   }
@@ -115,7 +116,6 @@ model {
   phi_inv ~ exponential(5);
   
   //sampling distribution
-  incidence[0] = 1e-12;
   for (i in 2:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
