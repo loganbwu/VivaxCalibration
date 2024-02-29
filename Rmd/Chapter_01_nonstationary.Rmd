@@ -52,22 +52,14 @@ names(param_colors) = c("lambda", "phi", "eps", "kappa")
 Generate some data
 
 ```{r}
-# perform simulation study
-dt = years/annual_subdivisions
-t = seq_len(n_years*annual_subdivisions) * dt
-n_times = length(t)
-
 #initial conditions
 I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 
 # constants for Stan
-data_consts = list(n_times = n_times,
-                   y0 = y0,
+data_consts = list(y0 = y0,
                    t0 = -100*years,
-                   ts = seq_len(n_times) * dt,
                    N = 100000, # population size
-                   cases = rep(99999, n_times),
                    r = 1./60, # r
                    gammal = 1./223, # gammal
                    f = 1./72, # f
@@ -78,12 +70,11 @@ data_consts = list(n_times = n_times,
                    phase = years/2
 )
 
-n_data = annual_subdivisions * 10
-data = data_consts
-data$cases = rep(1, n_data)
-data$ts = seq_len(n_data) * years / annual_subdivisions
-data$n_times = n_data
-
+n_times = annual_subdivisions * n_years
+data = data_init(data_consts,
+                 ts = seq_len(n_times)*years/annual_subdivisions,
+                 cases = rep(1, n_data),
+                 n_times = n_times)
 params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=0.9, tstar=365*5)
 
 sim = my_simulate_data(
