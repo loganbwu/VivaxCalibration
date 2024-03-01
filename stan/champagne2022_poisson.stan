@@ -55,6 +55,14 @@ transformed data {
     delta
   };
   int x_i[1] = { N };
+  // We need to add an extra timepoint before to make difference calculations valid
+  // Note that i+1 along ts_extended and y is the ith component of ts
+  real ts_extended[n_times+1];
+  real dt = ts[2] - ts[1];
+  ts_extended[1] = ts[1] - dt;
+  for (i in 1:n_times) {
+    ts_extended[i+1] = ts[i];
+  }
 }
 
 parameters {
@@ -63,17 +71,17 @@ parameters {
 }
 
 transformed parameters{
-  real y[n_times, 5];
+  real y[n_times+1, 5];
   real incidence[n_times];
   {
     real theta[1];
     theta[1] = lambda;
     
-    y = integrate_ode_bdf(champagne, y0, t0, ts, theta, x_r, x_i);
+    y = integrate_ode_bdf(champagne, y0, t0, ts_extended, theta, x_r, x_i);
   }
   
-  for (i in 2:n_times) {
-    incidence[i] = fmax(1e-12, (y[i, 5] - y[i-1, 5]) * N); # incorrect, just for testing
+  for (i in 1:n_times) {
+    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N); # incorrect, just for testing
   }
 }
 
@@ -83,7 +91,7 @@ model {
   delta ~ normal(0, 1e4);
   
   //sampling distribution
-  for (i in 2:n_times) {
+  for (i in 1:n_times) {
     cases[i] ~ poisson(incidence[i]);
   }
 }
@@ -91,7 +99,7 @@ model {
 generated quantities {
   real sim_cases[n_times];
   
-  for (i in 2:n_times) {
+  for (i in 1:n_times) {
     sim_cases[i] = poisson_rng(incidence[i]);
   }
 }

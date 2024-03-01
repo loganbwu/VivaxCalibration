@@ -70,7 +70,11 @@ data_consts = list(y0 = y0,
                    delta = 0,
                    phase = years/2
 )
+```
 
+Simulate some dummy data
+
+```{r}
 n_times = annual_subdivisions * n_years
 data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
@@ -245,7 +249,7 @@ scenarios = expand_grid(
   mutate(ID = LETTERS[row_number()], .before=0)
 
 # Simulate cases for each scenario
-cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   tstar = scenarios$tstar[i]
   xi = scenarios$xi[i]
   simulate_cases(data_consts, tstar, xi)
@@ -291,7 +295,7 @@ my_sampling = function(data_consts, ts, cases) {
 }
 
 # Apply function to simulated data
-fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]])
 })
 
