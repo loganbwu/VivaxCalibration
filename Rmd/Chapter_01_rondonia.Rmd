@@ -44,8 +44,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 500 # should be at least 500
-n_chains = 8
+n_iter = 100 # should be at least 500
+n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -121,7 +121,7 @@ rondonia.all = integrated_dataset %>%
   as_tibble()
 
 ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date("min_year-01-01"), xmax=as.Date("max_year-12-31"), ymin=-Inf, ymax=Inf,
+  annotate("rect", xmin=as.Date(paste0(min_year, "-01-01")), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
            fill = "blue", alpha = 0.15) +
   geom_col() +
   coord_cartesian(ylim = c(0, NA)) +
@@ -492,62 +492,6 @@ ggplot(rondonia_map, aes(x=month, y=value, color=year, group=year)) +
   scale_x_continuous(breaks = 1:12) +
   scale_y_continuous(limits = 0:1)
 ```
-
-Generalise to a piecewise function
-What data are we using?
-
-```{r}
-rondonia.nonstationary = integrated_dataset %>%
-  filter(exam.result == "vivax",
-         infection.state == "RO") %>%
-  mutate(notification.date = as.Date(paste(notification.year, notification.month, "01", sep="-")) + months(1) - days(1)) %>%
-  count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= 2009 & notification.year <= max_year, "grey20", "grey")) %>%
-  as_tibble()
-
-p1 = ggplot(rondonia.nonstationary, aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date("2009-01-01"), xmax=as.Date("max_year-12-31"), ymin=-Inf, ymax=Inf,
-           fill = "blue", alpha = 0.15) +
-  geom_col() +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
-       x = "Notification date",
-       y = "Cases")
-
-library(MalariaData)
-hainan.nonstationary = hainan %>%
-  mutate(notification.date = as.Date(paste(Year, Month, "01", sep="-")) + months(1) - days(1),
-         cases = `Vivax Cases`,
-         include = "grey20")
-
-t0_nonstationary = tibble(
-  Region = c("Rondonia", "Hainan"),
-  notification.date = as.Date(c("2011-01-01", "2004-01-01"))
-)
-
-plotdata_nonstationary = bind_rows(
-  Rondonia = rondonia.nonstationary,
-  Hainan = hainan.nonstationary,
-  .id = "Region"
-)
-ggplot(plotdata_nonstationary, aes(x = notification.date, y=cases, fill=include)) +
-  geom_col() +
-  geom_vline(data=t0_nonstationary, aes(xintercept = notification.date), color="tomato") +
-  ggrepel::geom_label_repel(data=t0_nonstationary, aes(x = notification.date, y=0, fill=NULL, label="t0"), color="tomato") +
-  facet_wrap("Region", ncol=1, scales="free_y") +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  scale_fill_identity() +
-  labs(title = "Nonstationary trends in monthly P. vivax cases",
-       x = "Notification date",
-       y = "Cases")
-
-
-ggsave("../plots/nonstationary_selected.png", width=8, height=4)
-```
-
 
 End of script.
 

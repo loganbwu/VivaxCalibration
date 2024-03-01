@@ -179,7 +179,7 @@ methods = tibble(
 # }
 
 #' @param i index
-run_scenario_method = function(i, force=F, refresh=0) {
+run_scenario_method = function(i, force=T, refresh=0) {
   folder = "../run_scenario_method"
   out_path = file.path(folder, paste0("row_", i, ".rds"))
   if (!dir.exists(folder)) {

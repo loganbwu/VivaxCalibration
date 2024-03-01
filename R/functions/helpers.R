@@ -8,8 +8,8 @@ aggregate_time = function(ts) {
 aggregate_cases = function(cases) {
   every_twelfth = seq(annual_subdivisions, length(cases), annual_subdivisions)
   cases = sapply(every_twelfth, function(mo) {
-    ixs = seq_along(.data$cases)
-    sum(.data$cases[ixs >= (mo - annual_subdivisions) & ixs < mo])
+    ixs = seq_along(cases)
+    sum(cases[ixs >= (mo - annual_subdivisions) & ixs < mo])
   })
   return(cases)
 }

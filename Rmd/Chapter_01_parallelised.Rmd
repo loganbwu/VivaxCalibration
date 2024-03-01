@@ -51,7 +51,7 @@ n_years = 5
 n_iter = 100 # should be at least 500
 n_chains = 1 # 1 for final results
 n_repetitions = 3 # how many times to duplicate each scenario
-limit_runs = Inf # set to a finite number for testing, or Inf to run all
+limit_runs = 3 # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*30 # in seconds
 n_traces = 10 # limit for plotting sample trajectories
 
@@ -109,7 +109,7 @@ Scenarios include sequences of scenarios. For example, low-transmission tropical
 ```{r}
 ascertainment_rates = data_consts$alpha
 radical_cure_rates = data_consts$beta
-seasonality_ratio = seq(0, 1, length.out=3)
+seasonality_ratio = seq(1e-12, 1-1e-12, length.out=3)
 transmission_rates = seq(0.049, 0.1, length.out=3)
 importation_rate = data_consts$delta # because constant importation makes less sense in seasonal transmission
 population_size = data_consts$N
@@ -129,18 +129,18 @@ data_scenarios = expand_grid(
   data$alpha = alpha
   data$beta = beta
   data$delta = delta
-  data$phase = phase
-  data$eps = eps
+  # data$phase = phase
+  # data$eps = eps
   data$N = N
   
-  real_params = list(lambda=lambda, phi_inv=phi_inv, kappa=kappa)
+  real_params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=years/2)
   print(real_params)
   
   if (is.null(index)) {
     index = sample.int(999999999, 1)
   }
   synth_df = suppressMessages(my_simulate_data(
-    file = "../stan/champagne2022_seasonal_ext.stan",
+    file = "../stan/champagne2022_seasonal_ext_2.stan",
     path = "sim_data",
     data_name = paste0("data_", index),
     input_data = data,
@@ -151,7 +151,7 @@ data_scenarios = expand_grid(
 
 # Add cases onto a dataframe of scenarios based on its parameter columns
 simulate_cases = function(.scenarios) {
-  cases_scenarios = lapply(seq_len(nrow(.scenarios)), function(i) {
+  cases_scenarios = pbmclapply(seq_len(nrow(.scenarios)), function(i) {
     dat = .scenarios[i,]
     x = .simulate_cases(alpha = dat$ascertainment_rates,
                         beta = dat$radical_cure_rates,
@@ -159,7 +159,7 @@ simulate_cases = function(.scenarios) {
                         phi_inv = 0.1,
                         delta = dat$importation_rate,
                         kappa = 1,
-                        phase = 0,
+                        phase = years/2,
                         eps = dat$seasonality_ratio,
                         N = dat$population_size,
                         index = i)
@@ -170,7 +170,7 @@ simulate_cases = function(.scenarios) {
   .scenarios
 }
 
-simulate_cases_memo = memoise(simulate_cases, cache=cd)
+# simulate_cases_memo = memoise(simulate_cases, cache=cd)
 
 data_scenarios_sim = data_scenarios %>%
   slice(rep(1:n(), each = n_repetitions)) %>%
@@ -222,13 +222,20 @@ for (i in seq_len(nrow(data_scenarios_long))) {
     data_scenarios_long$cases[[i]] = aggregate_time(data_scenarios_long$cases[[i]])
   }
 }
-run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
+# run_scenario_method_memo = memoise(run_scenario_method, cache=cd)
 
 tictoc::tic()
 # fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), function(...) {
 #   run_scenario_method_memo(..., force=T)
 # })
-fits_all = lapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+# run_scenario_method(1)
+fits_all = pbmclapply(seq_len(nrow(data_scenarios_long)), run_scenario_method)
+if ("warning" %in% names(fits_all)) {
+  fits_warning = fits_all$warning
+}
+if ("value" %in% names(fits_all)) {
+  fits_all = fits_all$value
+}
 data_scenarios_long$fit = fits_all
 
 tictoc::toc()
@@ -302,6 +309,7 @@ for (i in seq_len(n_scenarios)) {
   
   p3 = ggplot(samples, aes(x = iteration, y = lambda, color = method, group=interaction(method, rep))) +
     geom_line(alpha=0.5) +
+    geom_hline(aes(yintercept = true_value), linetype="dashed") +
     scale_colour_manual(values = renamed_comparison_colors) +
     # coord_cartesian(ylim = limits_2) +
     theme(legend.position = "none") +

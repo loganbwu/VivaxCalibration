@@ -55,8 +55,8 @@ transformed data {
     delta
   };
   int x_i[1] = { N };
+  
   // We need to add an extra timepoint before to make difference calculations valid
-  // Note that i+1 along ts_extended and y is the ith component of ts
   real ts_extended[n_times+1];
   real dt = ts[2] - ts[1];
   ts_extended[1] = ts[1] - dt;

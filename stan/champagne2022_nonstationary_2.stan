@@ -85,7 +85,7 @@ transformed data {
 parameters {
   real<lower=0, upper=0.9> lambda;
   real<lower=0, upper=1> eps;
-  real<lower=0.01, upper=99> kappa;
+  real<lower=0.01> kappa;
   real<lower=0, upper=10> phi_inv;
   real<lower=0> xi;
   real<lower=min(ts), upper=max(ts)> tstar;
@@ -116,7 +116,7 @@ model {
   //priors
   lambda ~ exponential(10);
   eps ~ uniform(0, 1);
-  kappa ~ exponential(0.1);
+  kappa ~ exponential(1);
   xi ~ exponential(1);
   tstar ~ uniform(min(ts), max(ts));
   

@@ -7,13 +7,7 @@ number_sections: true
 ---
 
 
-This document is for fitting an epidemic model where the system begins out of equilibrium and gradually returns to equilibrium.
-
-Method:
-
-1. Lambda takes the form of a step function: lambda(t) = *λ* for t<0, = *λ + Δλ* for t >= 0
-2. We find an approximate solution for *λ* and *X* for t=0 by assuming equilibrium for t<0 at data point Incidence(t=0)
-3. We calibrate *Δλ* and/or other parameters by fitting to data for t>=0
+Do the basic comparison between seasonal and non-seasonal model fitting
 
 ```{r setup}
 library(R.utils)
@@ -35,12 +29,13 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_iter = 100 # should be at least 500
-n_chains = 4
+n_chains = 2
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
+n_traces = min(n_traces, n_iter)
 
 param_colors = brewer.pal(5, "Set2")
 names(param_colors) = c("lambda", "phi", "eps", "kappa", "phase")
@@ -52,14 +47,14 @@ Generate some data
 
 ```{r}
 #initial conditions
-I_init = 0.05
+I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 n_years = 10
 tstar_for_testing = 5*years
 
 # constants for Stan
 data_consts = list(y0 = y0,
-                   t0 = -10*years,
+                   t0 = -100*years,
                    N = 100000, # population size
                    r = 1./60, # r
                    gammal = 1./223, # gammal
@@ -68,7 +63,7 @@ data_consts = list(y0 = y0,
                    beta = 0.66, # beta
                    rho = 0.21, # rho
                    delta = 0,
-                   phase = years/2
+                   phase = 0
 )
 ```
 
@@ -80,12 +75,12 @@ data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=0, xi=0.9, tstar=tstar_for_testing)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=0)
 
 sim = my_simulate_data(
-  file = "../stan/champagne2022_nonstationary_2.stan",
+  file = "../stan/champagne2022_seasonal_ext_2.stan",
   path = "sim_data",
-  data_name = "nonstationary",
+  data_name = "seasonal",
   input_data = data,
   param_values = params,
   vars = c("ts", "incidence", "sim_cases")
@@ -97,64 +92,91 @@ ggplot(sim, aes(x=ts/years, y=incidence)) +
   scale_x_continuous(breaks = 0:100)
 ```
 
-Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
+Insert the new seasonal data into a data list and run the seasonal model on it.
 
 ```{r,}
-# Fit data
 # Edit data with generated values
 data_sim = data_init(data_consts,
                      n_times = nrow(sim),
                      ts = sim$ts,
-                     cases = sim$cases,
-                     tstar = tstar_for_testing)
-```
-
-Can we perform this with the t-cutoff as a parameter?
-
-```{r}
-fit_tstar = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
-                     data = data_sim,
-                     iter = n_iter,
-                     chains = n_chains,
-                     seed = 0)
+                     cases = sim$cases)
 ```
 
 ```{r}
-posterior = rstan::extract(fit_tstar, c("lambda", "phi_inv", "eps", "kappa", "tstar", "xi")) %>%
+fit_seasonal = sampling(stan_model("../stan/champagne2022_seasonal_ext_2.stan"),
+                 data = data_sim,
+                 iter = n_iter,
+                 chains = n_chains) 
+
+
+models = list(seasonal = "../stan/champagne2022_seasonal_ext_2.stan",
+              nonseasonal = "../stan/champagne2022_poisson.stan")
+fits = pbmclapply(names(models) %>% setNames({.}), function(model_name) {
+  model = models[[model_name]]
+  if (model_name == "seasonal") {
+    s = sampling(stan_model(model),
+                 data = data_sim,
+                 iter = n_iter,
+                 chains = n_chains) 
+  } else {
+    data_sim_agg = data_init(data_sim,
+                             ts = aggregate_time(data_sim$ts),
+                             cases = aggregate_cases(data_sim$cases),
+                             n_times = length(aggregate_time(data_sim$ts))
+    )
+    s = sampling(stan_model(model),
+                 data = data_sim_agg,
+                 iter = n_iter,
+                 chains = n_chains) 
+  }
+  s
+})
+```
+
+```{r}
+post_seasonal = rstan::extract(fits[["seasonal"]], c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
   as_tibble()
+post_nonseasonal = rstan::extract(fits[["nonseasonal"]], c("lambda")) %>%
+  as_tibble()
+posterior = bind_rows(seasonal = post_seasonal,
+                      nonseasonal = post_nonseasonal,
+                      .id = "model") %>%
+  mutate(phi = 1 / phi_inv,
+         phi_inv = NULL)
 
 # Plot posterior densities
 posterior %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  pivot_longer(-model, names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
   # coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
-  labs(subtitle = "Non-seasonal model")
+  # facet_wrap(vars(parameter), scales="free") +
+  facet_grid(rows = vars(model), cols = vars(parameter), scales = "free") +
+  labs(subtitle = "Seasonal model")
 
-n_traces = 100
-incidence = rstan::extract(fit_tstar, "incidence")[[1]]
-sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  drop_na(j) %>%
-  group_by(j) %>%
-  mutate(ts = data_sim$ts[j],
-         lower = quantile(incidence, 0.025, na.rm=T),
-         upper = quantile(incidence, 0.975, na.rm=T),
-         legend = "95% prediction interval")
-
+incidence_samples = lapply(fits, function(fit) {
+  incidence = rstan::extract(fit, "incidence")[[1]]
+  sample_ix = sample(seq_len(dim(incidence)[1]), n_traces)
+  as_tibble(t(incidence[sample_ix,])) %>%
+    mutate(j = row_number()) %>%
+    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+    drop_na(j) %>%
+    group_by(j) %>%
+    mutate(ts = data_sim$ts[j],
+           lower = quantile(incidence, 0.025, na.rm=T),
+           upper = quantile(incidence, 0.975, na.rm=T),
+           legend = "95% prediction interval")
+}) %>%
+  bind_rows(.id = "model")
 ggplot(mapping = aes(x=ts)) +
-  geom_ribbon(data = incidence_sample_nonseasonal,
+  geom_ribbon(data = incidence_samples,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_sim$ts, cases = data_sim$cases),
              aes(y = cases, group = NULL, color="Incidence data")) +
+  facet_wrap(vars(model), ncol = 1) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
@@ -171,17 +193,17 @@ ggplot(mapping = aes(x=ts)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, tstar, xi) {
+simulate_cases = function(data_consts, lambda, eps) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
+  params = list(lambda=lambda, phi_inv=0.1, eps=eps, kappa=1, phase=0)
   synth_df = my_simulate_data(
-    file = "../stan/champagne2022_nonstationary_2.stan",
+    file = "../stan/champagne2022_seasonal_ext_2.stan",
     path = "sim_data",
-    data_name = "nonstationary",
+    data_name = "seasonal",
     input_data = data,
     param_values = params,
     vars = c("ts", "incidence", "sim_cases")
@@ -194,20 +216,20 @@ Create scenarios
 ```{r}
 # Define the scenarios
 n_reps = 1
-range_tstar = c(0.25, 0.5, 0.75) * n_years * years
-range_xi = c(0.25, 0.5, 0.75)
+range_lambda = seq(0.049, 0.1, length.out=3)
+range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
-  tstar = range_tstar,
-  xi = range_xi,
+  lambda = range_lambda,
+  eps = range_eps,
   rep = seq_len(n_reps)
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
 
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
-  tstar = scenarios$tstar[i]
-  xi = scenarios$xi[i]
-  simulate_cases(data_consts, tstar, xi)
+  lambda = scenarios$lambda[i]
+  eps = scenarios$eps[i]
+  simulate_cases(data_consts, lambda, eps)
 })
 
 # Attach simulation results to the scenarios dataframe
