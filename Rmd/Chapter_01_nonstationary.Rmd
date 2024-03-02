@@ -42,8 +42,8 @@ limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 
-param_colors = brewer.pal(5, "Set2")
-names(param_colors) = c("lambda", "phi", "eps", "kappa", "phase")
+names_params = c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")
+param_colors = brewer.pal(length(names_params), "Set2") %>% setNames(names_params)
 ```
 
 ## Model implementation
@@ -267,4 +267,25 @@ scenarios$est_tstar = lapply(estimates_scenarios, function(x) {x$tstar})
 scenarios$est_xi = lapply(estimates_scenarios, function(x) {x$xi})
 
 # Attach posterior predictions
+
+```
+
+Do diagnostic plots
+
+```{r}
+# parameter estimates
+for (param in c("lambda", "tstar", "xi")) {
+  p = scenarios %>%
+    unnest(!!paste0("est_", param)) %>% 
+    mutate(value = get(paste0("est_", param))) %>%
+    ggplot(aes(x = value, fill = param, color = param)) +
+    geom_density(alpha = 0.5) +
+    geom_vline(xintercept = 0.01) +
+    facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free") +
+    scale_fill_manual(values = param_colors, drop=F) +
+    scale_color_manual(values = param_colors, drop=F) +
+    labs(title = paste("Variable:", param))
+  print(p)
+}
+
 ```
