@@ -49,7 +49,7 @@ data_null = list(
   n_dormant = 11,
   eps = 1,
   kappa = 1,
-  phase = 0,
+  phase = 130,
   
   run_estimation = 0
 )
@@ -119,7 +119,7 @@ data = data_init(data_null,
                  gamma_d = 0)
 data$y0 = state_init_2(data, Sl1=1)
 
-true_params = list(lambda = 1)
+true_params = list(lambda = 1, phi_inv = 0.1, relapse_clinical_immunity = 0)
 
 sim_summary = my_simulate_data_list(
   file = model_file,
@@ -151,7 +151,7 @@ ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
   geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
   facet_wrap(vars(Type), scales="free_y", ncol=1) +
   coord_cartesian(ylim=c(0, NA)) +
-  theme(legend.position = "none") +
+  # theme(legend.position = "none") +
   labs(subtitle = "Long-relapse hypnozoites with normal latent duration, no transmission, and complete treatment")
 ```
 
