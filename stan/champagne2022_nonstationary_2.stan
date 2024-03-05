@@ -96,7 +96,7 @@ transformed parameters{
   real phi = 1. / phi_inv;
   real dlambda = (lambda * xi) - lambda; // so dlambda can never be less than lambda
   {
-    real theta[5];
+    real theta[6];
     theta[1] = lambda;
     theta[2] = eps;
     theta[3] = kappa;

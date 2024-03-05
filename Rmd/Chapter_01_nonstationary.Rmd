@@ -34,16 +34,12 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 200 # should be at least 500
+n_iter = 100 # should be at least 500
 n_chains = 4
 n_repetitions = 3 # how many times to duplicate each scenario
-cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
-
-names_params = c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")
-param_colors = brewer.pal(length(names_params), "Set2") %>% setNames(names_params)
 ```
 
 ## Model implementation
@@ -80,7 +76,7 @@ data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=0, xi=0.9, tstar=tstar_for_testing)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=130, xi=0.9, tstar=tstar_for_testing)
 
 sim = my_simulate_data(
   file = "../stan/champagne2022_nonstationary_2.stan",
@@ -120,7 +116,7 @@ fit_tstar = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
 ```
 
 ```{r}
-posterior = rstan::extract(fit_tstar, c("lambda", "phi_inv", "eps", "kappa", "tstar", "xi")) %>%
+posterior = rstan::extract(fit_tstar, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble()
 
 # Plot posterior densities
@@ -177,7 +173,7 @@ simulate_cases = function(data_consts, lambda, tstar, xi) {
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=lambda, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
+  params = list(lambda=lambda, phi_inv=0.1, eps=0.01, phase = 130, kappa=1, xi=xi, tstar=tstar)
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",

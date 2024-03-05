@@ -49,12 +49,6 @@ n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 n_traces = 200 # limit for plotting sample trajectories
-
-methods = methods %>%
-  head(4)
-
-param_colors = brewer.pal(5, "Set2")
-names(param_colors) = c("lambda", "phi", "eps", "kappa", "phase")
 ```
 
 ## Model implementation

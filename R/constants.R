@@ -19,3 +19,6 @@ renamed_comparison_colors = c("Nonseasonal, poisson" = "tomato",
 
 rename_methods = names(comparison_colors)
 names(rename_methods) = names(renamed_comparison_colors)
+
+names_params = c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")
+param_colors = brewer.pal(length(names_params), "Set2") %>% setNames(names_params)

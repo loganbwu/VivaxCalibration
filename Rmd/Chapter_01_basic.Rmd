@@ -36,9 +36,6 @@ limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 n_traces = min(n_traces, n_iter)
-
-param_colors = brewer.pal(5, "Set2")
-names(param_colors) = c("lambda", "phi", "eps", "kappa", "phase")
 ```
 
 ## Model implementation
