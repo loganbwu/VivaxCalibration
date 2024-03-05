@@ -199,7 +199,7 @@ data {
   
   int<lower=1> n_dormant;
   
-  vector[2 + 3*(n_dormant+1) + 2] y0; # last element is clinical incidence
+  vector[2 + 3*(n_dormant+1) + 2] y0; # last two elements are clinical primary incidence and clinical relapse incidence
   int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 

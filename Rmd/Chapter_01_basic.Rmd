@@ -72,9 +72,9 @@ data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=0)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=130)
 
-sim = my_simulate_data(
+sim = my_simulate_data_list(
   file = "../stan/champagne2022_seasonal_ext_2.stan",
   path = "sim_data",
   data_name = "seasonal",
@@ -83,7 +83,13 @@ sim = my_simulate_data(
   vars = c("ts", "incidence", "sim_cases")
 )
 
-ggplot(sim, aes(x=ts/years, y=incidence)) +
+synth_df = with(sim, tibble(
+  ts = ts,
+  incidence = incidence,
+  cases = cases
+))
+
+ggplot(synth_df, aes(x=ts/years, y=incidence)) +
   geom_line() +
   geom_point(aes(y = cases)) +
   scale_x_continuous(breaks = 0:100)
@@ -94,9 +100,9 @@ Insert the new seasonal data into a data list and run the seasonal model on it.
 ```{r,}
 # Edit data with generated values
 data_sim = data_init(data_consts,
-                     n_times = nrow(sim),
-                     ts = sim$ts,
-                     cases = sim$cases)
+                     n_times = nrow(synth_df),
+                     ts = synth_df$ts,
+                     cases = synth_df$cases)
 ```
 
 ```{r}
@@ -114,7 +120,7 @@ fits = pbmclapply(names(models) %>% setNames({.}), function(model_name) {
     s = sampling(stan_model(model),
                  data = data_sim,
                  iter = n_iter,
-                 chains = n_chains) 
+                 chains = 1) 
   } else {
     data_sim_agg = data_init(data_sim,
                              ts = aggregate_time(data_sim$ts),
