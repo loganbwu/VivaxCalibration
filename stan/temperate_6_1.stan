@@ -3,7 +3,6 @@
 // Changes from v2: omega is now 'suitability' function and equations are verified against the clinical pathways
 // Changes from v3: changed observation model for cases/relapses
 // Changes from v5: observation model is negative binomial not poisson
-// Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -14,12 +13,11 @@ functions {
     
     // Unpack theta
     real lambda = theta[1];
-    real relapse_clinical_immunity = theta[2];
     
     // Unpack x_r
     real alpha = x_r[1];
     real beta = x_r[2];
-    // real relapse_clinical_immunity = x_r[3];
+    real relapse_clinical_immunity = x_r[3];
     real gamma_d = x_r[4];
     real gamma_l = x_r[5];
     real delta = x_r[6];
@@ -110,7 +108,7 @@ functions {
         Sl[i]*infect*long_hyp*primary*treatedprimary*incomplete +
         Icl[i]*recover;
     }
-    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete + untreatedrelapse) + clear_l) +
+    dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete+untreatedrelapse) + clear_l) +
       S0*infect*short_hyp*treatedprimary*incomplete +
       sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
       Sl[n_stages]*infect*long_hyp*primary*treatedprimary*incomplete +
@@ -137,7 +135,7 @@ functions {
       Scl[i]*infect*long_hyp*primary*untreatedprimary +
       Icl[i-1]*advance;
     }
-    dIcldt[n_stages] = -Icl[n_stages]*(clear_l + recover) +
+    dIcldt[n_stages] = -Icl[n_stages]*(clear_l+recover) +
       S0*infect*short_hyp*untreatedprimary +
       sum(Sl)*infect*short_hyp*untreatedprimary +
       Sl[n_stages]*infect*long_hyp*primary*untreatedprimary +
@@ -181,7 +179,7 @@ data {
   
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  // real<lower=0, upper=1> relapse_clinical_immunity;
+  real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
@@ -206,11 +204,11 @@ transformed data {
   real x_r[15] = {
     alpha,
     beta,
-    0, // relapse_clinical_immunity
+    relapse_clinical_immunity,
     gamma_d,
     gamma_l,
     delta,
-    0, // phi_2,
+    0, //phi_2,
     f,
     r,
     p_long,
@@ -228,26 +226,31 @@ transformed data {
   int n_stages = n_dormant + 1;
   int n_compartments = 2 + 3*n_stages;
   int len_y = n_compartments + 2;
+  
+  real ts_extended[n_times+1];
+  real dt = ts[2] - ts[1];
+  ts_extended[1] = ts[1] - dt;
+  for (i in 1:n_times) {
+    ts_extended[i+1] = ts[i];
+  }
 }
 
 parameters {
   real<lower=0> lambda;
   real<lower=0> phi_inv;
-  real<lower=0, upper=1> relapse_clinical_immunity;
 }
 
 transformed parameters {
-  vector[2] theta;
+  vector[1] theta;
   theta[1] = lambda;
-  theta[2] = relapse_clinical_immunity;
   real phi = 1. / phi_inv;
   
   real incidence[n_times];
   
-  array[n_times] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts, theta, x_r, x_i);
-  for (i in 2:n_times) {
-    incidence[i] = fmax(1e-12, y[i][n_compartments+1] - y[i-1][n_compartments+1] +
-        y[i][n_compartments+2] - y[i-1][n_compartments+2]);
+  array[n_times+1] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
+  for (i in 1:n_times) {
+    incidence[i] = fmax(1e-12, y[i+1][n_compartments+1] - y[i][n_compartments+1] +
+        y[i+1][n_compartments+2] - y[i][n_compartments+2]);
   }
 }
 
@@ -256,7 +259,7 @@ model {
   phi_inv ~ exponential(5);
   
   if (run_estimation == 1) {
-    for (i in 2:n_times) {
+    for (i in 1:n_times) {
       cases[i] ~ neg_binomial_2(incidence[i], phi);
     }
   }
@@ -264,7 +267,7 @@ model {
 
 generated quantities {
   vector[n_times] cases_sim;
-  for (i in 2:n_times) {
+  for (i in 1:n_times) {
     cases_sim[i] = neg_binomial_2_rng(fmin(1e6, incidence[i]), phi);
   }
 }

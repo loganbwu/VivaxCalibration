@@ -4,6 +4,6 @@
 #' @param m_0 Average value
 make_m = function(eps, kappa, phase=0, m_0=1) {
   function(t) {
-    m_0 * (eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+cos(2*pi*(t-phase)/365.25))/2)^kappa)
+    m_0 * (eps + (1-eps)*pi/beta(0.5, kappa+0.5) *((1+sin(2*pi*(t-phase)/365.25))/2)^kappa)
   }
 }

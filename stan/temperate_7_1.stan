@@ -4,6 +4,7 @@
 // Changes from v3: changed observation model for cases/relapses
 // Changes from v5: observation model is negative binomial not poisson
 // Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
+// Changes from v7: introduce the time adjustment where we now simulate cumulative cases for the time period up to the first ts (ts[1]).
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -228,6 +229,13 @@ transformed data {
   int n_stages = n_dormant + 1;
   int n_compartments = 2 + 3*n_stages;
   int len_y = n_compartments + 2;
+  
+  real ts_extended[n_times+1];
+  real dt = ts[2] - ts[1];
+  ts_extended[1] = ts[1] - dt;
+  for (i in 1:n_times) {
+    ts_extended[i+1] = ts[i];
+  }
 }
 
 parameters {
@@ -244,10 +252,10 @@ transformed parameters {
   
   real incidence[n_times];
   
-  array[n_times] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts, theta, x_r, x_i);
-  for (i in 2:n_times) {
-    incidence[i] = fmax(1e-12, y[i][n_compartments+1] - y[i-1][n_compartments+1] +
-        y[i][n_compartments+2] - y[i-1][n_compartments+2]);
+  array[n_times+1] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
+  for (i in 1:n_times) {
+    incidence[i] = fmax(1e-12, y[i+i][n_compartments+1] - y[i][n_compartments+1] +
+        y[i+1][n_compartments+2] - y[i][n_compartments+2]);
   }
 }
 
@@ -255,16 +263,16 @@ model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
   
-  if (run_estimation == 1) {
-    for (i in 2:n_times) {
-      cases[i] ~ neg_binomial_2(incidence[i], phi);
-    }
+  // if (run_estimation == 1) {
+  for (i in 1:n_times) {
+    cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
+  // }
 }
 
 generated quantities {
-  vector[n_times] cases_sim;
-  for (i in 2:n_times) {
-    cases_sim[i] = neg_binomial_2_rng(fmin(1e6, incidence[i]), phi);
+  vector[n_times] sim_cases;
+  for (i in 1:n_times) {
+    sim_cases[i] = neg_binomial_2_rng(fmin(1e6, incidence[i]), phi);
   }
 }

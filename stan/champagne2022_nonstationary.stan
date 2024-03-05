@@ -4,7 +4,7 @@
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+cos(2*pi()*(t - phase)/365.25))/2)^kappa); # no normalising beta function
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa);
   }
   
   real lambda_plus_dlambda(real t, real lambda, real dlambda, real tstar) {

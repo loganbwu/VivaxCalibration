@@ -78,7 +78,7 @@ parameters {
   real<lower=0> lambda;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
-  real<lower=-180, upper=550> phase;
+  real<lower=0, upper=365.25> phase;
   real<lower=0> phi_inv;
 }
 
@@ -106,7 +106,7 @@ model {
   lambda ~ exponential(10);
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
-  
+  phase ~ uniform(0, 365.25);
   phi_inv ~ exponential(5);
   
   //sampling distribution

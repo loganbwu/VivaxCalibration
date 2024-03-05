@@ -48,8 +48,6 @@ n_iter = 100 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
-limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 
 methods = methods %>%
@@ -191,17 +189,21 @@ tibble(ts = data_ro_agg$ts,
 Perform MCMC sampling for both models
 
 ```{r}
+tictoc::tic("Seasonal model elapsed")
 samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
                     chains = n_chains,
                     cores = n_cores)
+tictoc::toc()
 
+tictoc::tic("Nonseasonal model elapsed")
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
-                                iter = n_iter,
+                                iter = n_iter*10,
                                 chains = n_chains,
                                 cores = n_cores)
+tictoc::toc()
 ```
 
 
@@ -209,7 +211,7 @@ samp_ext_nonseasonal = sampling(stan_model_champagne2022,
 # inspect parameter posteriors
 posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
   as_tibble() %>%
-  mutate(phase = phase %% years)
+  mutate(phase_wrap = phase %% years)
 
 p_seasonal_posterior = posterior_seasonal %>%
   mutate(phi = 1/phi_inv,
@@ -427,11 +429,13 @@ posterior_comparison = composite_list %>%
   bind_rows(ts_sample %>% mutate(method = "Seasonal model calibration", j=NULL)) %>%
   as_tibble()
 
+ylimits = c(0, max(data_ro$cases) * 1.2)
+
 posterior_comparison %>%
   ggplot(aes(x = ts+date_0, y = incidence)) +
   geom_line(aes(color=method, group=trace), alpha=0.1) +
   geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases, color="Incidence data"), aes(y=cases)) +
-  coord_cartesian(ylim = c(0, NA)) +
+  coord_cartesian(ylim = ylimits) +
   scale_colour_manual(NULL, 
                       breaks = c("Incidence data", "Seasonal model calibration", "Nonseasonal calibration\nwith seasonality added"),
                       values = c("black", "tomato", "steelblue")) +
@@ -491,6 +495,46 @@ ggplot(rondonia_map, aes(x=month, y=value, color=year, group=year)) +
   geom_line(data=rondonia_map_mean, aes(color=NULL, group=NULL), linetype="dashed") +
   scale_x_continuous(breaks = 1:12) +
   scale_y_continuous(limits = 0:1)
+```
+
+Can we perform the fit using the nonstationary model?
+
+```{r}
+rondonia_ns = rondonia.all %>%
+  filter(year <= max_year) %>%
+  mutate(include = ifelse(notification.year <= max_year, "grey20", "grey"))
+
+ggplot(rondonia_ns, aes(x = notification.date, y=cases, fill=include)) +
+  annotate("rect", xmin=as.Date(min(rondonia_ns$notification.date)), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
+           fill = "blue", alpha = 0.15) +
+  geom_col() +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_x_date(date_breaks = "years", date_labels = "%Y") +
+  scale_fill_identity() +
+  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
+       x = "Notification date",
+       y = "Cases")
+```
+
+Assemble data
+
+```{r}
+data_ro_ns = data_init(data_consts,
+                    cases = rondonia_ns$cases,
+                    ts = seq_len(nrow(rondonia_ns)) * years / annual_subdivisions,
+                    n_times = nrow(rondonia_ns))
+```
+
+Perform MCMC sampling for both models
+
+```{r}
+tictoc::tic("Seasonal model elapsed")
+samp_ext = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+                    data = data_ro_ns,
+                    iter = n_iter,
+                    chains = n_chains,
+                    cores = n_cores)
+tictoc::toc()
 ```
 
 End of script.

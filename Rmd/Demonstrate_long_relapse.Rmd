@@ -54,7 +54,7 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_5.stan"
+model_file = "../stan/temperate_7_1.stan"
 model = stan_model(model_file)
 ```
 
@@ -285,6 +285,15 @@ data$y0 = state_init_2(data, I0=0.01)
 
 true_params = list(lambda = 0.045)
 
+# sim_out = my_simulate_data(
+#     file = "../stan/champagne2022_nonstationary_2.stan",
+#     path = "sim_data",
+#     data_name = "nonstationary",
+#     input_data = data,
+#     param_values = params,
+#     vars = c("ts", "incidence", "sim_cases")
+#   )
+
 sim_out = my_simulate_data_list(
   file = model_file,
   data_name = "dummy_data",
@@ -348,12 +357,24 @@ data_sim = data
 data_sim$phi_2 = 0
 # data_sim$t0 = 0
 
+
+
 tictoc::tic()
 true_params = list(lambda = 0.02, phi_inv = 0.1)
+
+synth_df = my_simulate_data_list(
+    file = "../stan/temperate_6_1.stan",
+    path = "sim_data",
+    data_name = "nonstationary",
+    input_data = data_sim,
+    param_values = true_params,
+    vars = c("ts", "incidence", "sim_cases")
+  )
+
 synth_df = tibble(
   time = data_sim$ts,
   cases = my_simulate_data_list(
-    file = "../stan/temperate_6.stan",
+    file = "../stan/temperate_6_1.stan",
     path = "sim_data",
     data_name = paste0("data"),
     input_data = data_sim,
@@ -377,7 +398,7 @@ data_recovery = data_init(data_sim,
                           run_estimation = 1)
 
 tictoc::tic()
-samp = sampling(stan_model("../stan/temperate_6.stan"),
+samp = sampling(stan_model("../stan/temperate_7_1.stan"),
                 data = data_recovery,
                 iter = 100,
                 chains = n_chains,
@@ -453,7 +474,7 @@ theta_init = list(
 )
 
 tictoc::tic("Fitting relapse clinical immunity")
-samp_immunity = sampling(stan_model("../stan/temperate_7.stan"),
+samp_immunity = sampling(stan_model("../stan/temperate_7_1.stan"),
                 data = data_recovery,
                 iter = 100,
                 chains = 4,
@@ -517,7 +538,7 @@ What if we refit the model not using correct parameters?
 data_recovery_2 = data_init(data_recovery,
                             relapse_clinical_immunity = 0)
 tictoc::tic("Fitting relapse clinical immunity")
-samp_noimmunity = sampling(stan_model("../stan/temperate_6.stan"),
+samp_noimmunity = sampling(stan_model("../stan/temperate_6_1.stan"),
                            data = data_recovery_2,
                            iter = 100,
                            chains = 4,

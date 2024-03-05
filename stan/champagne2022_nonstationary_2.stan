@@ -4,7 +4,7 @@
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+cos(2*pi()*(t - phase)/365.25))/2)^kappa); # no normalising beta function
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa);
   }
   
   real lambda_plus_dlambda(real t, real lambda, real dlambda, real tstar) {
@@ -26,13 +26,13 @@ functions {
     real alpha = x_r[4];
     real beta = x_r[5];
     real delta = x_r[6];
-    real phase = x_r[7];
     
     real lambda = theta[1];
     real eps = theta[2];
     real kappa = theta[3];
-    real dlambda = theta[4];
-    real tstar = theta[5];
+    real phase = theta[4];
+    real dlambda = theta[5];
+    real tstar = theta[6];
     real foi = lambda_plus_dlambda(t, lambda, dlambda, tstar) * suitability(t, eps, kappa, phase);
     
     real dIl_dt = (1-alpha)*(foi*(Il+I0)+delta)*(S0+Sl) + (foi*(Il+I0)+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
@@ -58,18 +58,16 @@ data {
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
   real<lower=0> delta;
-  real<lower=0> phase;
 }
 
 transformed data {
-  real x_r[7] = {
+  real x_r[6] = {
     r,
     gammal,
     f,
     alpha,
     beta,
-    delta,
-    phase
+    delta
   };
   int x_i[1] = { N };
   // We need to add an extra timepoint before to make difference calculations valid
@@ -86,6 +84,7 @@ parameters {
   real<lower=0, upper=0.9> lambda;
   real<lower=0, upper=1> eps;
   real<lower=0.01> kappa;
+  real<lower=0, upper=365.25> phase;
   real<lower=0, upper=10> phi_inv;
   real<lower=0> xi;
   real<lower=min(ts), upper=max(ts)> tstar;
@@ -101,8 +100,9 @@ transformed parameters{
     theta[1] = lambda;
     theta[2] = eps;
     theta[3] = kappa;
-    theta[4] = dlambda;
-    theta[5] = tstar;
+    theta[4] = phase;
+    theta[5] = dlambda;
+    theta[6] = tstar;
     
     y = integrate_ode_bdf(champagne, y0, t0, ts_extended, theta, x_r, x_i);
   }
@@ -117,6 +117,7 @@ model {
   lambda ~ exponential(10);
   eps ~ uniform(0, 1);
   kappa ~ exponential(1);
+  phase ~ uniform(-1e-12, 365.25+1e-12);
   xi ~ exponential(1);
   tstar ~ uniform(min(ts), max(ts));
   

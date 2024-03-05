@@ -6,7 +6,7 @@ html_notebook:
 number_sections: true
 ---
 
-This is to test a model with variable numbers of compartments.
+This is to test a model with variable numbers of compartments. Script is now old - refer to Demonstrate_long_relapse
 
 ```{r setup}
 library(R.utils)

@@ -34,9 +34,9 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
@@ -59,7 +59,7 @@ tstar_for_testing = 5*years
 
 # constants for Stan
 data_consts = list(y0 = y0,
-                   t0 = -10*years,
+                   t0 = -50*years,
                    N = 100000, # population size
                    r = 1./60, # r
                    gammal = 1./223, # gammal
@@ -171,13 +171,13 @@ ggplot(mapping = aes(x=ts)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, tstar, xi) {
+simulate_cases = function(data_consts, lambda, tstar, xi) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
+  params = list(lambda=lambda, phi_inv=0.1, eps=0.01, kappa=1, xi=xi, tstar=tstar)
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",
@@ -193,21 +193,22 @@ Create scenarios
 
 ```{r}
 # Define the scenarios
-n_reps = 1
 range_tstar = c(0.25, 0.5, 0.75) * n_years * years
 range_xi = c(0.25, 0.5, 0.75)
 scenarios = expand_grid(
+  lambda = 0.01,
   tstar = range_tstar,
   xi = range_xi,
-  rep = seq_len(n_reps)
+  rep = seq_len(n_repetitions)
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
 
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
+  lambda = scenarios$lambda[i]
   tstar = scenarios$tstar[i]
   xi = scenarios$xi[i]
-  simulate_cases(data_consts, tstar, xi)
+  simulate_cases(data_consts, lambda, tstar, xi)
 })
 
 # Attach simulation results to the scenarios dataframe
@@ -275,13 +276,16 @@ Do diagnostic plots
 ```{r}
 # parameter estimates
 for (param in c("lambda", "tstar", "xi")) {
-  p = scenarios %>%
+  plot_data = scenarios %>%
     unnest(!!paste0("est_", param)) %>% 
-    mutate(value = get(paste0("est_", param))) %>%
-    ggplot(aes(x = value, fill = param, color = param)) +
+    mutate(value = get(paste0("est_", param)))
+  true_values = plot_data %>%
+    mutate(true_value = get(param)) %>%
+    distinct(tstar, xi, true_value)
+  p = ggplot(plot_data, aes(x = value, fill = param, color = param, group = rep)) +
+    geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
-    geom_vline(xintercept = 0.01) +
-    facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free") +
+    facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free_y") +
     scale_fill_manual(values = param_colors, drop=F) +
     scale_color_manual(values = param_colors, drop=F) +
     labs(title = paste("Variable:", param))
