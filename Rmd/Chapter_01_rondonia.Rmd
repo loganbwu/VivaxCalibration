@@ -514,22 +514,73 @@ Assemble data
 
 ```{r}
 data_ro_ns = data_init(data_consts,
-                    cases = rondonia_ns$cases,
-                    ts = seq_len(nrow(rondonia_ns)) * years / annual_subdivisions,
-                    n_times = nrow(rondonia_ns))
+                       cases = rondonia_ns$cases,
+                       ts = seq_len(nrow(rondonia_ns)) * years / annual_subdivisions,
+                       n_times = nrow(rondonia_ns))
 ```
 
 Perform MCMC sampling for both models
 
 ```{r}
 tictoc::tic("Seasonal model elapsed")
-samp_ext = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
-                    data = data_ro_ns,
-                    iter = n_iter,
-                    chains = n_chains,
-                    cores = n_cores)
+samp_ns = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
+                   data = data_ro_ns,
+                   iter = n_iter,
+                   chains = n_chains,
+                   cores = n_cores)
 tictoc::toc()
 ```
+
+Inspect the fit:
+
+```{r}
+posterior = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
+  as_tibble()
+
+# Plot posterior densities
+posterior %>%
+  mutate(phi = 1/phi_inv,
+         phi_inv = NULL) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
+  ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_density(alpha=0.5) +
+  scale_fill_manual(values = param_colors, drop=F) +
+  scale_color_manual(values = param_colors, drop=F) +
+  # coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free") +
+  labs(subtitle = "Non-seasonal model")
+
+incidence = rstan::extract(samp_ns, "incidence")[[1]]
+sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  group_by(j) %>%
+  mutate(ts = data_ro_ns$ts[j],
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
+         legend = "95% prediction interval")
+
+ggplot(mapping = aes(x=ts)) +
+  geom_ribbon(data = incidence_sample_nonseasonal,
+              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
+              alpha = 0.5) +
+  geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
+             aes(y = cases, group = NULL, color="Incidence data")) +
+  coord_cartesian(ylim = c(0, NA)) +
+  scale_fill_manual("", 
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    values = c("steelblue", "tomato", "black")) +
+  scale_colour_manual("", 
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      values = c("steelblue", "tomato", "black")) +
+  labs(subtitle = "Seasonal model, monthly synthetic data",
+       x = "Day",
+       y = "Monthly incidence")
+```
+
+
 
 End of script.
 
