@@ -103,13 +103,58 @@ data_sim = data_init(data_consts,
                      n_times = nrow(synth_df),
                      ts = synth_df$ts,
                      cases = synth_df$cases)
+
+data_sim_agg = data_init(data_sim,
+                         ts = aggregate_time(data_sim$ts),
+                         cases = aggregate_cases(data_sim$cases),
+                         n_times = length(aggregate_time(data_sim$ts)))
+
+with(data_sim, tibble(ts = ts, cases = cases)) %>%
+  ggplot(aes(x=ts, y=cases)) +
+  geom_point()
+with(data_sim_agg, tibble(ts = ts, cases = cases)) %>%
+  ggplot(aes(x=ts, y=cases)) +
+  geom_point()
 ```
 
 ```{r}
 fit_seasonal = sampling(stan_model("../stan/champagne2022_seasonal_ext_2.stan"),
-                 data = data_sim,
-                 iter = n_iter,
-                 chains = n_chains) 
+                        data = data_sim,
+                        iter = n_iter,
+                        chains = n_chains)
+
+fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
+                           data = data_sim_agg,
+                           iter = n_iter,
+                           chains = n_chains)
+```
+
+Manually inspect fits
+
+```{r}
+post_nonseasonal = rstan::extract(fit_nonseasonal, c("lambda")) %>%
+  as_tibble() %>%
+  pivot_longer(everything())
+
+ggplot(post_nonseasonal, aes(x=value, color=name, fill=name)) +
+  geom_density()
+
+incidence = rstan::extract(fit_nonseasonal, "incidence")[[1]]
+incidence_sample_nonseasonal = as_tibble(t(incidence)) %>%
+    mutate(j = row_number()) %>%
+    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+    drop_na(j) %>%
+    group_by(j) %>%
+    mutate(ts = data_sim$ts[j],
+           lower = quantile(incidence, 0.025, na.rm=T),
+           upper = quantile(incidence, 0.975, na.rm=T),
+           legend = "95% prediction interval")
+
+ggplot(incidence_sample_nonseasonal, aes(x = ts, y = incidence, group=trace)) +
+  geom_line()
+```
+
+```{r}
 
 
 models = list(seasonal = "../stan/champagne2022_seasonal_ext_2.stan",
@@ -130,16 +175,16 @@ fits = pbmclapply(names(models) %>% setNames({.}), function(model_name) {
     s = sampling(stan_model(model),
                  data = data_sim_agg,
                  iter = n_iter,
-                 chains = n_chains) 
+                 chains = 1) 
   }
   s
 })
 ```
 
 ```{r}
-post_seasonal = rstan::extract(fits[["seasonal"]], c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
+post_seasonal = rstan::extract(fits$value[["seasonal"]], c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
   as_tibble()
-post_nonseasonal = rstan::extract(fits[["nonseasonal"]], c("lambda")) %>%
+post_nonseasonal = rstan::extract(fits$value[["nonseasonal"]], c("lambda")) %>%
   as_tibble()
 posterior = bind_rows(seasonal = post_seasonal,
                       nonseasonal = post_nonseasonal,
@@ -159,9 +204,13 @@ posterior %>%
   facet_grid(rows = vars(model), cols = vars(parameter), scales = "free") +
   labs(subtitle = "Seasonal model")
 
-incidence_samples = lapply(fits, function(fit) {
+incidence_samples = lapply(fits$value, function(fit) {
   incidence = rstan::extract(fit, "incidence")[[1]]
-  sample_ix = sample(seq_len(dim(incidence)[1]), n_traces)
+  if (n_traces < dim(incidence)[1]) {
+    sample_ix = seq_len(dim(incidence)[1])
+  } else {
+    sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+  }
   as_tibble(t(incidence[sample_ix,])) %>%
     mutate(j = row_number()) %>%
     pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%

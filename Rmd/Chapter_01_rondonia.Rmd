@@ -44,7 +44,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -495,10 +495,11 @@ Can we perform the fit using the nonstationary model?
 
 ```{r}
 rondonia_ns = rondonia.all %>%
-  filter(year <= max_year) %>%
-  mutate(include = ifelse(notification.year <= max_year, "grey20", "grey"))
+  filter(notification.year <= max_year)
 
-ggplot(rondonia_ns, aes(x = notification.date, y=cases, fill=include)) +
+rondonia.all %>%
+  mutate(include = ifelse(notification.year <= max_year, "grey20", "grey")) %>%
+  ggplot(aes(x = notification.date, y=cases, fill=include)) +
   annotate("rect", xmin=as.Date(min(rondonia_ns$notification.date)), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
            fill = "blue", alpha = 0.15) +
   geom_col() +

@@ -72,7 +72,7 @@ data = data_init(data_null,
                  gamma_l = 0,
                  gamma_d = 0)
 data$y0 = state_init_2(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
-true_params = list(lambda = 1)
+true_params = list(lambda=1, phi_inv=0.1, relapse_clinical_immunity=0.8)
 
 sim_summary = my_simulate_data_list(
   file = model_file,
