@@ -54,7 +54,7 @@ my_simulate_data = function(...) {
 
 plot_labeller <- function(variable, value){
   var = case_match(variable, 
-                   "seasonality_ratio" ~ "ε",
+                   c("seasonality_ratio", "eps") ~ "ε",
                    c("transmission_rates", "lambda") ~ "λ",
                    "tstar" ~ "t*",
                    "xi" ~ "ξ",

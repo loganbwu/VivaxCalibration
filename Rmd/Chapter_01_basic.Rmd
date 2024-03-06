@@ -23,13 +23,14 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-n_cores = parallelly::availableCores()
+# n_cores = parallelly::availableCores()
+n_cores = 6
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
-n_chains = 2
+n_iter = 200 # should be at least 500
+n_chains = 1
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -51,7 +52,7 @@ tstar_for_testing = 5*years
 
 # constants for Stan
 data_consts = list(y0 = y0,
-                   t0 = -100*years,
+                   t0 = -50*years,
                    N = 100000, # population size
                    r = 1./60, # r
                    gammal = 1./223, # gammal
@@ -59,8 +60,7 @@ data_consts = list(y0 = y0,
                    alpha = 0.21, # alpha
                    beta = 0.66, # beta
                    rho = 0.21, # rho
-                   delta = 0,
-                   phase = 0
+                   delta = 0
 )
 ```
 
@@ -72,7 +72,7 @@ data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.01, kappa=1, phase=130)
+params = list(lambda=0.01, phi_inv=0.1, eps=0.001, kappa=1, phase=130)
 
 sim = my_simulate_data_list(
   file = "../stan/champagne2022_seasonal_ext_2.stan",
@@ -100,6 +100,7 @@ data_sim = data_init(data_consts,
                      cases = synth_df$cases)
 
 data_sim_agg = aggregate_data(data_sim)
+synth_df_agg = with(data_sim_agg, tibble(ts = ts, cases = cases)) 
 
 with(data_sim, tibble(ts = ts/years, cases = cases)) %>%
   ggplot(aes(x=ts, y=cases)) +
@@ -126,126 +127,46 @@ fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
 Manually inspect fits
 
 ```{r}
+post_seasonal = rstan::extract(fit_seasonal, c("lambda", "eps", "kappa", "phase")) %>%
+  as_tibble() %>%
+  pivot_longer(everything())
+
+ggplot(post_seasonal, aes(x=value, color=name, fill=name)) +
+  geom_density() +
+  facet_wrap(vars(name), scales="free")
+
+incidence_seasonal = extract_incidence(fit_seasonal, data_sim)
+ggplot(incidence_seasonal, aes(x=ts, y=incidence, group=trace)) +
+  geom_line(alpha = 0.05) +
+  geom_point(data = synth_df, aes(y=cases, group=NULL)) +
+  coord_cartesian(ylim = c(0, NA))
+
 post_nonseasonal = rstan::extract(fit_nonseasonal, c("lambda")) %>%
   as_tibble() %>%
   pivot_longer(everything())
 
 ggplot(post_nonseasonal, aes(x=value, color=name, fill=name)) +
-  geom_density()
+  geom_density() +
+  facet_wrap(vars(name), scales="free")
 
-incidence = rstan::extract(fit_nonseasonal, "incidence")[[1]]
-incidence_sample_nonseasonal = as_tibble(t(incidence)) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  drop_na(j) %>%
-  group_by(j) %>%
-  mutate(ts = data_sim$ts[j],
-         lower = quantile(incidence, 0.025, na.rm=T),
-         upper = quantile(incidence, 0.975, na.rm=T),
-         legend = "95% prediction interval")
-
-ggplot(incidence_sample_nonseasonal, aes(x = ts, y = incidence, group=trace)) +
-  geom_line()
-```
-
-```{r}
-
-
-models = list(seasonal = "../stan/champagne2022_seasonal_ext_2.stan",
-              nonseasonal = "../stan/champagne2022_poisson.stan")
-fits = pbmclapply(names(models) %>% setNames({.}), function(model_name) {
-  model = models[[model_name]]
-  if (model_name == "seasonal") {
-    s = sampling(stan_model(model),
-                 data = data_sim,
-                 iter = n_iter,
-                 chains = 1) 
-  } else {
-    data_sim_agg = data_init(data_sim,
-                             ts = aggregate_time(data_sim$ts),
-                             cases = aggregate_cases(data_sim$cases),
-                             n_times = length(aggregate_time(data_sim$ts))
-    )
-    s = sampling(stan_model(model),
-                 data = data_sim_agg,
-                 iter = n_iter,
-                 chains = 1) 
-  }
-  s
-})
-```
-
-```{r}
-post_seasonal = rstan::extract(fits$value[["seasonal"]], c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
-  as_tibble()
-post_nonseasonal = rstan::extract(fits$value[["nonseasonal"]], c("lambda")) %>%
-  as_tibble()
-posterior = bind_rows(seasonal = post_seasonal,
-                      nonseasonal = post_nonseasonal,
-                      .id = "model") %>%
-  mutate(phi = 1 / phi_inv,
-         phi_inv = NULL)
-
-# Plot posterior densities
-posterior %>%
-  pivot_longer(-model, names_to = "parameter", values_to = "value") %>%
-  ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_density(alpha=0.5) +
-  scale_fill_manual(values = param_colors, drop=F) +
-  scale_color_manual(values = param_colors, drop=F) +
-  # coord_cartesian(xlim = c(0, NA)) +
-  # facet_wrap(vars(parameter), scales="free") +
-  facet_grid(rows = vars(model), cols = vars(parameter), scales = "free") +
-  labs(subtitle = "Seasonal model")
-
-incidence_samples = lapply(fits$value, function(fit) {
-  incidence = rstan::extract(fit, "incidence")[[1]]
-  if (n_traces < dim(incidence)[1]) {
-    sample_ix = seq_len(dim(incidence)[1])
-  } else {
-    sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-  }
-  as_tibble(t(incidence[sample_ix,])) %>%
-    mutate(j = row_number()) %>%
-    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-    drop_na(j) %>%
-    group_by(j) %>%
-    mutate(ts = data_sim$ts[j],
-           lower = quantile(incidence, 0.025, na.rm=T),
-           upper = quantile(incidence, 0.975, na.rm=T),
-           legend = "95% prediction interval")
-}) %>%
-  bind_rows(.id = "model")
-ggplot(mapping = aes(x=ts)) +
-  geom_ribbon(data = incidence_samples,
-              aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
-              alpha = 0.5) +
-  geom_point(data = tibble(ts = data_sim$ts, cases = data_sim$cases),
-             aes(y = cases, group = NULL, color="Incidence data")) +
-  facet_wrap(vars(model), ncol = 1) +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_fill_manual("", 
-                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
-                    values = c("steelblue", "tomato", "black")) +
-  scale_colour_manual("", 
-                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
-                      values = c("steelblue", "tomato", "black")) +
-  labs(subtitle = "Seasonal model, monthly synthetic data",
-       x = "Day",
-       y = "Monthly incidence")
+incidence_nonseasonal = extract_incidence(fit_nonseasonal, data_sim_agg)
+ggplot(incidence_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
+  geom_line(alpha = 0.05) +
+  geom_point(data = synth_df_agg, aes(y=cases, group=NULL)) +
+  coord_cartesian(ylim = c(0, NA))
 ```
 
 # Can we make a variety of scenarios?
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, lambda, eps) {
+simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=lambda, phi_inv=0.1, eps=eps, kappa=1, phase=0)
+  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase)
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_seasonal_ext_2.stan",
     path = "sim_data",
@@ -266,7 +187,10 @@ range_lambda = seq(0.049, 0.1, length.out=3)
 range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
   lambda = range_lambda,
+  phi_inv = 0.1,
   eps = range_eps,
+  kappa = 1,
+  phase = 130,
   rep = seq_len(n_reps)
 ) %>%
   mutate(ID = LETTERS[row_number()], .before=0)
@@ -274,13 +198,21 @@ scenarios = expand_grid(
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   lambda = scenarios$lambda[i]
+  phi_inv = scenarios$phi_inv[i]
   eps = scenarios$eps[i]
-  simulate_cases(data_consts, lambda, eps)
+  kappa = scenarios$kappa[i]
+  phase = scenarios$phase[i]
+  simulate_cases(data_consts, lambda, phi_inv, eps, kappa, phase)
 })
 
 # Attach simulation results to the scenarios dataframe
 scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
 scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
+
+# Duplicate for each method
+scenarios_long = scenarios %>%
+  cross_join(tibble(method = c("../stan/champagne2022_seasonal_ext_2.stan",
+                               "../stan/champagne2022_poisson.stan")))
 ```
 
 What do our synthetic data look like?
@@ -289,12 +221,12 @@ What do our synthetic data look like?
 scenarios %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
-  ggplot(aes(x = ts/years, y = cases, group=interaction(tstar, xi, rep))) +
+  ggplot(aes(x = ts/years, y = cases, group=interaction(lambda, eps, rep))) +
   geom_line(alpha = 0.6) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   scale_y_log10(labels = label_auto2) +
-  facet_grid(rows = vars(tstar),
-             cols = vars(xi),
+  facet_grid(rows = vars(lambda),
+             cols = vars(eps),
              labeller = plot_labeller) +
   labs(x = "Year",
        y = "Monthly cases")
@@ -304,35 +236,36 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling = function(data_consts, ts, cases) {
-  n_times = length(ts)
-  data = data_init(data_consts,
-                   cases = cases,
-                   ts = ts,
-                   n_times = n_times)
-  fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
-                 data = data,
-                 iter = n_iter,
-                 chains = 1,
-                 seed = 0)
+my_sampling_indexed = function(method, ts, cases) {
+  scenario = scenarios_long[i,]
+  method = scenario$method
+  data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
+  if (!str_detect("seasonal", method)) {
+    data = aggregate_data(data)
+  }
+  sampling(stan_model(method),
+           data = data,
+           iter = n_iter,
+           chains = 1)
 }
 
 # Apply function to simulated data
-fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
-  my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]])
+fits_scenarios = pbmcapply(seq_len(nrow(scenarios_long)), function(i) {
+  my_sampling_indexed(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
 })
 
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
-  posterior = rstan::extract(x, c("lambda", "phi_inv", "tstar", "xi")) %>%
+  posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
     as_tibble()
 })
 
 # Attach re-estimated parameters
 scenarios$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
 scenarios$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
-scenarios$est_tstar = lapply(estimates_scenarios, function(x) {x$tstar})
-scenarios$est_xi = lapply(estimates_scenarios, function(x) {x$xi})
+scenarios$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
+scenarios$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
+scenarios$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
 
 # Attach posterior predictions
 ```

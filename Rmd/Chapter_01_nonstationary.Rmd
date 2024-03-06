@@ -132,22 +132,6 @@ posterior %>%
   facet_wrap(vars(parameter), scales="free") +
   labs(subtitle = "Non-seasonal model")
 
-
-extract_incidence = function(fit) {
-  incidence = rstan::extract(fit, "incidence")[[1]]
-  if (n_traces )
-    sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-  incidence_sample = as_tibble(t(incidence[sample_ix,])) %>%
-    mutate(j = row_number()) %>%
-    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-    drop_na(j) %>%
-    group_by(j) %>%
-    mutate(ts = data_sim$ts[j],
-           lower = quantile(incidence, 0.025, na.rm=T),
-           upper = quantile(incidence, 0.975, na.rm=T),
-           legend = "95% prediction interval")
-}
-
 incidence_sample = extract_incidence(fit_tstar)
 
 
@@ -173,13 +157,13 @@ ggplot(mapping = aes(x=ts)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, lambda, tstar, xi) {
+simulate_cases = function(data_consts, lambda, phi_inv, eps_kappa, phase, xi, tstar) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=lambda, phi_inv=0.1, eps=0.01, phase = 130, kappa=1, xi=xi, tstar=tstar)
+  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, xi=xi, tstar=tstar)
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",
@@ -199,6 +183,10 @@ range_tstar = c(0.25, 0.5, 0.75) * n_years * years
 range_xi = c(0.25, 0.5, 0.75)
 scenarios = expand_grid(
   lambda = 0.01,
+  phi_inv = 0.1,
+  eps = 0.01,
+  kappa = 1,
+  phase = 130,
   tstar = range_tstar,
   xi = range_xi,
   rep = seq_len(n_repetitions)
@@ -208,9 +196,13 @@ scenarios = expand_grid(
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   lambda = scenarios$lambda[i]
+  phi_inv = scenarios$phi_inv[i]
+  eps = scenarios$eps[i]
+  kappa = scenarios$kappa[i]
+  phase = scenarios$phase[i]
   tstar = scenarios$tstar[i]
   xi = scenarios$xi[i]
-  simulate_cases(data_consts, lambda, tstar, xi)
+  simulate_cases(data_consts, lambda, phi_inv, eps_kappa, phase, xi, tstar)
 })
 
 # Attach simulation results to the scenarios dataframe
@@ -260,13 +252,16 @@ fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
 
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
-  posterior = rstan::extract(x, c("lambda", "phi_inv", "tstar", "xi")) %>%
+  posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
     as_tibble()
 })
 
 # Attach re-estimated parameters
 scenarios$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
 scenarios$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
+scenarios$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
+scenarios$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
+scenarios$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
 scenarios$est_tstar = lapply(estimates_scenarios, function(x) {x$tstar})
 scenarios$est_xi = lapply(estimates_scenarios, function(x) {x$xi})
 
@@ -294,8 +289,10 @@ scenarios$est_incidence = lapply(fits_scenarios, function(x) {
 Do diagnostic plots
 
 ```{r}
-# parameter estimates
-for (param in c("lambda", "tstar", "xi")) {
+
+
+# Interesting parameter estimates
+for (param in c("lambda", "eps", "kappa", "phase", "tstar", "xi")) {
   plot_data = scenarios %>%
     unnest(!!paste0("est_", param)) %>% 
     mutate(value = get(paste0("est_", param)))
@@ -304,8 +301,10 @@ for (param in c("lambda", "tstar", "xi")) {
     distinct(tstar, xi, true_value)
   param_rename = case_match(param,
                             "lambda" ~ "λ",
+                            "kappa" ~ "κ",
                             "tstar" ~ "t*",
-                            "xi" ~ "ξ")
+                            "xi" ~ "ξ",
+                            .default = param)
   if (n_repetitions > 1) {
     title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
   } else {

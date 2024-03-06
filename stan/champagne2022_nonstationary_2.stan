@@ -115,13 +115,12 @@ transformed parameters{
 model {
   //priors
   lambda ~ exponential(10);
+  phi_inv ~ exponential(5);
   eps ~ uniform(0, 1);
   kappa ~ exponential(1);
   phase ~ uniform(-1e-12, 365.25+1e-12);
   xi ~ exponential(1);
   tstar ~ uniform(min(ts), max(ts));
-  
-  phi_inv ~ exponential(5);
   
   //sampling distribution
   for (i in 1:n_times) {
