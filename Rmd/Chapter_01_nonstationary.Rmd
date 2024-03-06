@@ -135,8 +135,9 @@ posterior %>%
 
 extract_incidence = function(fit) {
   incidence = rstan::extract(fit, "incidence")[[1]]
-  sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-  incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+  if (n_traces )
+    sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+  incidence_sample = as_tibble(t(incidence[sample_ix,])) %>%
     mutate(j = row_number()) %>%
     pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
     drop_na(j) %>%
@@ -147,9 +148,11 @@ extract_incidence = function(fit) {
            legend = "95% prediction interval")
 }
 
+incidence_sample = extract_incidence(fit_tstar)
+
 
 ggplot(mapping = aes(x=ts)) +
-  geom_ribbon(data = incidence_sample_nonseasonal,
+  geom_ribbon(data = incidence_sample,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_sim$ts, cases = data_sim$cases),
@@ -200,7 +203,7 @@ scenarios = expand_grid(
   xi = range_xi,
   rep = seq_len(n_repetitions)
 ) %>%
-  mutate(ID = LETTERS[row_number()], .before=0)
+  mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
@@ -228,7 +231,8 @@ scenarios %>%
   facet_grid(rows = vars(tstar),
              cols = vars(xi),
              labeller = plot_labeller) +
-  labs(x = "Year",
+  labs(title = "Synthetic scenario data",
+       x = "Year",
        y = "Monthly cases")
 ```
 
@@ -298,13 +302,23 @@ for (param in c("lambda", "tstar", "xi")) {
   true_values = plot_data %>%
     mutate(true_value = get(param)) %>%
     distinct(tstar, xi, true_value)
-  p = ggplot(plot_data, aes(x = value, fill = param, color = param, group = rep)) +
+  param_rename = case_match(param,
+                            "lambda" ~ "λ",
+                            "tstar" ~ "t*",
+                            "xi" ~ "ξ")
+  if (n_repetitions > 1) {
+    title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
+  } else {
+    title = paste("Posterior estimate of", param_rename)
+  }
+  p = ggplot(plot_data, aes(x = value, fill = factor(rep), color = factor(rep), group = rep)) +
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
     facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free_y") +
-    scale_fill_manual(values = param_colors, drop=F) +
-    scale_color_manual(values = param_colors, drop=F) +
-    labs(title = paste("Variable:", param))
+    scale_color_brewer(palette = "Set2") +
+    scale_fill_brewer(palette = "Set2") +
+    labs(title = title) +
+    theme(legend.position = "none")
   print(p)
 }
 
@@ -313,15 +327,29 @@ for (param in c("lambda", "tstar", "xi")) {
 Plot incidence fits
 
 ```{r}
-incidence = rstan::extract(fit_tstar, "incidence")[[1]]
-sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  drop_na(j) %>%
-  group_by(j) %>%
-  mutate(ts = data_sim$ts[j],
-         lower = quantile(incidence, 0.025, na.rm=T),
-         upper = quantile(incidence, 0.975, na.rm=T),
-         legend = "95% prediction interval")
+incidence_scenarios = lapply(fits_scenarios, extract_incidence)
+incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
+  incidence_scenarios[[i]] %>%
+    mutate(ID = i)
+}) %>%
+  bind_rows() %>%
+  left_join(scenarios %>% select(ID, lambda, tstar, xi, rep), by="ID")
+
+scenarios_overlay = scenarios %>%
+  unnest(c(ts, cases))
+
+max_y = max(scenarios_overlay$cases) * 1.2
+
+ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
+  geom_line(alpha = 0.25) +
+  geom_point(data=scenarios_overlay, aes(y=cases)) +
+  # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
+  # geom_density(alpha = 0.5) +
+  facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller) +
+  # scale_fill_manual(values = param_colors, drop=F) +
+  # scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(ylim = c(0, max_y)) +
+  labs(title = "Estimated incidence") +
+  scale_color_brewer(palette = "Set2") +
+  theme(legend.position = "none")
 ```

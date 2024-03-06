@@ -130,7 +130,7 @@ generated quantities {
     latent[i] = y[i+1, 3];
     
     sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
-    foi[i] = lambda * suitability((ts[i]+ts[i-1])/2, eps, kappa, phase);
+    foi[i] = lambda * suitability((ts_extended[i+1]+ts_extended[i])/2, eps, kappa, phase);
     R0[i] = foi[i]/r + foi[i] * f / (gammal * (f + gammal + r));
     Rc[i] = foi[i] * (1-alpha) * (gammal+r) * (f + gammal) / (r * (gammal * (f + gammal + r) + alpha*f * (beta*(r + gammal) - gammal)));
   }

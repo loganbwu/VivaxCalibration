@@ -53,12 +53,11 @@ my_simulate_data = function(...) {
 }
 
 plot_labeller <- function(variable, value){
-  if (variable == "seasonality_ratio") {
-    var = "eps"
-  } else if (variable == "transmission_rates") {
-    var = "lambda"
-  } else {
-    var = as.character(variable)
-  }
-  return(paste0(var, ": ", value))
+  var = case_match(variable, 
+                   "seasonality_ratio" ~ "ε",
+                   c("transmission_rates", "lambda") ~ "λ",
+                   "tstar" ~ "t*",
+                   "xi" ~ "ξ",
+                   .default = as.character(variable))
+  return(paste(var, "=", value))
 }

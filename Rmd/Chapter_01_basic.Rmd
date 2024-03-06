@@ -88,11 +88,6 @@ synth_df = with(sim, tibble(
   incidence = incidence,
   cases = cases
 ))
-
-ggplot(synth_df, aes(x=ts/years, y=incidence)) +
-  geom_line() +
-  geom_point(aes(y = cases)) +
-  scale_x_continuous(breaks = 0:100)
 ```
 
 Insert the new seasonal data into a data list and run the seasonal model on it.
@@ -104,17 +99,16 @@ data_sim = data_init(data_consts,
                      ts = synth_df$ts,
                      cases = synth_df$cases)
 
-data_sim_agg = data_init(data_sim,
-                         ts = aggregate_time(data_sim$ts),
-                         cases = aggregate_cases(data_sim$cases),
-                         n_times = length(aggregate_time(data_sim$ts)))
+data_sim_agg = aggregate_data(data_sim)
 
-with(data_sim, tibble(ts = ts, cases = cases)) %>%
+with(data_sim, tibble(ts = ts/years, cases = cases)) %>%
   ggplot(aes(x=ts, y=cases)) +
-  geom_point()
-with(data_sim_agg, tibble(ts = ts, cases = cases)) %>%
+  geom_col() +
+  scale_x_continuous(breaks = 0:100)
+with(data_sim_agg, tibble(ts = ts/years, cases = cases)) %>%
   ggplot(aes(x=ts, y=cases)) +
-  geom_point()
+  geom_col() +
+  scale_x_continuous(breaks = 0:100)
 ```
 
 ```{r}
@@ -141,14 +135,14 @@ ggplot(post_nonseasonal, aes(x=value, color=name, fill=name)) +
 
 incidence = rstan::extract(fit_nonseasonal, "incidence")[[1]]
 incidence_sample_nonseasonal = as_tibble(t(incidence)) %>%
-    mutate(j = row_number()) %>%
-    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-    drop_na(j) %>%
-    group_by(j) %>%
-    mutate(ts = data_sim$ts[j],
-           lower = quantile(incidence, 0.025, na.rm=T),
-           upper = quantile(incidence, 0.975, na.rm=T),
-           legend = "95% prediction interval")
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+  drop_na(j) %>%
+  group_by(j) %>%
+  mutate(ts = data_sim$ts[j],
+         lower = quantile(incidence, 0.025, na.rm=T),
+         upper = quantile(incidence, 0.975, na.rm=T),
+         legend = "95% prediction interval")
 
 ggplot(incidence_sample_nonseasonal, aes(x = ts, y = incidence, group=trace)) +
   geom_line()
