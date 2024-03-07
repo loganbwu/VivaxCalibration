@@ -44,7 +44,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 500 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -187,16 +187,14 @@ tictoc::tic("Seasonal model elapsed")
 samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
-                    chains = n_chains,
-                    cores = n_cores)
+                    chains = n_chains)
 tictoc::toc()
 
 tictoc::tic("Nonseasonal model elapsed")
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
                                 iter = n_iter*10,
-                                chains = n_chains,
-                                cores = n_cores)
+                                chains = n_chains)
 tictoc::toc()
 ```
 
@@ -204,8 +202,7 @@ tictoc::toc()
 ```{r}
 # inspect parameter posteriors
 posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
-  as_tibble() %>%
-  mutate(phase_wrap = phase %% years)
+  as_tibble()
 
 p_seasonal_posterior = posterior_seasonal %>%
   mutate(phi = 1/phi_inv,
@@ -216,11 +213,15 @@ p_seasonal_posterior = posterior_seasonal %>%
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
-  labs(subtitle = "Seasonal model")
+  facet_wrap(vars(parameter), scales="free", labeller = plot_labeller_novar) +
+  labs(title = "Posterior parameter estimates for Rondonia",
+       subtitle = "Estimated using the seasonal model at periodic equilibrium",
+       x = "Value",
+       y = "Posterior density") +
+  theme(legend.position = "none")
 p_seasonal_posterior
 
-# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
+ggsave("../plots/rondonia_seasonal_posterior.png", width=8, height=4)
 
 
 # Plot credible intervals
@@ -254,20 +255,21 @@ p_seasonal_ci = ggplot(mapping = aes(x=ts + date_0)) +
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases),
-             aes(y = cases, group = NULL, color="Incidence data")) +
+             aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
-                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                       values = c("steelblue", "tomato", "black")) +
-  labs(subtitle = "Seasonal model, monthly data",
+  labs(title = "Posterior incidence estimates for Rondonia",
+       subtitle = "Estimated using the seasonal model at periodic equilibrium",
        x = "Year",
-       y = "Annual incidence")
+       y = "Monthly incidence")
 p_seasonal_ci
 
-# ggsave("plots/rondonia_seasonal_ci.png", width=8, height=4)
+ggsave("../plots/rondonia_seasonal_incidence.png", width=8, height=4)
 ```
 
 And, non-seasonal
@@ -287,7 +289,7 @@ p_ns_posterior = posterior_nonseasonal %>%
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Non-seasonal model")
 p_ns_posterior
 
@@ -341,15 +343,17 @@ p_ns_ci
 Generate subplots
 
 ```{r}
-p_seasonal_ci + p_ns_ci + plot_layout(guides = "collect") +
+(p_seasonal_ci + labs(title = NULL, subtitle = "Seasonal model")) +
+  (p_ns_ci + labs(title = NULL, subtitle = "Nonseasonal model")) +
+  plot_layout(guides = "collect") +
   plot_annotation(title = "Posterior model fits",
                   tag_levels = "A")
-ggsave("plots/rondonia_ci.png", width=8, height=4)
+ggsave("plots/rondonia_incidence.png", width=8, height=4)
 
-p_seasonal_posterior + theme(legend.position="none") + p_ns_posterior + theme(legend.position="none") +
+(p_seasonal_posterior + theme(legend.position="none") + labs(title = NULL, subtitle = "Seasonal model")) + p_ns_posterior + theme(legend.position="none") +
   plot_layout(guides = "collect") +
-  plot_annotation(title = "Posterior parameter estimates",
-                  subtitle = "P. vivax transmission in Rondonia, min_year-max_year",
+  plot_annotation(title = "Posterior parameter estimates at equilibrium",
+                  subtitle = paste0("P. vivax transmission in Rondonia, ", min_year, "-", max_year),
                   tag_levels = "A")
 
 ggsave("plots/rondonia_posterior.png", width=8, height=4)
@@ -383,7 +387,7 @@ omega_params %>%
        x = "t (months)",
        y = "ω(t)")
 
-ggsave("plots/rondonia_omega.png", width=8, height=4)
+ggsave("../plots/rondonia_omega.png", width=8, height=4)
 ```
 
 What if we used the steady-state fit to simulate posteriors in the full model?
@@ -439,7 +443,7 @@ posterior_comparison %>%
        x = "Year",
        y = "Cases / mean incidence")
 
-ggsave("plots/rondonia_composite.png", width=8, height=4)
+ggsave("../plots/rondonia_composite.png", width=8, height=4)
 ```
 
 How does this fitted seasonality compare against Martens (Malaria Atlas Project)
@@ -527,8 +531,7 @@ tictoc::tic("Seasonal model elapsed")
 samp_ns = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                    data = data_ro_ns,
                    iter = n_iter,
-                   chains = n_chains,
-                   cores = n_cores)
+                   chains = n_chains)
 tictoc::toc()
 ```
 

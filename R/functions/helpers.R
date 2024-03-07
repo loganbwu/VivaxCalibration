@@ -51,13 +51,3 @@ my_simulate_data = function(...) {
     drop_na()
   return(synth_df)
 }
-
-plot_labeller <- function(variable, value){
-  var = case_match(variable, 
-                   c("seasonality_ratio", "eps") ~ "ε",
-                   c("transmission_rates", "lambda") ~ "λ",
-                   "tstar" ~ "t*",
-                   "xi" ~ "ξ",
-                   .default = as.character(variable))
-  return(paste(var, "=", value))
-}
