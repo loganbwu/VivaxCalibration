@@ -348,7 +348,7 @@ Generate subplots
   plot_layout(guides = "collect") +
   plot_annotation(title = "Posterior model fits",
                   tag_levels = "A")
-ggsave("plots/rondonia_incidence.png", width=8, height=4)
+ggsave("../plots/rondonia_incidence.png", width=8, height=4)
 
 (p_seasonal_posterior + theme(legend.position="none") + labs(title = NULL, subtitle = "Seasonal model")) + p_ns_posterior + theme(legend.position="none") +
   plot_layout(guides = "collect") +
@@ -356,7 +356,7 @@ ggsave("plots/rondonia_incidence.png", width=8, height=4)
                   subtitle = paste0("P. vivax transmission in Rondonia, ", min_year, "-", max_year),
                   tag_levels = "A")
 
-ggsave("plots/rondonia_posterior.png", width=8, height=4)
+ggsave("../plots/rondonia_posterior.png", width=8, height=4)
 ```
 
 Examine the estimated seasonal pattern
@@ -552,7 +552,15 @@ posterior %>%
   scale_color_manual(values = param_colors, drop=F) +
   # coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free") +
-  labs(subtitle = "Non-seasonal model")
+  labs(title = "Posterior parameter estimates for Rondonia",
+       subtitle = "Estimated using the nonstationary seasonal model",
+       x = "Value",
+       y = "Posterior density") +
+  theme(legend.position = "none")
+
+ggsave("../plots/rondonia_nonstationary_posterior.png", width=8, height=4)
+
+
 
 incidence = rstan::extract(samp_ns, "incidence")[[1]]
 sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
@@ -581,7 +589,13 @@ ggplot(mapping = aes(x=ts)) +
                       values = c("steelblue", "tomato", "black")) +
   labs(subtitle = "Seasonal model, monthly synthetic data",
        x = "Day",
+       y = "Monthly incidence") +
+  labs(title = "Posterior incidence estimates for Rondonia",
+       subtitle = "Estimated using the nonstationary seasonal model",
+       x = "Year",
        y = "Monthly incidence")
+
+ggsave("../plots/rondonia_seasonal_incidence.png", width=8, height=4)
 ```
 
 

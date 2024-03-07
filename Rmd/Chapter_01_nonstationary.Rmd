@@ -265,7 +265,8 @@ estimates_scenarios = lapply(fits_scenarios, function(x) {
 
 # Attach re-estimated parameters
 scenarios$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
-scenarios$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
+scenarios$est_phi = lapply(estimates_scenarios, function(x) {1/x$phi_inv})
+scenarios$phi = 1 / scenarios$phi_inv
 scenarios$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
 scenarios$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
 scenarios$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
@@ -296,19 +297,28 @@ scenarios$est_incidence = lapply(fits_scenarios, function(x) {
 Do diagnostic plots
 
 ```{r}
-
-
 # Interesting parameter estimates
-for (param in c("lambda", "eps", "kappa", "phase", "tstar", "xi")) {
+for (param in c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")) {
   plot_data = scenarios %>%
     unnest(!!paste0("est_", param)) %>% 
     mutate(value = get(paste0("est_", param)))
   true_values = plot_data %>%
     mutate(true_value = get(param)) %>%
     distinct(tstar, xi, true_value)
+  if (param == "lambda") {
+    x_limits = plot_data$lambda[1] * c(0.9, 1.1)
+    plot_data = plot_data %>%
+      filter(value >= plot_data$lambda[1]*0.8,
+             value <= plot_data$lambda[1]*1.2)
+  } else {
+    x_limits = c(NA, NA)
+  }
   param_rename = case_match(param,
                             "lambda" ~ "λ",
+                            "phi" ~ "φ",
+                            "eps" ~ "ε",
                             "kappa" ~ "κ",
+                            "phase" ~ "ψ",
                             "tstar" ~ "t*",
                             "xi" ~ "ξ",
                             .default = param)
@@ -323,9 +333,11 @@ for (param in c("lambda", "eps", "kappa", "phase", "tstar", "xi")) {
     facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free_y") +
     scale_color_brewer(palette = "Set2") +
     scale_fill_brewer(palette = "Set2") +
+    coord_cartesian(xlim = x_limits) +
     labs(title = title) +
     theme(legend.position = "none")
   print(p)
+  ggsave(paste0("../plots/nonstationary_", param, ".png"), width=8, height=4)
 }
 
 ```
@@ -333,7 +345,7 @@ for (param in c("lambda", "eps", "kappa", "phase", "tstar", "xi")) {
 Plot incidence fits
 
 ```{r}
-incidence_scenarios = lapply(fits_scenarios, extract_incidence)
+incidence_scenarios = lapply(fits_scenarios, extract_incidence, scenarios$ts[[1]])
 incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
   incidence_scenarios[[i]] %>%
     mutate(ID = i)

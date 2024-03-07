@@ -135,7 +135,7 @@ ggplot(post_seasonal, aes(x=value, color=name, fill=name)) +
   geom_density() +
   facet_wrap(vars(name), scales="free")
 
-incidence_seasonal = extract_incidence(fit_seasonal, data_sim)
+incidence_seasonal = extract_incidence(fit_seasonal, data_sim$ts)
 ggplot(incidence_seasonal, aes(x=ts, y=incidence, group=trace)) +
   geom_line(alpha = 0.05) +
   geom_point(data = synth_df, aes(y=cases, group=NULL)) +
@@ -149,7 +149,7 @@ ggplot(post_nonseasonal, aes(x=value, color=name, fill=name)) +
   geom_density() +
   facet_wrap(vars(name), scales="free")
 
-incidence_nonseasonal = extract_incidence(fit_nonseasonal, data_sim_agg)
+incidence_nonseasonal = extract_incidence(fit_nonseasonal, data_sim_agg$ts)
 ggplot(incidence_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
   geom_line(alpha = 0.05) +
   geom_point(data = synth_df_agg, aes(y=cases, group=NULL)) +
@@ -193,7 +193,7 @@ scenarios = expand_grid(
   phase = 130,
   rep = seq_len(n_reps)
 ) %>%
-  mutate(ID = LETTERS[row_number()], .before=0)
+  mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
 cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
@@ -224,6 +224,7 @@ scenarios %>%
   ggplot(aes(x = ts/years, y = cases, group=interaction(lambda, eps, rep))) +
   geom_line(alpha = 0.6) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
+  scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2) +
   facet_grid(rows = vars(lambda),
              cols = vars(eps),
@@ -251,9 +252,11 @@ my_sampling_indexed = function(method, ts, cases) {
 }
 
 # Apply function to simulated data
+tictoc::tic("Running all scenarios")
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
   my_sampling_indexed(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
 })
+tictoc::toc()
 
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
@@ -268,7 +271,6 @@ scenarios_long$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
 scenarios_long$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
 scenarios_long$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
 
-# Attach posterior predictions
 # Attach posterior predictions
 scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(x) {
   x = fits_scenarios[[i]]
@@ -326,4 +328,37 @@ for (param in c("lambda", "phi_inv", "eps", "kappa", "phase")) {
     theme(legend.position = "none")
   print(p)
 }
+```
+
+Plot incidence fits
+
+```{r}
+incidence_scenarios = lapply(fits_scenarios, extract_incidence, scenarios_long$ts[[1]])
+incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
+  incidence_scenarios[[i]] %>%
+    mutate(ID = i,
+           lambda = scenarios_long$lambda[i],
+           eps = scenarios_long$eps[i],
+           rep = scenarios_long$rep[i])
+}) %>%
+  bind_rows()
+
+scenarios_overlay = scenarios %>%
+  unnest(c(ts, cases))
+
+max_y = max(scenarios_overlay$cases) * 1.2
+
+ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
+  geom_line(alpha = 0.25) +
+  geom_point(data=scenarios_overlay, aes(y=cases)) +
+  # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
+  # geom_density(alpha = 0.5) +
+  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller) +
+  # scale_fill_manual(values = param_colors, drop=F) +
+  # scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(ylim = c(NA, max_y)) +
+  labs(title = "Estimated incidence") +
+  scale_y_log10(labels = label_auto2) +
+  scale_color_brewer(palette = "Set2") +
+  theme(legend.position = "none")
 ```
