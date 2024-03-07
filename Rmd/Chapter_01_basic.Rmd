@@ -183,7 +183,7 @@ Create scenarios
 ```{r}
 # Define the scenarios
 n_reps = 1
-range_lambda = seq(0.049, 0.1, length.out=3)
+range_lambda = seq(0.01, 0.012, length.out=3)
 range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
   lambda = range_lambda,
@@ -230,6 +230,7 @@ scenarios %>%
              labeller = plot_labeller) +
   labs(x = "Year",
        y = "Monthly cases")
+ggsave("../plots/synth_data.png", width=8, height=4)
 ```
 
 Define a function to perform the model fit, then apply it to each scenario
@@ -240,7 +241,7 @@ my_sampling_indexed = function(method, ts, cases) {
   scenario = scenarios_long[i,]
   method = scenario$method
   data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
-  if (!str_detect("seasonal", method)) {
+  if (!str_detect(method, "seasonal")) {
     data = aggregate_data(data)
   }
   sampling(stan_model(method),
@@ -250,7 +251,7 @@ my_sampling_indexed = function(method, ts, cases) {
 }
 
 # Apply function to simulated data
-fits_scenarios = pbmcapply(seq_len(nrow(scenarios_long)), function(i) {
+fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
   my_sampling_indexed(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
 })
 
@@ -261,11 +262,68 @@ estimates_scenarios = lapply(fits_scenarios, function(x) {
 })
 
 # Attach re-estimated parameters
-scenarios$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
-scenarios$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
-scenarios$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
-scenarios$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
-scenarios$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
+scenarios_long$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
+scenarios_long$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
+scenarios_long$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
+scenarios_long$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
+scenarios_long$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
 
 # Attach posterior predictions
+# Attach posterior predictions
+scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(x) {
+  x = fits_scenarios[[i]]
+  scenario = scenarios_long[i,]
+  method = scenario$method
+  data_sim = data_init(data_consts, n_times = length(scenario$ts[[i]]), ts = scenario$ts[[i]], cases = scenario$cases[[i]])
+  incidence = rstan::extract(x, "incidence")[[1]]
+  if (n_traces < dim(incidence)[1]) {
+    sample_ix = seq_len(dim(incidence)[1])
+  } else {
+    sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
+  }
+  
+  incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+    mutate(j = row_number()) %>%
+    pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
+    drop_na(j) %>%
+    group_by(j) %>%
+    mutate(ts = data_sim$ts[j],
+           lower = quantile(incidence, 0.025, na.rm=T),
+           upper = quantile(incidence, 0.975, na.rm=T),
+           legend = "95% prediction interval")
+})
+```
+
+Diagnostic plots
+
+```{r}
+# Interesting parameter estimates
+for (param in c("lambda", "phi_inv", "eps", "kappa", "phase")) {
+  plot_data = scenarios_long %>%
+    unnest(!!paste0("est_", param)) %>% 
+    mutate(value = get(paste0("est_", param)))
+  true_values = plot_data %>%
+    mutate(true_value = get(param)) %>%
+    distinct(lambda, eps, true_value)
+  param_rename = case_match(param,
+                            "lambda" ~ "λ",
+                            "kappa" ~ "κ",
+                            "tstar" ~ "t*",
+                            "xi" ~ "ξ",
+                            .default = param)
+  if (n_repetitions > 1) {
+    title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
+  } else {
+    title = paste("Posterior estimate of", param_rename)
+  }
+  p = ggplot(plot_data, aes(x = value, fill = factor(rep), color = factor(rep), group = rep)) +
+    geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
+    geom_density(alpha = 0.5) +
+    facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+    scale_color_brewer(palette = "Set2") +
+    scale_fill_brewer(palette = "Set2") +
+    labs(title = title) +
+    theme(legend.position = "none")
+  print(p)
+}
 ```

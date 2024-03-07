@@ -157,7 +157,7 @@ ggplot(mapping = aes(x=ts)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, lambda, phi_inv, eps_kappa, phase, xi, tstar) {
+simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase, xi, tstar) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
@@ -194,7 +194,7 @@ scenarios = expand_grid(
   mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
-cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
+cases_scenarios = pblapply(seq_len(nrow(scenarios)), function(i) {
   lambda = scenarios$lambda[i]
   phi_inv = scenarios$phi_inv[i]
   eps = scenarios$eps[i]
@@ -202,7 +202,7 @@ cases_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   phase = scenarios$phase[i]
   tstar = scenarios$tstar[i]
   xi = scenarios$xi[i]
-  simulate_cases(data_consts, lambda, phi_inv, eps_kappa, phase, xi, tstar)
+  simulate_cases(data_consts, lambda, phi_inv, eps, kappa, phase, xi, tstar)
 })
 
 # Attach simulation results to the scenarios dataframe
@@ -213,6 +213,11 @@ scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
 What do our synthetic data look like?
 
 ```{r}
+if (n_repetitions > 1) {
+  title = paste(n_repetitions, "repetitions of synthetic scenario data")
+} else {
+  title = "Synthetic scenario data"
+}
 scenarios %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
@@ -223,9 +228,11 @@ scenarios %>%
   facet_grid(rows = vars(tstar),
              cols = vars(xi),
              labeller = plot_labeller) +
-  labs(title = "Synthetic scenario data",
+  labs(title = title,
        x = "Year",
        y = "Monthly cases")
+
+ggsave("../plots/nonstationary_data.png", width=8, height=4)
 ```
 
 Define a function to perform the model fit, then apply it to each scenario
