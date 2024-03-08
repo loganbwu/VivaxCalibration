@@ -266,7 +266,8 @@ estimates_scenarios = lapply(fits_scenarios, function(x) {
 
 # Attach re-estimated parameters
 scenarios_long$est_lambda = lapply(estimates_scenarios, function(x) {x$lambda})
-scenarios_long$est_phi_inv = lapply(estimates_scenarios, function(x) {x$phi_inv})
+scenarios_long$est_phi = lapply(estimates_scenarios, function(x) {1/x$phi_inv})
+scenarios_long$phi = 1/scenarios_long$phi_inv
 scenarios_long$est_eps = lapply(estimates_scenarios, function(x) {x$eps})
 scenarios_long$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
 scenarios_long$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
@@ -300,7 +301,7 @@ Diagnostic plots
 
 ```{r}
 # Interesting parameter estimates
-for (param in c("lambda", "phi_inv", "eps", "kappa", "phase")) {
+for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
   plot_data = scenarios_long %>%
     unnest(!!paste0("est_", param)) %>% 
     mutate(value = get(paste0("est_", param)))
@@ -309,7 +310,10 @@ for (param in c("lambda", "phi_inv", "eps", "kappa", "phase")) {
     distinct(lambda, eps, true_value)
   param_rename = case_match(param,
                             "lambda" ~ "λ",
+                            "phi" ~ "φ",
+                            "eps" ~ "ε",
                             "kappa" ~ "κ",
+                            "phase" ~ "ψ",
                             "tstar" ~ "t*",
                             "xi" ~ "ξ",
                             .default = param)

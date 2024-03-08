@@ -14,3 +14,4 @@ Rmd/mendeley.bib
 **/*.png
 **/*.svg
 **/*.jpg
+Rmd/core.*

@@ -539,19 +539,32 @@ Inspect the fit:
 
 ```{r}
 posterior = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
-  as_tibble()
+  as_tibble() %>%
+  mutate(phi = 1 / phi_inv) %>%
+  select(-phi_inv)
+
+posterior_ranges = tribble(
+  ~parameter, ~min, ~max,
+  "lambda", 0, max(posterior$lambda * 1.5),
+  "phi", 0, max(posterior$phi * 1.5),
+  "eps", 0, 1,
+  "kappa", 0, max(posterior$kappa * 1.5),
+  "phase", 0, years,
+  "tstar", 0, max(posterior$tstar * 1.5),
+  "xi", 0, 1
+) %>%
+  pivot_longer(c(min, max))
 
 # Plot posterior densities
 posterior %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_blank(data = posterior_ranges) +
   geom_density(alpha=0.5) +
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
   # coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
+  facet_wrap(vars(parameter), scales="free", labeller = plot_labeller_novar) +
   labs(title = "Posterior parameter estimates for Rondonia",
        subtitle = "Estimated using the nonstationary seasonal model",
        x = "Value",
@@ -559,7 +572,6 @@ posterior %>%
   theme(legend.position = "none")
 
 ggsave("../plots/rondonia_nonstationary_posterior.png", width=8, height=4)
-
 
 
 incidence = rstan::extract(samp_ns, "incidence")[[1]]
@@ -579,13 +591,13 @@ ggplot(mapping = aes(x=ts)) +
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
-             aes(y = cases, group = NULL, color="Incidence data")) +
+             aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
-                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                       values = c("steelblue", "tomato", "black")) +
   labs(subtitle = "Seasonal model, monthly synthetic data",
        x = "Day",
@@ -595,7 +607,7 @@ ggplot(mapping = aes(x=ts)) +
        x = "Year",
        y = "Monthly incidence")
 
-ggsave("../plots/rondonia_seasonal_incidence.png", width=8, height=4)
+ggsave("../plots/rondonia_nonstationary_incidence.png", width=8, height=4)
 ```
 
 
