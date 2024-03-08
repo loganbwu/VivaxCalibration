@@ -223,11 +223,12 @@ scenarios %>%
   unnest(cols = c("ts", "cases")) %>%
   ggplot(aes(x = ts/years, y = cases, group=interaction(tstar, xi, rep))) +
   geom_line(alpha = 0.6) +
-  scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
+  scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2) +
+  scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   facet_grid(rows = vars(tstar),
              cols = vars(xi),
-             labeller = plot_labeller) +
+             labeller = plot_labeller_years) +
   labs(title = title,
        x = "Year",
        y = "Monthly cases")
@@ -313,15 +314,7 @@ for (param in c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")) {
   } else {
     x_limits = c(NA, NA)
   }
-  param_rename = case_match(param,
-                            "lambda" ~ "λ",
-                            "phi" ~ "φ",
-                            "eps" ~ "ε",
-                            "kappa" ~ "κ",
-                            "phase" ~ "ψ",
-                            "tstar" ~ "t*",
-                            "xi" ~ "ξ",
-                            .default = param)
+  param_rename = make_greek(param)
   if (n_repetitions > 1) {
     title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
   } else {

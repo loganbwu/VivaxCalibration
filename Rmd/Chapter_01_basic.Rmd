@@ -182,7 +182,6 @@ Create scenarios
 
 ```{r}
 # Define the scenarios
-n_reps = 1
 range_lambda = seq(0.01, 0.012, length.out=3)
 range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
@@ -191,7 +190,7 @@ scenarios = expand_grid(
   eps = range_eps,
   kappa = 1,
   phase = 130,
-  rep = seq_len(n_reps)
+  rep = seq_len(n_repetitions)
 ) %>%
   mutate(ID = row_number(), .before=0)
 
@@ -213,6 +212,13 @@ scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
 scenarios_long = scenarios %>%
   cross_join(tibble(method = c("../stan/champagne2022_seasonal_ext_2.stan",
                                "../stan/champagne2022_poisson.stan")))
+# Replace data with aggregate data depending on the method
+for (i in seq_len(nrow(scenarios_long))) {
+  if (scenarios_long$method[i] == "../stan/champagne2022_poisson.stan") {
+    scenarios_long$ts[[i]] = aggregate_time(scenarios_long$ts[[i]])
+    scenarios_long$cases[[i]] = aggregate_cases(scenarios_long$cases[[i]])
+  }
+}
 ```
 
 What do our synthetic data look like?
@@ -242,9 +248,6 @@ my_sampling_indexed = function(method, ts, cases) {
   scenario = scenarios_long[i,]
   method = scenario$method
   data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
-  if (!str_detect(method, "seasonal")) {
-    data = aggregate_data(data)
-  }
   sampling(stan_model(method),
            data = data,
            iter = n_iter,
@@ -259,9 +262,21 @@ fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
 tictoc::toc()
 
 # Extract parameters into dataframe
-estimates_scenarios = lapply(fits_scenarios, function(x) {
-  posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
+# estimates_scenarios = lapply(fits_scenarios, function(x) {
+#   posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
+#     as_tibble()
+# })
+estimates_scenarios = lapply(seq_len(length(fits_scenarios)), function(i) {
+  fit = fits_scenarios[[i]]
+  if (scenarios_long$method[i] == "../stan/champagne2022_poisson.stan") {
+    posterior = rstan::extract(fit, c("lambda")) %>%
+    as_tibble() %>%
+      mutate(phi_inv = NA, eps = NA, kappa = NA, phase = NA)
+  } else {
+    posterior = rstan::extract(fit, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
     as_tibble()
+  }
+  return(posterior)
 })
 
 # Attach re-estimated parameters
@@ -301,22 +316,29 @@ Diagnostic plots
 
 ```{r}
 # Interesting parameter estimates
+all_plots = list()
 for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
   plot_data = scenarios_long %>%
     unnest(!!paste0("est_", param)) %>% 
     mutate(value = get(paste0("est_", param)))
+  
   true_values = plot_data %>%
     mutate(true_value = get(param)) %>%
     distinct(lambda, eps, true_value)
-  param_rename = case_match(param,
-                            "lambda" ~ "λ",
-                            "phi" ~ "φ",
-                            "eps" ~ "ε",
-                            "kappa" ~ "κ",
-                            "phase" ~ "ψ",
-                            "tstar" ~ "t*",
-                            "xi" ~ "ξ",
-                            .default = param)
+  
+  posterior_ranges = tribble(
+    ~parameter, ~min, ~max,
+    "lambda", 0, NA,
+    "phi", 0, NA,
+    "eps", 0, 1,
+    "kappa", 0, 10,
+    "phase", 0, years,
+    "tstar", 0, n_years,
+    "xi", 0, 1
+  ) %>%
+    filter(parameter == param)
+  
+  param_rename = make_greek(param)
   if (n_repetitions > 1) {
     title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
   } else {
@@ -326,12 +348,17 @@ for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
     facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+    scale_x_continuous(limits = c(posterior_ranges$min, posterior_ranges$max)) +
     scale_color_brewer(palette = "Set2") +
     scale_fill_brewer(palette = "Set2") +
-    labs(title = title) +
+    labs(title = title,
+         x = "Value",
+         y = "Posterior density") +
     theme(legend.position = "none")
+  all_plots = c(all_plots, p)
   print(p)
 }
+do.call(wrap_plots, all_plots)
 ```
 
 Plot incidence fits
@@ -365,4 +392,6 @@ ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep
   scale_y_log10(labels = label_auto2) +
   scale_color_brewer(palette = "Set2") +
   theme(legend.position = "none")
+
+ggsave("../plots/synth_modelled_incidence.png", width=8, height=4)
 ```

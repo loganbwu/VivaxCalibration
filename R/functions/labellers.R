@@ -1,25 +1,20 @@
 plot_labeller <- function(variable, value){
-  var = case_match(variable, 
-                   c("transmission_rates", "lambda") ~ "λ",
-                   "phi" ~ "φ",
-                   c("seasonality_ratio", "eps") ~ "ε",
-                   "kappa" ~ "κ",
-                   "phase" ~ "ψ",
-                   "tstar" ~ "t*",
-                   "xi" ~ "ξ",
-                   .default = as.character(variable))
+  var = make_greek(variable)
+  if (is.numeric(value)) {
+    value = round(value, 6)
+  }
   return(paste(var, "=", value))
 }
 
+plot_labeller_years <- function(variable, value) {
+  if (variable == "tstar") {
+    x = plot_labeller(variable, paste(round(value/365.25, 2), "years"))
+  } else {
+    x = plot_labeller(variable, value)
+  }
+  return(x)
+}
+
 plot_labeller_novar <- function(variable, value){
-  val = case_match(value, 
-                   c("transmission_rates", "lambda") ~ "λ",
-                   "phi" ~ "φ",
-                   c("seasonality_ratio", "eps") ~ "ε",
-                   "kappa" ~ "κ",
-                   "phase" ~ "ψ",
-                   "tstar" ~ "t*",
-                   "xi" ~ "ξ",
-                   .default = as.character(value))
-  return(val)
+  return(make_greek(variable))
 }

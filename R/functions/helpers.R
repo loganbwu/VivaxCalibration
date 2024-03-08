@@ -51,3 +51,15 @@ my_simulate_data = function(...) {
     drop_na()
   return(synth_df)
 }
+
+make_greek = function(name) {
+  case_match(name, 
+             c("transmission_rates", "lambda") ~ "λ",
+             "phi" ~ "φ",
+             c("seasonality_ratio", "eps") ~ "ε",
+             "kappa" ~ "κ",
+             "phase" ~ "ψ",
+             "tstar" ~ "t*",
+             "xi" ~ "ξ",
+             .default = as.character(name))
+}

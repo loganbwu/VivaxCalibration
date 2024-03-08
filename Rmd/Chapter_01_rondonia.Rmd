@@ -513,6 +513,8 @@ rondonia.all %>%
   labs(title = "Selected monthly P. vivax cases infected in Rondonia",
        x = "Notification date",
        y = "Cases")
+
+ggsave("../plots/rondonia_nonstationary_selected.png", width=8, height=2)
 ```
 
 Assemble data
@@ -540,7 +542,8 @@ Inspect the fit:
 ```{r}
 posterior = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble() %>%
-  mutate(phi = 1 / phi_inv) %>%
+  mutate(phi = 1 / phi_inv,
+         tstar = tstar / years + 2010) %>%
   select(-phi_inv)
 
 posterior_ranges = tribble(
@@ -550,7 +553,7 @@ posterior_ranges = tribble(
   "eps", 0, 1,
   "kappa", 0, max(posterior$kappa * 1.5),
   "phase", 0, years,
-  "tstar", 0, max(posterior$tstar * 1.5),
+  "tstar", 2010, 2020,
   "xi", 0, 1
 ) %>%
   pivot_longer(c(min, max))
@@ -586,13 +589,14 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
          upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
-ggplot(mapping = aes(x=ts)) +
+ggplot(mapping = aes(x=ts / years + 2010)) +
   geom_ribbon(data = incidence_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
              aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
+  scale_x_continuous(breaks = 2010:2020) +
   scale_fill_manual("", 
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +
