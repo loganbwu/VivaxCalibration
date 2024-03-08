@@ -23,15 +23,15 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-# n_cores = parallelly::availableCores()
-n_cores = 6
+n_cores = parallelly::availableCores()
+# n_cores = 6
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 200 # should be at least 500
+n_iter = 400 # should be at least 500
 n_chains = 1
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
@@ -112,7 +112,7 @@ with(data_sim_agg, tibble(ts = ts/years, cases = cases)) %>%
   scale_x_continuous(breaks = 0:100)
 ```
 
-```{r}
+```{r, eval=F}
 fit_seasonal = sampling(stan_model("../stan/champagne2022_seasonal_ext_2.stan"),
                         data = data_sim,
                         iter = n_iter,
@@ -126,7 +126,7 @@ fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
 
 Manually inspect fits
 
-```{r}
+```{r, eval=F}
 post_seasonal = rstan::extract(fit_seasonal, c("lambda", "eps", "kappa", "phase")) %>%
   as_tibble() %>%
   pivot_longer(everything())
@@ -244,9 +244,7 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling_indexed = function(method, ts, cases) {
-  scenario = scenarios_long[i,]
-  method = scenario$method
+my_sampling = function(method, ts, cases) {
   data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
   sampling(stan_model(method),
            data = data,
@@ -257,7 +255,7 @@ my_sampling_indexed = function(method, ts, cases) {
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
-  my_sampling_indexed(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+  my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
 })
 tictoc::toc()
 
@@ -267,7 +265,9 @@ tictoc::toc()
 #     as_tibble()
 # })
 estimates_scenarios = lapply(seq_len(length(fits_scenarios)), function(i) {
+  print(i)
   fit = fits_scenarios[[i]]
+  print(scenarios_long$method[i])
   if (scenarios_long$method[i] == "../stan/champagne2022_poisson.stan") {
     posterior = rstan::extract(fit, c("lambda")) %>%
     as_tibble() %>%
@@ -364,10 +364,19 @@ do.call(wrap_plots, all_plots)
 Plot incidence fits
 
 ```{r}
-incidence_scenarios = lapply(fits_scenarios, extract_incidence, scenarios_long$ts[[1]])
-incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
-  incidence_scenarios[[i]] %>%
-    mutate(ID = i,
+# incidence_scenarios = lapply(fits_scenarios, extract_incidence, scenarios_long$ts[[1]])
+# incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
+#   incidence_scenarios[[i]] %>%
+#     mutate(ID = i,
+#            lambda = scenarios_long$lambda[i],
+#            eps = scenarios_long$eps[i],
+#            rep = scenarios_long$rep[i])
+# }) %>%
+#   bind_rows()
+
+incidence_join = lapply(seq_len(nrow(scenarios_long)), function(i) {
+  est_incidence = scenarios_long$est_incidence[[i]] %>%
+    mutate(method = scenarios_long$method[i],
            lambda = scenarios_long$lambda[i],
            eps = scenarios_long$eps[i],
            rep = scenarios_long$rep[i])
@@ -379,7 +388,7 @@ scenarios_overlay = scenarios %>%
 
 max_y = max(scenarios_overlay$cases) * 1.2
 
-ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
+ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = factor(rep))) +
   geom_line(alpha = 0.25) +
   geom_point(data=scenarios_overlay, aes(y=cases)) +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +

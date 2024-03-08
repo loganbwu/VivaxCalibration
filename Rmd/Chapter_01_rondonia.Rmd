@@ -202,11 +202,11 @@ tictoc::toc()
 ```{r}
 # inspect parameter posteriors
 posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
-  as_tibble()
+  as_tibble() %>%
+  mutate(phi = 1/phi_inv) %>%
+  select(-phi_inv)
 
 p_seasonal_posterior = posterior_seasonal %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
@@ -226,8 +226,7 @@ ggsave("../plots/rondonia_seasonal_posterior.png", width=8, height=4)
 
 # Plot credible intervals
 incidence = rstan::extract(samp_ext, "incidence")[[1]]
-sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+incidence_sample_nonseasonal = as_tibble(t(incidence)) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   group_by(j) %>%
@@ -237,7 +236,7 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
          legend = "95% prediction interval")
 
 sim_cases = rstan::extract(samp_ext, "sim_cases")[[1]]
-sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
+sim_cases_sample_nonseasonal = as_tibble(t(sim_cases)) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
   group_by(j) %>%
@@ -526,7 +525,7 @@ data_ro_ns = data_init(data_consts,
                        n_times = nrow(rondonia_ns))
 ```
 
-Perform MCMC sampling for both models
+Perform MCMC sampling for the nonstationary model
 
 ```{r}
 tictoc::tic("Seasonal model elapsed")
@@ -540,18 +539,32 @@ tictoc::toc()
 Inspect the fit:
 
 ```{r}
-posterior = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
+posterior_nonstationary = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble() %>%
   mutate(phi = 1 / phi_inv,
          tstar = tstar / years + 2010) %>%
   select(-phi_inv)
 
+alpha = 0.05
+lower_name = paste0(as.character(100*alpha/2), "%")
+upper_name = paste0(as.character((100*(1-alpha/2))), "%")
+posterior_credints = posterior_nonstationary %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarise(mean = mean(value),
+            lower = quantile(value, alpha/2),
+            upper = quantile(value, 1-alpha/2)) %>%
+  mutate_if(is.numeric, function(x) {as.character(signif(x, 3))}) %>%
+  dplyr::rename(Variable = name,
+                !!lower_name := lower,
+                !!upper_name := upper)
+
 posterior_ranges = tribble(
   ~parameter, ~min, ~max,
-  "lambda", 0, max(posterior$lambda * 1.5),
-  "phi", 0, max(posterior$phi * 1.5),
+  "lambda", 0, max(posterior_nonstationary$lambda * 1.5),
+  "phi", 0, max(posterior_nonstationary$phi * 1.5),
   "eps", 0, 1,
-  "kappa", 0, max(posterior$kappa * 1.5),
+  "kappa", 0, max(posterior_nonstationary$kappa * 1.5),
   "phase", 0, years,
   "tstar", 2010, 2020,
   "xi", 0, 1
@@ -559,10 +572,10 @@ posterior_ranges = tribble(
   pivot_longer(c(min, max))
 
 # Plot posterior densities
-posterior %>%
+posterior_nonstationary %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_blank(data = posterior_ranges) +
+  geom_blank(data = posterior_ranges, ) +
   geom_density(alpha=0.5) +
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
@@ -577,9 +590,19 @@ posterior %>%
 ggsave("../plots/rondonia_nonstationary_posterior.png", width=8, height=4)
 
 
+sim_cases = rstan::extract(samp_ns, "sim_cases")[[1]]
+sim_cases_sample_nonstationary = as_tibble(t(sim_cases)) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
+  group_by(j) %>%
+  mutate(ts = data_ro_ns$ts[j],
+         lower = quantile(sim_cases, 0.025, na.rm=T),
+         upper = quantile(sim_cases, 0.975, na.rm=T),
+         legend = "95% prediction interval") %>%
+  distinct(j, .keep_all=T)
+
 incidence = rstan::extract(samp_ns, "incidence")[[1]]
-sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
+incidence_sample_nonstationary = as_tibble(t(incidence)) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   drop_na(j) %>%
@@ -589,8 +612,12 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
          upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
+
 ggplot(mapping = aes(x=ts / years + 2010)) +
-  geom_ribbon(data = incidence_sample_nonseasonal,
+  geom_ribbon(data = sim_cases_sample_nonstationary,
+              aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
+              alpha = 0.5) +
+  geom_ribbon(data = incidence_sample_nonstationary,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
@@ -614,7 +641,29 @@ ggplot(mapping = aes(x=ts / years + 2010)) +
 ggsave("../plots/rondonia_nonstationary_incidence.png", width=8, height=4)
 ```
 
+Can we compare the posteriors between stationary/nonstationary?
 
+```{r}
+posterior_comparison = bind_rows(Stationary = posterior_seasonal,
+                                 Nonstationary = posterior_nonstationary %>%
+                                   mutate(lambda = lambda * xi),
+                                 .id = "Model") %>%
+  pivot_longer(-Model, names_to="parameter") %>%
+  mutate(parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
+  filter(!parameter %in% c("tstar", "xi"))
+posterior_ranges_2 =  posterior_ranges %>%
+  mutate(Model = NA, parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
+  filter(!parameter %in% c("tstar", "xi"))
+ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
+  geom_blank(data = posterior_ranges_2) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(title = "Posterior comparison between stationary and nonstationary models",
+       x = "Value",
+       y = "Posterior density")
+
+ggsave("../plots/rondonia_comparison.png", width=8, height=4)
+```
 
 End of script.
 
