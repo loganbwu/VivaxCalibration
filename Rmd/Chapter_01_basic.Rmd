@@ -258,16 +258,12 @@ fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
   my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
 })
 tictoc::toc()
+```
 
+```{r}
 # Extract parameters into dataframe
-# estimates_scenarios = lapply(fits_scenarios, function(x) {
-#   posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
-#     as_tibble()
-# })
 estimates_scenarios = lapply(seq_len(length(fits_scenarios)), function(i) {
-  print(i)
   fit = fits_scenarios[[i]]
-  print(scenarios_long$method[i])
   if (scenarios_long$method[i] == "../stan/champagne2022_poisson.stan") {
     posterior = rstan::extract(fit, c("lambda")) %>%
     as_tibble() %>%
@@ -292,7 +288,7 @@ scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(x)
   x = fits_scenarios[[i]]
   scenario = scenarios_long[i,]
   method = scenario$method
-  data_sim = data_init(data_consts, n_times = length(scenario$ts[[i]]), ts = scenario$ts[[i]], cases = scenario$cases[[i]])
+  data_sim = data_init(data_consts, n_times = length(scenario$ts[[1]]), ts = scenario$ts[[1]], cases = scenario$cases[[1]])
   incidence = rstan::extract(x, "incidence")[[1]]
   if (n_traces < dim(incidence)[1]) {
     sample_ix = seq_len(dim(incidence)[1])
@@ -320,7 +316,8 @@ all_plots = list()
 for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
   plot_data = scenarios_long %>%
     unnest(!!paste0("est_", param)) %>% 
-    mutate(value = get(paste0("est_", param)))
+    mutate(value = get(paste0("est_", param))) %>%
+    drop_na(!!param)
   
   true_values = plot_data %>%
     mutate(true_value = get(param)) %>%
@@ -344,7 +341,7 @@ for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
   } else {
     title = paste("Posterior estimate of", param_rename)
   }
-  p = ggplot(plot_data, aes(x = value, fill = factor(rep), color = factor(rep), group = rep)) +
+  p = ggplot(plot_data, aes(x = value, fill = method, color = method, group = interaction(method, rep))) +
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
     facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
@@ -358,7 +355,7 @@ for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
   all_plots = c(all_plots, p)
   print(p)
 }
-do.call(wrap_plots, all_plots)
+# do.call(wrap_plots, all_plots)
 ```
 
 Plot incidence fits
@@ -388,7 +385,7 @@ scenarios_overlay = scenarios %>%
 
 max_y = max(scenarios_overlay$cases) * 1.2
 
-ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = factor(rep))) +
+ggplot(incidence_join, aes(x = ts, y = incidence, color=method, group = factor(method, rep))) +
   geom_line(alpha = 0.25) +
   geom_point(data=scenarios_overlay, aes(y=cases)) +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +

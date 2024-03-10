@@ -44,7 +44,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 200 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
@@ -193,7 +193,7 @@ tictoc::toc()
 tictoc::tic("Nonseasonal model elapsed")
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
-                                iter = n_iter*10,
+                                iter = n_iter,
                                 chains = n_chains)
 tictoc::toc()
 ```
@@ -276,12 +276,12 @@ And, non-seasonal
 ```{r}
 # inspect parameter posteriors
 posterior_nonseasonal = rstan::extract(samp_ext_nonseasonal, c("lambda", "phi_inv")) %>%
-  as_tibble()
+  as_tibble() %>%
+  mutate(phi = 1/phi_inv) %>%
+  select(-phi_inv)
 
 # Plot posterior densities
 p_ns_posterior = posterior_nonseasonal %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
@@ -387,6 +387,37 @@ omega_params %>%
        y = "ω(t)")
 
 ggsave("../plots/rondonia_omega.png", width=8, height=4)
+```
+
+Comparison of stationary and nonstationary parameter estimates
+
+```{r}
+posterior_comparison = bind_rows(Seasonal = posterior_seasonal,
+                                 Nonseasonal = posterior_nonseasonal,
+                                 .id = "Model") %>%
+  pivot_longer(-Model, names_to="parameter") %>%
+  filter(parameter %in% c("lambda", "phi"))
+
+posterior_ranges_2 = posterior_comparison %>%
+  group_by(parameter) %>%
+  summarise(mean = mean(value),
+            lq = quantile(value, 0.01),
+            uq = quantile(value, 0.99),
+            min = lq - (mean-lq)*1.5,
+            max = uq + (uq-mean)*1.5,
+            Model = NA) %>%
+  pivot_longer(c(min, max))
+
+ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
+  geom_blank(data = posterior_ranges_2) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(title = "Posterior comparison between seasonal and nonseasonal models",
+       subtitle = "Method applied to data from Rondonia between 2015 and 2018",
+       x = "Value",
+       y = "Posterior density")
+
+ggsave("../plots/rondonia_seasonality_comparison.png", width=8, height=4)
 ```
 
 What if we used the steady-state fit to simulate posteriors in the full model?
@@ -542,7 +573,7 @@ Inspect the fit:
 posterior_nonstationary = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble() %>%
   mutate(phi = 1 / phi_inv,
-         tstar = tstar / years + 2010) %>%
+         tstar = tstar / years + 2009) %>%
   select(-phi_inv)
 
 alpha = 0.05
@@ -566,7 +597,7 @@ posterior_ranges = tribble(
   "eps", 0, 1,
   "kappa", 0, max(posterior_nonstationary$kappa * 1.5),
   "phase", 0, years,
-  "tstar", 2010, 2020,
+  "tstar", 2009, 2019,
   "xi", 0, 1
 ) %>%
   pivot_longer(c(min, max))
@@ -613,7 +644,7 @@ incidence_sample_nonstationary = as_tibble(t(incidence)) %>%
          legend = "95% prediction interval")
 
 
-ggplot(mapping = aes(x=ts / years + 2010)) +
+ggplot(mapping = aes(x=ts / years + 2009)) +
   geom_ribbon(data = sim_cases_sample_nonstationary,
               aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
               alpha = 0.5) +
@@ -623,7 +654,7 @@ ggplot(mapping = aes(x=ts / years + 2010)) +
   geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
              aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = 2010:2020) +
+  scale_x_continuous(breaks = 2019:2019) +
   scale_fill_manual("", 
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +

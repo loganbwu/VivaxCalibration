@@ -16,5 +16,5 @@ plot_labeller_years <- function(variable, value) {
 }
 
 plot_labeller_novar <- function(variable, value){
-  return(make_greek(variable))
+  return(make_greek(value))
 }

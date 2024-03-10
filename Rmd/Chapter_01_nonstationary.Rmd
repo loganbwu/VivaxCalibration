@@ -29,12 +29,13 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-n_cores = parallelly::availableCores()
+# n_cores = parallelly::availableCores()
+n_cores = 9
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 4
 n_repetitions = 3 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -70,7 +71,7 @@ data_consts = list(y0 = y0,
 
 Simulate some dummy data
 
-```{r}
+```{r, eval=F}
 n_times = annual_subdivisions * n_years
 data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
@@ -95,7 +96,7 @@ ggplot(sim, aes(x=ts/years, y=incidence)) +
 
 Insert the new seasonal data into a data list and run the seasonal model (MLE and posterior sampling) on it.
 
-```{r,}
+```{r, eval=F}
 # Fit data
 # Edit data with generated values
 data_sim = data_init(data_consts,
@@ -107,7 +108,7 @@ data_sim = data_init(data_consts,
 
 Can we perform this with the t-cutoff as a parameter?
 
-```{r}
+```{r, eval=F}
 fit_tstar = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                      data = data_sim,
                      iter = n_iter,
@@ -115,7 +116,7 @@ fit_tstar = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                      seed = 0)
 ```
 
-```{r}
+```{r, eval=F}
 posterior = rstan::extract(fit_tstar, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble()
 
@@ -254,9 +255,11 @@ my_sampling = function(data_consts, ts, cases) {
 }
 
 # Apply function to simulated data
+tictoc::tic("Running Stan sampling")
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]])
 })
+tictoc::toc()
 
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
