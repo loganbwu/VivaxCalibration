@@ -29,9 +29,9 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 400 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 1
-n_repetitions = 5 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
@@ -48,7 +48,6 @@ Generate some data
 I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
 n_years = 10
-tstar_for_testing = 5*years
 
 # constants for Stan
 data_consts = list(y0 = y0,
@@ -254,8 +253,11 @@ my_sampling = function(method, ts, cases) {
 
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
+hr = 60*60
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
-  my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+  with_timeout(
+    my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]]),
+    cpu = 3*hr)
 })
 tictoc::toc()
 ```
@@ -266,11 +268,11 @@ estimates_scenarios = lapply(seq_len(length(fits_scenarios)), function(i) {
   fit = fits_scenarios[[i]]
   if (scenarios_long$method[i] == "../stan/champagne2022_poisson.stan") {
     posterior = rstan::extract(fit, c("lambda")) %>%
-    as_tibble() %>%
+      as_tibble() %>%
       mutate(phi_inv = NA, eps = NA, kappa = NA, phase = NA)
   } else {
     posterior = rstan::extract(fit, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
-    as_tibble()
+      as_tibble()
   }
   return(posterior)
 })

@@ -654,7 +654,7 @@ ggplot(mapping = aes(x=ts / years + 2009)) +
   geom_point(data = tibble(ts = data_ro_ns$ts, cases = data_ro_ns$cases),
              aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = 2019:2019) +
+  scale_x_continuous(breaks = 2009:2019) +
   scale_fill_manual("", 
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +
@@ -685,6 +685,17 @@ posterior_comparison = bind_rows(Stationary = posterior_seasonal,
 posterior_ranges_2 =  posterior_ranges %>%
   mutate(Model = NA, parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
   filter(!parameter %in% c("tstar", "xi"))
+
+posterior_ranges_2 = posterior_comparison %>%
+  group_by(parameter) %>%
+  summarise(mean = mean(value),
+            lq = quantile(value, 0.01),
+            uq = quantile(value, 0.99),
+            min = lq - (mean-lq)*1.5,
+            max = uq + (uq-mean)*1.5,
+            Model = NA) %>%
+  pivot_longer(c(min, max))
+
 ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
   geom_blank(data = posterior_ranges_2) +
   geom_density(alpha = 0.5) +

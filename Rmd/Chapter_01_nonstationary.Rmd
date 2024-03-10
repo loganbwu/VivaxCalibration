@@ -29,8 +29,8 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-# n_cores = parallelly::availableCores()
-n_cores = 9
+n_cores = parallelly::availableCores()
+# n_cores = 9
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
@@ -359,7 +359,7 @@ ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep
   geom_point(data=scenarios_overlay, aes(y=cases)) +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
   # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller) +
+  facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller_years) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(ylim = c(0, max_y)) +
