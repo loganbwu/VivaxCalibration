@@ -109,26 +109,40 @@ rondonia.all = integrated_dataset %>%
   filter(exam.result == "vivax",
          infection.state == "RO") %>%
   count(notification.year, notification.date, name = "cases") %>%
-  mutate(include = ifelse(notification.year >= min_year & notification.year <= max_year, "grey20", "grey")) %>%
+  mutate(include = case_when(notification.year >= min_year & notification.year <= max_year ~ "grey20",
+                             notification.year <= max_year ~ "grey40",
+                             TRUE ~ "grey")) %>%
+  # mutate(include = ifelse(notification.year >= min_year & notification.year <= max_year, "grey20", "grey")) %>%
   as_tibble()
+
+yearly_counts = rondonia.all %>%
+  group_by(notification.year) %>%
+  summarise(cases = sum(cases) / annual_subdivisions) %>%
+  mutate(notification.date = as.Date(paste0(notification.year, "-01-01"))) %>%
+  bind_rows(tail(., 1) %>% mutate(notification.date = notification.date + years(1)))
 
 ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
   annotate("rect", xmin=as.Date(paste0(min_year, "-01-01")), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
            fill = "blue", alpha = 0.15) +
   geom_col() +
+  geom_step(data=yearly_counts, aes(fill=NULL), color="tomato") +
   coord_cartesian(ylim = c(0, NA)) +
   scale_x_date(date_breaks = "years", date_labels = "%Y") +
+  scale_y_continuous(name = "Monthly cases",
+                     labels = label_auto2,
+                     sec.axis = sec_axis(trans=~.*annual_subdivisions, name="Annual cases", labels=label_auto2)) +
   scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
+  labs(title = "Selected P. vivax cases infected in Rondonia",
        x = "Notification date",
-       y = "Cases")
+       y = "Cases") +
+  theme(axis.ticks.y.right = element_line(color = "tomato"),
+        axis.text.y.right = element_text(color = "tomato"),
+        axis.title.y.right = element_text(color = "tomato"))
 
 ggsave("../plots/rondonia_selected.png", width=8, height=2)
 
 rondonia = rondonia.all %>%
   filter(include == "grey20")
-
-date_0 = min(rondonia$notification.date)
 ```
 
 ```{r}
@@ -163,7 +177,8 @@ Create data for the nonseasonal model
 rondonia_agg = integrated_dataset %>%
   filter(exam.result == "vivax",
          infection.state == "RO",
-         notification.year >= min_year) %>%
+         notification.year >= min_year,
+         notification.year <= max_year) %>%
   mutate(notification.date = as.Date(paste(notification.year, "01", "01", sep="-")) + years(1) - days(1)) %>%
   count(notification.date, name = "cases")
 
@@ -173,7 +188,7 @@ data_ro_agg = data_init(data_consts,
                         ts = seq_len(nrow(rondonia_agg)) * years,
                         n_times = nrow(rondonia_agg))
 
-tibble(ts = data_ro_agg$ts,
+tibble(ts = data_ro_agg$ts / years + (min_year-1),
        cases = data_ro_agg$cases) %>%
   ggplot(aes(x = ts, y = cases)) +
   geom_line() +
@@ -206,23 +221,13 @@ posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kap
   mutate(phi = 1/phi_inv) %>%
   select(-phi_inv)
 
-p_seasonal_posterior = posterior_seasonal %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
-  ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_density(alpha=0.5) +
-  scale_fill_manual(values = param_colors, drop=F) +
-  scale_color_manual(values = param_colors, drop=F) +
-  coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free", labeller = plot_labeller_novar) +
-  labs(title = "Posterior parameter estimates for Rondonia",
-       subtitle = "Estimated using the seasonal model at periodic equilibrium",
-       x = "Value",
-       y = "Posterior density") +
-  theme(legend.position = "none")
-p_seasonal_posterior
-
-ggsave("../plots/rondonia_seasonal_posterior.png", width=8, height=4)
-
+posterior_seasonal_summary = posterior_seasonal %>%
+  mutate(peak_day = years/4 + phase) %>%
+  pivot_longer(everything(), names_to = "parameter") %>%
+  group_by(parameter) %>%
+  summarise(mean = mean(value),
+            lq = quantile(value, 0.025),
+            uq = quantile(value, 0.975))
 
 # Plot credible intervals
 incidence = rstan::extract(samp_ext, "incidence")[[1]]
@@ -246,7 +251,7 @@ sim_cases_sample_nonseasonal = as_tibble(t(sim_cases)) %>%
          legend = "95% prediction interval") %>%
   distinct(j, .keep_all=T)
 
-p_seasonal_ci = ggplot(mapping = aes(x=ts + date_0)) +
+p_seasonal_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01"))-days(1))) +
   geom_ribbon(data = sim_cases_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
               alpha = 0.5) +
@@ -280,20 +285,6 @@ posterior_nonseasonal = rstan::extract(samp_ext_nonseasonal, c("lambda", "phi_in
   mutate(phi = 1/phi_inv) %>%
   select(-phi_inv)
 
-# Plot posterior densities
-p_ns_posterior = posterior_nonseasonal %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
-  ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_density(alpha=0.5) +
-  scale_fill_manual(values = param_colors, drop=F) +
-  scale_color_manual(values = param_colors, drop=F) +
-  coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Non-seasonal model")
-p_ns_posterior
-
-# ggsave("plots/rondonia_ns_posterior.png", width=8, height=4)
-
 # Plot traces
 incidence = rstan::extract(samp_ext_nonseasonal, "incidence")[[1]]
 sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
@@ -315,7 +306,7 @@ sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
          legend = "95% prediction interval") %>%
   distinct(ts, .keep_all=T)
 
-p_ns_ci = ggplot(mapping = aes(x=ts + date_0)) +
+p_ns_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01"))-years(1))) +
   geom_ribbon(data = sim_cases_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
               alpha = 0.5) +
@@ -341,6 +332,43 @@ p_ns_ci
 
 Generate subplots
 
+Comparison between posteriors
+
+```{r}
+posterior_comparison = bind_rows(Nonseasonal = posterior_nonseasonal,
+                                 Seasonal = posterior_seasonal,
+                                 .id = "Model") %>%
+  pivot_longer(-Model, names_to="parameter") %>%
+  mutate(parameter = fct_relevel(parameter, c("lambda", "phi", "eps", "kappa", "phase")))
+
+posterior_ranges_2 = posterior_comparison %>%
+  group_by(parameter) %>%
+  summarise(mean = mean(value, na.rm=T),
+            lq = quantile(value, 0.01, na.rm=T),
+            uq = quantile(value, 0.99, na.rm=T),
+            min = lq - (mean-lq)*1.5,
+            max = uq + (uq-mean)*1.5,
+            Model = NA) %>%
+  mutate(min = case_when(parameter %in% c("phi", "phase", "eps", "kappa") ~ 0,
+                         TRUE ~ min),
+         max = case_when(parameter == "phase" ~ years,
+                         parameter == "eps" ~ 1,
+                         TRUE ~ max)) %>%
+  pivot_longer(c(min, max))
+
+ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
+  geom_blank(data = posterior_ranges_2) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(title = "Posterior comparison between seasonal and nonseasonal models",
+       x = "Value",
+       y = "Posterior density") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+ggsave("../plots/rondonia_comparison.png", width=8, height=4)
+```
+
 ```{r}
 (p_seasonal_ci + labs(title = NULL, subtitle = "Seasonal model")) +
   (p_ns_ci + labs(title = NULL, subtitle = "Nonseasonal model")) +
@@ -348,14 +376,6 @@ Generate subplots
   plot_annotation(title = "Posterior model fits",
                   tag_levels = "A")
 ggsave("../plots/rondonia_incidence.png", width=8, height=4)
-
-(p_seasonal_posterior + theme(legend.position="none") + labs(title = NULL, subtitle = "Seasonal model")) + p_ns_posterior + theme(legend.position="none") +
-  plot_layout(guides = "collect") +
-  plot_annotation(title = "Posterior parameter estimates at equilibrium",
-                  subtitle = paste0("P. vivax transmission in Rondonia, ", min_year, "-", max_year),
-                  tag_levels = "A")
-
-ggsave("../plots/rondonia_posterior.png", width=8, height=4)
 ```
 
 Examine the estimated seasonal pattern
@@ -381,9 +401,10 @@ omega_params %>%
   geom_line(alpha=0.05, color="grey10") +
   geom_hline(yintercept = 1, linetype="dashed") +
   coord_cartesian(ylim = c(0, NA)) +
-  scale_x_continuous(breaks = 0:annual_subdivisions, expand = c(0,0)) +
-  labs(title = paste0("Posterior estimate of ω(t) for Rondonia P. vivax ", min_year, "-", max_year),
-       x = "t (months)",
+  scale_x_continuous(breaks = 0:annual_subdivisions, expand = c(0,0),
+                     labels = c(month.abb, month.abb[1])) +
+  labs(title = paste("Posterior estimate of ω(t) for Rondonia P. vivax between", min_year, "and", max_year),
+       x = "Month",
        y = "ω(t)")
 
 ggsave("../plots/rondonia_omega.png", width=8, height=4)
@@ -527,29 +548,12 @@ ggplot(rondonia_map, aes(x=month, y=value, color=year, group=year)) +
 
 Can we perform the fit using the nonstationary model?
 
+Assemble data
+
 ```{r}
 rondonia_ns = rondonia.all %>%
   filter(notification.year <= max_year)
 
-rondonia.all %>%
-  mutate(include = ifelse(notification.year <= max_year, "grey20", "grey")) %>%
-  ggplot(aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date(min(rondonia_ns$notification.date)), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
-           fill = "blue", alpha = 0.15) +
-  geom_col() +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in Rondonia",
-       x = "Notification date",
-       y = "Cases")
-
-ggsave("../plots/rondonia_nonstationary_selected.png", width=8, height=2)
-```
-
-Assemble data
-
-```{r}
 data_ro_ns = data_init(data_consts,
                        cases = rondonia_ns$cases,
                        ts = seq_len(nrow(rondonia_ns)) * years / annual_subdivisions,
@@ -575,6 +579,14 @@ posterior_nonstationary = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", 
   mutate(phi = 1 / phi_inv,
          tstar = tstar / years + 2009) %>%
   select(-phi_inv)
+
+posterior_nonstationary_summary = posterior_nonstationary %>%
+  mutate(peak_day = years/4 + phase) %>%
+  pivot_longer(everything(), names_to = "parameter") %>%
+  group_by(parameter) %>%
+  summarise(mean = mean(value),
+            lq = quantile(value, 0.025),
+            uq = quantile(value, 0.975))
 
 alpha = 0.05
 lower_name = paste0(as.character(100*alpha/2), "%")
@@ -681,19 +693,21 @@ posterior_comparison = bind_rows(Stationary = posterior_seasonal,
                                  .id = "Model") %>%
   pivot_longer(-Model, names_to="parameter") %>%
   mutate(parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
-  filter(!parameter %in% c("tstar", "xi"))
-posterior_ranges_2 =  posterior_ranges %>%
-  mutate(Model = NA, parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
-  filter(!parameter %in% c("tstar", "xi"))
+  mutate(parameter = fct_relevel(parameter, c("λ(t>t*)", "phi", "xi", "tstar", "eps", "kappa", "phase")))
 
 posterior_ranges_2 = posterior_comparison %>%
   group_by(parameter) %>%
-  summarise(mean = mean(value),
-            lq = quantile(value, 0.01),
-            uq = quantile(value, 0.99),
+  summarise(mean = mean(value, na.rm=T),
+            lq = quantile(value, 0.01, na.rm=T),
+            uq = quantile(value, 0.99, na.rm=T),
             min = lq - (mean-lq)*1.5,
             max = uq + (uq-mean)*1.5,
             Model = NA) %>%
+  mutate(min = case_when(parameter %in% c("phi", "phase", "eps", "kappa") ~ 0,
+                         TRUE ~ min),
+         max = case_when(parameter == "phase" ~ years,
+                         parameter == "eps" ~ 1,
+                         TRUE ~ max)) %>%
   pivot_longer(c(min, max))
 
 ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
@@ -702,9 +716,11 @@ ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(title = "Posterior comparison between stationary and nonstationary models",
        x = "Value",
-       y = "Posterior density")
+       y = "Posterior density") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
 
-ggsave("../plots/rondonia_comparison.png", width=8, height=4)
+ggsave("../plots/rondonia_nonstationary_comparison.png", width=8, height=4)
 ```
 
 End of script.

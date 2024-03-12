@@ -241,15 +241,23 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling = function(data_consts, ts, cases) {
+my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_eps, true_kappa, true_phase, true_tstar, true_xi) {
   n_times = length(ts)
   data = data_init(data_consts,
                    cases = cases,
                    ts = ts,
                    n_times = n_times)
+  true_params = list(lambda = true_lambda,
+                     phi_inv = true_phi_inv,
+                     eps = true_eps,
+                     kappa = true_kappa,
+                     phase = true_phase,
+                     tstar = true_tstar,
+                     xi = true_xi)
   fit = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                  data = data,
                  iter = n_iter,
+                 init = rep(list(true_params), 1),
                  chains = 1,
                  seed = 0)
 }
@@ -257,7 +265,7 @@ my_sampling = function(data_consts, ts, cases) {
 # Apply function to simulated data
 tictoc::tic("Running Stan sampling")
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
-  my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]])
+  my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$eps[i], scenarios$kappa[i], scenarios$phase[i], scenarios$tstar[i], scenarios$xi[i])
 })
 tictoc::toc()
 

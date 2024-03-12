@@ -16,6 +16,7 @@ library(rstan)
 library(rstansim) # devtools::install_github("ewan-keith/rstansim")
 library(parallel)
 library(patchwork)
+library(ggridges)
 library(pbmcapply)
 library(pbapply)
 library(memoise)
@@ -31,11 +32,11 @@ rstan_options(auto_write = TRUE)
 
 n_iter = 500 # should be at least 500
 n_chains = 1
-n_repetitions = 3 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*60 * 5
-n_traces = 200 # limit for plotting sample trajectories
+timelimit_per_run = 3*hr
+n_traces = 100 # limit for plotting sample trajectories
 n_traces = min(n_traces, n_iter)
 ```
 
@@ -51,7 +52,7 @@ n_years = 10
 
 # constants for Stan
 data_consts = list(y0 = y0,
-                   t0 = -50*years,
+                   t0 = -100*years,
                    N = 100000, # population size
                    r = 1./60, # r
                    gammal = 1./223, # gammal
@@ -91,7 +92,7 @@ synth_df = with(sim, tibble(
 
 Insert the new seasonal data into a data list and run the seasonal model on it.
 
-```{r,}
+```{r}
 # Edit data with generated values
 data_sim = data_init(data_consts,
                      n_times = nrow(synth_df),
@@ -115,11 +116,13 @@ with(data_sim_agg, tibble(ts = ts/years, cases = cases)) %>%
 fit_seasonal = sampling(stan_model("../stan/champagne2022_seasonal_ext_2.stan"),
                         data = data_sim,
                         iter = n_iter,
+                        init = list(params),
                         chains = n_chains)
 
 fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
                            data = data_sim_agg,
                            iter = n_iter,
+                           init = list(params),
                            chains = n_chains)
 ```
 
@@ -223,19 +226,23 @@ for (i in seq_len(nrow(scenarios_long))) {
 What do our synthetic data look like?
 
 ```{r}
-scenarios %>%
+scenarios_long %>%
+  mutate(method = case_when(method %>% str_detect("seasonal") ~ "Seasonal",
+                            TRUE ~ "Nonseasonal")) %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
-  ggplot(aes(x = ts/years, y = cases, group=interaction(lambda, eps, rep))) +
+  ggplot(aes(x = ts/years, y = cases, color=method, group=interaction(method, rep))) +
   geom_line(alpha = 0.6) +
-  scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2) +
   facet_grid(rows = vars(lambda),
              cols = vars(eps),
              labeller = plot_labeller) +
-  labs(x = "Year",
-       y = "Monthly cases")
+  labs(title = "Input data for each scenario",
+       subtitle = "Seasonal scenario in cases per month; nonseasonal scenario per year",
+       x = "Year",
+       y = "Cases",
+       color = "Method")
 ggsave("../plots/synth_data.png", width=8, height=4)
 ```
 
@@ -243,23 +250,47 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling = function(method, ts, cases) {
+my_sampling = function(method, ts, cases, true_lambda=NULL) {
   data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
-  sampling(stan_model(method),
-           data = data,
-           iter = n_iter,
-           chains = 1)
+  if (method == "../stan/champagne2022_poisson.stan") {
+    result = sampling(stan_model(method),
+                      data = data,
+                      iter = n_iter,
+                      init = list(list(lambda = true_lambda)),
+                      chains = 1)
+  } else {
+    result = sampling(stan_model(method),
+                      data = data,
+                      iter = n_iter,
+                      chains = 1)
+  }
+  result
 }
 
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
-hr = 60*60
 fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), function(i) {
   with_timeout(
     my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]]),
-    cpu = 3*hr)
+    cpu = timelimit_per_run)
 })
 tictoc::toc()
+
+# Redo for just nonseasonal runs
+nonseasonal_ix = which(scenarios_long$method == "../stan/champagne2022_poisson.stan")
+new_fits_scenarios = pbmclapply(nonseasonal_ix, function(i) {
+  with_timeout(
+    my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]], scenarios_long$lambda[i]),
+    cpu = timelimit_per_run)
+})
+fits_scenarios[nonseasonal_ix] = new_fits_scenarios
+```
+
+How many didn't time out?
+
+```{r}
+sapply(fits_scenarios, is.null)
+sapply(fits_scenarios, function(x) {x@mode})
 ```
 
 ```{r}
@@ -286,8 +317,11 @@ scenarios_long$est_kappa = lapply(estimates_scenarios, function(x) {x$kappa})
 scenarios_long$est_phase = lapply(estimates_scenarios, function(x) {x$phase})
 
 # Attach posterior predictions
-scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(x) {
+scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(i) {
   x = fits_scenarios[[i]]
+  if (x@mode == 2) {
+    return(NULL)
+  }
   scenario = scenarios_long[i,]
   method = scenario$method
   data_sim = data_init(data_consts, n_times = length(scenario$ts[[1]]), ts = scenario$ts[[1]], cases = scenario$cases[[1]])
@@ -306,100 +340,268 @@ scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(x)
     mutate(ts = data_sim$ts[j],
            lower = quantile(incidence, 0.025, na.rm=T),
            upper = quantile(incidence, 0.975, na.rm=T),
-           legend = "95% prediction interval")
+           legend = "95% prediction interval",
+           rep = scenario$rep)
 })
 ```
 
 Diagnostic plots
 
+Firstly, inspect the seasonal model.
+
 ```{r}
-# Interesting parameter estimates
-all_plots = list()
-for (param in c("lambda", "phi", "eps", "kappa", "phase")) {
-  plot_data = scenarios_long %>%
-    unnest(!!paste0("est_", param)) %>% 
-    mutate(value = get(paste0("est_", param))) %>%
-    drop_na(!!param)
-  
-  true_values = plot_data %>%
-    mutate(true_value = get(param)) %>%
-    distinct(lambda, eps, true_value)
-  
-  posterior_ranges = tribble(
-    ~parameter, ~min, ~max,
-    "lambda", 0, NA,
-    "phi", 0, NA,
-    "eps", 0, 1,
-    "kappa", 0, 10,
-    "phase", 0, years,
-    "tstar", 0, n_years,
-    "xi", 0, 1
-  ) %>%
-    filter(parameter == param)
-  
-  param_rename = make_greek(param)
-  if (n_repetitions > 1) {
-    title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
-  } else {
-    title = paste("Posterior estimate of", param_rename)
+plot_data = scenarios_long %>%
+  filter(method %>% str_detect("seasonal")) %>%
+  select(-ts, -cases, -est_incidence) %>%
+  pivot_longer(matches("^est")) %>%
+  unnest(value) %>%
+  drop_na(value) %>%
+  mutate(name = name %>% str_remove("^est_"),
+         method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal")) %>%
+  group_by(ID, name) %>%
+  mutate(lq = quantile(value, 0.01),
+         uq = quantile(value, 0.99)) %>%
+  filter(value < uq) %>%
+  ungroup()
+
+true_values = scenarios_long %>%
+  distinct(lambda, phi, eps, kappa, phase) %>%
+  mutate(lambda2 = lambda,
+         eps2 = eps) %>%
+  pivot_longer(-c(lambda2, eps2)) %>%
+  dplyr::rename(lambda = lambda2,
+                eps = eps2)
+
+my_labeller <- function(variable, value){
+  var = make_greek(variable)
+  if (is.numeric(value)) {
+    value = round(value, 6)
   }
-  p = ggplot(plot_data, aes(x = value, fill = method, color = method, group = interaction(method, rep))) +
-    geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
-    geom_density(alpha = 0.5) +
-    facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
-    scale_x_continuous(limits = c(posterior_ranges$min, posterior_ranges$max)) +
-    scale_color_brewer(palette = "Set2") +
-    scale_fill_brewer(palette = "Set2") +
-    labs(title = title,
-         x = "Value",
-         y = "Posterior density") +
-    theme(legend.position = "none")
-  all_plots = c(all_plots, p)
-  print(p)
+  if (variable == "name") {
+    return(make_greek(value))
+  } else {
+    return(paste(var, "=", value))
+  }
 }
-# do.call(wrap_plots, all_plots)
+
+ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = lambda, group = interaction(as.factor(lambda), as.factor(rep)))) +
+  geom_density_ridges(alpha = 0.25) +
+  # geom_boxplot(outliers = FALSE) +
+  # geom_violin(alpha = 0.25) +
+  # geom_density() +
+  geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
+  # facet_wrap(vars(name), scales="free_y")
+  facet_grid(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
+                                                                                     eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
+                                                                                     .multi_line=F)) +
+  labs(title = "Posterior parameter densities of the seasonal model",
+       subtitle ="True values denoted by circles",
+       x = "Value",
+       y = paste("Scenario", make_greek("lambda")),
+       color = paste("Scenario", make_greek("lambda")),
+       fill = paste("Scenario", make_greek("lambda"))) +
+  theme(legend.position = "none")
+
+ggsave("../plots/basic_seasonal_posterior.png", width=8, height=4)
+```
+
+```{r}
+plot_data = scenarios_long %>%
+  select(-ts, -cases, -est_incidence) %>%
+  pivot_longer(matches("^est")) %>%
+  unnest(value) %>%
+  drop_na(value) %>%
+  mutate(name = name %>% str_remove("^est_"),
+         method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal")) %>%
+  group_by(name) %>%
+  mutate(lq = quantile(value, 0.01),
+         uq = quantile(value, 0.99)) %>%
+  filter(value > lq,
+         value < uq)
+
+true_values = scenarios_long %>%
+  distinct(lambda, phi, eps, kappa, phase) %>%
+  mutate(lambda2 = as.factor(lambda),
+         eps2 = as.factor(eps)) %>%
+  pivot_longer(-c(lambda2, eps2)) %>%
+  dplyr::rename(lambda = lambda2,
+                eps = eps2)
+
+posterior_ranges = tribble(
+  ~name, ~min, ~max,
+  "lambda", 0, 0.015,
+  "phi", 0, 20,
+  "eps", 0, 1,
+  "kappa", 0, 10,
+  "phase", 0, years
+)
+posterior_ranges_data = posterior_ranges %>%
+  pivot_longer(-name, names_to="bound")
+
+plot_data = plot_data %>%
+  inner_join(posterior_ranges, by="name") %>%
+  filter(value >= min, value <= max)
+
+my_labeller <- function(variable, value){
+  var = make_greek(variable)
+  if (is.numeric(value)) {
+    value = round(value, 6)
+  }
+  if (variable == "name") {
+    return(make_greek(value))
+  } else {
+    return(paste(var, "=", value))
+  }
+}
+
+ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = method, fill = method, group = interaction(lambda, rep, method))) +
+  geom_density_ridges(alpha = 0.25) +
+  geom_point(data = posterior_ranges_data, aes(y = as.factor(0.01), color = NULL, fill = NULL, group = NULL), alpha=0) +
+  geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
+  facet_wrap(vars(eps, make_greek(name)), scales="free", nrow=3, labeller = labeller(eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
+                                                                                     .multi_line=F)) +
+  theme(legend.position = "right") +
+  labs(title = "Synthetic parameter estimation comparison over repeated scenarios",
+       x = "Value", y = NULL, color = "Method", fill = "Method")
+ggsave("../plots/basic_posterior_comparison.png", width=8, height=4)
+```
+
+Lambda only
+
+```{r}
+plot_data_2 = plot_data %>%
+  filter(name == "lambda") %>%
+  mutate(eps = as.numeric(as.character(eps)))
+true_values_2 = true_values %>%
+  filter(name == "lambda") %>%
+  mutate(eps = as.numeric(as.character(eps))) %>%
+  left_join(tibble(method = c("Seasonal", "Nonseasonal")), by=character())
+
+ggplot(plot_data_2, aes(x = value, y = method, color = method, fill = method, group = interaction(lambda, rep, method))) +
+  geom_vline(data=true_values_2, aes(xintercept = value), linetype="dashed") +
+  geom_density_ridges(alpha = 0.25) +
+  scale_x_continuous(breaks = unique(true_values_2$value)) +
+  # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
+  facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
+  theme(legend.position = "none") +
+  labs(title = "Synthetic parameter estimation comparison over repeated scenarios",
+       x = "Value", y = NULL, color = "Method", fill = "Method")
+
+ggsave("../plots/basic_method_comparison.png", width=8, height=4)
 ```
 
 Plot incidence fits
 
-```{r}
-# incidence_scenarios = lapply(fits_scenarios, extract_incidence, scenarios_long$ts[[1]])
-# incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
-#   incidence_scenarios[[i]] %>%
-#     mutate(ID = i,
-#            lambda = scenarios_long$lambda[i],
-#            eps = scenarios_long$eps[i],
-#            rep = scenarios_long$rep[i])
-# }) %>%
-#   bind_rows()
+Single trace
 
+```{r}
+scenarios_long$est_incidence[[2]] %>%
+  ggplot(aes(x=ts, y=incidence, color=rep, group=interaction(trace, rep))) +
+  geom_line()
+
+```
+
+```{r}
 incidence_join = lapply(seq_len(nrow(scenarios_long)), function(i) {
+  if (is.null(scenarios_long$est_incidence[[i]])){
+    return(NULL)
+  }
   est_incidence = scenarios_long$est_incidence[[i]] %>%
-    mutate(method = scenarios_long$method[i],
+    mutate(ID = scenarios_long$ID[i],
+           method = scenarios_long$method[i],
            lambda = scenarios_long$lambda[i],
            eps = scenarios_long$eps[i],
            rep = scenarios_long$rep[i])
 }) %>%
-  bind_rows()
+  bind_rows() %>%
+  ungroup() %>%
+  select(-lower, -upper, -legend)
+
+if (n_traces < length(unique(incidence_join$trace))) {
+  trace_sample = sample(unique(incidence_join$trace), n_traces)
+  incidence_join = incidence_join %>%
+    filter(trace %in% trace_sample)
+}
+
+# For each scenario, find a rep where nothing failed
+first_successful_scenario = incidence_join %>%
+  group_by(lambda, eps, method) %>%
+  slice(1) %>%
+  select(lambda, eps, method, rep) %>%
+  ungroup()
+incidence_join = incidence_join %>%
+  inner_join(first_successful_scenario, by=c("rep", "method", "lambda", "eps")) %>%
+  mutate(method = ifelse(method %>% str_detect("poisson"), "Nonseasonal", "Seasonal")) %>%
+  mutate(incidence = ifelse(method == "Nonseasonal", incidence/12, incidence))
+
 
 scenarios_overlay = scenarios %>%
-  unnest(c(ts, cases))
+  unnest(c(ts, cases)) %>%
+  inner_join(first_successful_scenario, by=c("rep", "lambda", "eps"))
 
-max_y = max(scenarios_overlay$cases) * 1.2
-
-ggplot(incidence_join, aes(x = ts, y = incidence, color=method, group = factor(method, rep))) +
+ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = interaction(method, rep, trace))) +
+  geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
   geom_line(alpha = 0.25) +
-  geom_point(data=scenarios_overlay, aes(y=cases)) +
-  # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
-  # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller) +
-  # scale_fill_manual(values = param_colors, drop=F) +
-  # scale_color_manual(values = param_colors, drop=F) +
-  coord_cartesian(ylim = c(NA, max_y)) +
-  labs(title = "Estimated incidence") +
+  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+  scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2) +
-  scale_color_brewer(palette = "Set2") +
-  theme(legend.position = "none")
+  labs(title = "Mean estimated incidence rates for the first scenario repetition",
+       subtitle = "Nonseasonal (annual) results scaled to per-month",
+       x = "Year",
+       y = "Incidence", color = "Method") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
 
-ggsave("../plots/synth_modelled_incidence.png", width=8, height=4)
+ggsave("../plots/basic_modelled_incidence.png", width=8, height=4)
+```
+
+Re-simulate data with the true seasonality
+
+```{r}
+valid_scenarios_long = scenarios_long %>%
+  inner_join(first_successful_scenario)
+resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
+  if (is.null(valid_scenarios_long$est_incidence[[i]])){
+    return(NULL)
+  }
+  pbmclapply(seq_len(8), function(j) {
+    if (is.null(valid_scenarios_long$est_lambda[[i]])) {
+      return(NULL)
+    }
+    lambda = sample(valid_scenarios_long$est_lambda[[i]], 1)
+    phi_inv = valid_scenarios_long$phi_inv[i]
+    eps = valid_scenarios_long$eps[i]
+    kappa = valid_scenarios_long$kappa[i]
+    phase = valid_scenarios_long$phase[i]
+    x = simulate_cases(data_consts, lambda, phi_inv, eps, kappa, phase)
+    if (is.data.frame(x)) {
+      result = x %>%
+      mutate(lambda = valid_scenarios_long$lambda[i],
+             eps = eps,
+             method = valid_scenarios_long$method[i],
+             trace = j)
+      return(result)
+    } else {
+      return(NULL)
+    }
+    
+  }) %>%
+    bind_rows()
+})
+resimulated_2 = resimulated %>%
+  bind_rows() %>%
+  mutate(method = ifelse(method %>% str_detect("poisson"), "Nonseasonal", "Seasonal"))
+
+ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = interaction(method, trace))) +
+  geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
+  geom_line(alpha = 0.25) +
+  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+  scale_x_continuous(breaks = 0:n_years) +
+  scale_y_log10(labels = label_auto2) +
+  labs(title = "Re-simulated incidence rates for the first scenario repetition",
+       # subtitle = "Nonseasonal (annual) results scaled to per-month",
+       x = "Year",
+       y = "Incidence", color = "Method") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+ggsave("../plots/basic_resimulation.png", width=8, height=4)
 ```

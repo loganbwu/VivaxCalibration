@@ -53,6 +53,9 @@ my_simulate_data = function(...) {
 }
 
 make_greek = function(name) {
+  if (is.factor(name)) {
+    name = as.character(name)
+  }
   case_match(name, 
              c("transmission_rates", "lambda") ~ "λ",
              "phi" ~ "φ",
