@@ -30,6 +30,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
+cd = cachem::cache_disk("memoise")
+
 n_iter = 500 # should be at least 500
 n_chains = 1
 n_repetitions = 5 # how many times to duplicate each scenario
@@ -38,6 +40,7 @@ limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 3*hr
 n_traces = 100 # limit for plotting sample trajectories
 n_traces = min(n_traces, n_iter)
+set.seed(0)
 ```
 
 ## Model implementation
@@ -162,7 +165,7 @@ ggplot(incidence_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
+.simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    cases = rep(1, n_times),
@@ -178,6 +181,7 @@ simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
     vars = c("ts", "incidence", "sim_cases")
   )
 }
+simulate_cases = memoise::memoise(.simulate_cases, cache=cd)
 ```
 
 Create scenarios
@@ -250,7 +254,7 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling = function(method, ts, cases, true_lambda=NULL) {
+.my_sampling = function(method, ts, cases, true_lambda=NULL) {
   data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
   if (method == "../stan/champagne2022_poisson.stan") {
     result = sampling(stan_model(method),
@@ -266,6 +270,7 @@ my_sampling = function(method, ts, cases, true_lambda=NULL) {
   }
   result
 }
+my_sampling = memoise::memoise(.my_sampling, cache = cd)
 
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
