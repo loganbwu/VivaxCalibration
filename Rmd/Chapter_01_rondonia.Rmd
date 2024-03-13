@@ -481,7 +481,7 @@ posterior_comparison = composite_list %>%
 ylimits = c(0, max(data_ro$cases) * 1.2)
 
 posterior_comparison %>%
-  ggplot(aes(x = ts+date_0, y = incidence)) +
+  ggplot(aes(x = ts + as.Date(paste0(min_year, "-01-01")), y = incidence)) +
   geom_line(aes(color=method, group=trace), alpha=0.1) +
   geom_point(data = tibble(ts = data_ro$ts, cases = data_ro$cases, color="Incidence data"), aes(y=cases)) +
   coord_cartesian(ylim = ylimits) +

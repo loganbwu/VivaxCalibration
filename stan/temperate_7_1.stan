@@ -4,7 +4,6 @@
 // Changes from v3: changed observation model for cases/relapses
 // Changes from v5: observation model is negative binomial not poisson
 // Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
-// Changes from v7: introduce the time adjustment where we now simulate cumulative cases for the time period up to the first ts (ts[1]).
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -29,7 +28,7 @@ functions {
     real r = x_r[9];
     real p_long = x_r[10];
     real p_silent = x_r[11];
-    real population_size = x_r[12];
+    real N = x_r[12];
     real eps = x_r[13];
     real kappa = x_r[14];
     real phase = x_r[15];
@@ -153,10 +152,10 @@ functions {
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
     real dClinicalPrimary = (S0*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
       sum(Sl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
-      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary)) * population_size;
+      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary)) * N;
       
     real dClinicalRelapse = (Sl[active]*relapse*treatedprimary +
-      Scl[active]*relapse*treatedrelapse) * population_size;
+      Scl[active]*relapse*treatedrelapse) * N;
     
     // Assign derivatives
     vector[num_elements(y)] dydt;
@@ -191,7 +190,7 @@ data {
   real<lower=0> r;
   real<lower=0, upper=1> p_long;
   real<lower=0, upper=1> p_silent;
-  real<lower=0> population_size;
+  real<lower=0> N;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
   real phase;
@@ -199,7 +198,7 @@ data {
   
   int<lower=1> n_dormant;
   
-  vector[2 + 3*(n_dormant+1) + 2] y0; # last two elements are clinical primary incidence and clinical relapse incidence
+  vector[2 + 3*(n_dormant+1) + 2] y0; # last element is clinical incidence
   int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 
@@ -216,7 +215,7 @@ transformed data {
     r,
     p_long,
     p_silent,
-    population_size,
+    N,
     eps,
     kappa,
     phase
@@ -252,10 +251,14 @@ transformed parameters {
   
   real incidence[n_times];
   
-  array[n_times+1] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
+  array[n_times+1] vector[len_y] y_extended = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
   for (i in 1:n_times) {
-    incidence[i] = fmax(1e-12, y[i+i][n_compartments+1] - y[i][n_compartments+1] +
-        y[i+1][n_compartments+2] - y[i][n_compartments+2]);
+    incidence[i] = fmax(1e-12, y_extended[i+1][n_compartments+1] - y_extended[i][n_compartments+1] +
+        y_extended[i+1][n_compartments+2] - y_extended[i][n_compartments+2]);
+  }
+  array[n_times] vector[len_y] y;
+  for (i in 1:n_times) {
+    y[i] = y_extended[i+1];
   }
 }
 
@@ -263,11 +266,11 @@ model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
   
-  // if (run_estimation == 1) {
-  for (i in 1:n_times) {
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+  if (run_estimation == 1) {
+    for (i in 1:n_times) {
+      cases[i] ~ neg_binomial_2(incidence[i], phi);
+    }
   }
-  // }
 }
 
 generated quantities {

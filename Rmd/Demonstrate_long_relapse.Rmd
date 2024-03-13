@@ -30,7 +30,7 @@ n_chains = 4
 n_times = 365*10
 data_null = list(
   n_times = n_times,
-  t0 = -20*year,
+  t0 = -1*year,
   ts = 1:n_times,
   cases = rpois(n_times, 100),
   alpha = 1,
@@ -44,7 +44,7 @@ data_null = list(
   r = 1/60,
   p_long = 0,
   p_silent = 0,
-  population_size = 10000,
+  N = 10000,
   
   n_dormant = 11,
   eps = 1,
@@ -73,6 +73,14 @@ data = data_init(data_null,
                  gamma_d = 0)
 data$y0 = state_init_2(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 true_params = list(lambda=1, phi_inv=0.1, relapse_clinical_immunity=0.8)
+
+sim_list = my_simulate_data_list(
+  file = model_file,
+  data_name = "dummy_data",
+  input_data = data,
+  param_values = true_params,
+  vars = c("y", "sim_cases", "incidence")
+)
 
 sim_summary = my_simulate_data_list(
   file = model_file,
