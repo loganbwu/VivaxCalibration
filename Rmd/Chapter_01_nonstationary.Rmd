@@ -164,7 +164,7 @@ simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase, xi, t
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, xi=xi, tstar=tstar)
+  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, xi=xi, tstar=tstar)my_
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",

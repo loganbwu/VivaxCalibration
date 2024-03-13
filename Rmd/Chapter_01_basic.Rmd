@@ -489,7 +489,7 @@ ggplot(plot_data_2, aes(x = value, y = method, color = method, fill = method, gr
   # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
   theme(legend.position = "none") +
-  labs(title = "Synthetic parameter estimation comparison over repeated scenarios",
+  labs(title = paste("Estimates of", make_greek("lambda"), "over repeated scenarios"),
        x = "Value", y = NULL, color = "Method", fill = "Method")
 
 ggsave("../plots/basic_method_comparison.png", width=8, height=4)

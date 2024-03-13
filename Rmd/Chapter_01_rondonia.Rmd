@@ -45,7 +45,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_iter = 500 # should be at least 500
-n_chains = 4
+n_chains = 8
 n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 n_traces = 200 # limit for plotting sample trajectories
