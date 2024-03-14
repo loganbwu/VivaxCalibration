@@ -27,12 +27,8 @@ names(param_colors) = c("lambda", "phi")
 n_chains = 4
 
 # Initialise values for verification runs
-n_times = 365*10
 data_null = list(
-  n_times = n_times,
   t0 = -50*year,
-  ts = 1:n_times,
-  cases = rpois(n_times, 100),
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,
@@ -50,9 +46,7 @@ data_null = list(
   n_dormant = 11,
   eps = 1,
   kappa = 1,
-  phase = 130,
-  
-  run_estimation = 0
+  phase = 130
 )
 
 model_file = "../stan/temperate_8_1.stan"

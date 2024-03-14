@@ -64,5 +64,6 @@ make_greek = function(name) {
              "phase" ~ "ψ",
              "tstar" ~ "t*",
              "xi" ~ "ξ",
+             "relapse_clinical_immunity" ~ "RCI",
              .default = as.character(name))
 }
