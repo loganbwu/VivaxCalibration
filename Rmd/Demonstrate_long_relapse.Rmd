@@ -30,7 +30,7 @@ n_chains = 4
 n_times = 365*10
 data_null = list(
   n_times = n_times,
-  t0 = -1*year,
+  t0 = -50*year,
   ts = 1:n_times,
   cases = rpois(n_times, 100),
   alpha = 1,
@@ -451,78 +451,6 @@ ggplot(mapping = aes(x=ts)) +
                       breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
                       values = c("steelblue", "tomato", "black")) +
   labs(subtitle = "Seasonal model, monthly synthetic data",
-       x = "Year",
-       y = "Annual incidence")
-```
-
-Can we also fit `relapse_clinical_immunity` at the same time?
-
-```{r}
-data_recovery = data_init(data_sim,
-                          n_times = nrow(synth_df),
-                          ts = synth_df$time,
-                          cases = synth_df$cases,
-                          run_estimation = 1)
-theta_init = list(
-  lambda = 0.02,
-  phi_inv = 0.1,
-  relapse_clinical_immunity = 0.8
-)
-
-tictoc::tic("Fitting relapse clinical immunity")
-samp_immunity = sampling(stan_model("../stan/temperate_7_1.stan"),
-                data = data_recovery,
-                iter = 100,
-                chains = 4,
-                init = rep(list(theta_init), n_chains), # Start from MLE solution
-                cores = 4)
-tictoc::toc()
-```
-
-```{r}
-# inspect parameter posteriors
-posterior_seasonal = rstan::extract(samp_immunity, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
-  as_tibble()
-
-posterior_seasonal %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
-  ggplot(aes(x = value, fill=parameter, color=parameter)) +
-  geom_density(alpha=0.5) +
-  scale_fill_manual(values = param_colors, drop=F) +
-  scale_color_manual(values = param_colors, drop=F) +
-  coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
-  labs(subtitle = "Parameter estimates")
-
-# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
-
-# Plot credible intervals
-n_traces = 100
-incidence = rstan::extract(samp_immunity, "incidence")[[1]]
-sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-plot_data_immunity = as_tibble(t(incidence[sample_ix,])) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
-  drop_na(j) %>%
-  mutate(ts = data_recovery_2$ts[j])
-
-ggplot(mapping = aes(x=ts)) +
-  geom_line(data = plot_data_immunity,
-            aes(y=incidence, color=paste(n_traces, "traces of mean incidence"), group=trace),
-            alpha = 0.1) +
-  geom_point(data = tibble(ts = data_recovery$ts, cases = data_recovery$cases),
-             aes(y = cases, group = NULL, color="Case data")) +
-  coord_cartesian(ylim = c(0, NA)) +
-  scale_fill_manual("", 
-                    breaks = c("95% case prediction interval", paste(n_traces, "traces of mean incidence"), "Case data"),
-                    values = c("steelblue", "tomato", "black")) +
-  scale_colour_manual("", 
-                      breaks = c("95% case prediction interval",paste(n_traces, "traces of mean incidence"), "Case data"),
-                      values = c("steelblue", "tomato", "black")) +
-  labs(title = "Seasonal model, monthly data",
-       subtitle = "Refit using correct model",
        x = "Year",
        y = "Annual incidence")
 ```
