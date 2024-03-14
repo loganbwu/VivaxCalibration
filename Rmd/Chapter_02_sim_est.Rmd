@@ -1,5 +1,5 @@
 _---
-title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
 html_notebook:
@@ -7,13 +7,6 @@ number_sections: true
 ---
 
 
-This document is for fitting an epidemic model where the system begins out of equilibrium and gradually returns to equilibrium.
-
-Method:
-
-1. Lambda takes the form of a step function: lambda(t) = *λ* for t<0, = *λ + Δλ* for t >= 0
-2. We find an approximate solution for *λ* and *X* for t=0 by assuming equilibrium for t<0 at data point Incidence(t=0)
-3. We calibrate *Δλ* and/or other parameters by fitting to data for t>=0
 
 ```{r setup}
 library(R.utils)
@@ -35,6 +28,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
+n_years = 10
 n_iter = 100 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
