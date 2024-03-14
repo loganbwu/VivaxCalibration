@@ -58,6 +58,10 @@ data_null = list(
 )
 data_null$y0 = state_init_3(data_null, I0=0.01)
 data_consts = data_null
+
+# Compile model before we reach any sampling
+model_file = "../stan/temperate_8_1.stan"
+model = stan_model("../stan/temperate_8_1.stan")
 ```
 
 ## Model implementation
@@ -78,9 +82,9 @@ simulate_cases = function(data_consts, lambda, phi_inv, relapse_clinical_immunit
                    p_silent = 0,
                    eps = 0,
                    kappa = 3)
-  params = list(lambda=lambda, phi_inv=phi_inv, relapse_clinical_immunity)
+  params = list(lambda=lambda, phi_inv=phi_inv, relapse_clinical_immunity=relapse_clinical_immunity)
   synth_df = my_simulate_data(
-    file = "../stan/temperate_8_1.stan",
+    file = model_file,
     path = "sim_data",
     data_name = "temperate_8_1",
     input_data = data,
@@ -103,7 +107,7 @@ scenarios = expand_grid(
   mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
-cases_scenarios = pblapply(seq_len(nrow(scenarios)), function(i) {
+cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   lambda = scenarios$lambda[i]
   phi_inv = scenarios$phi_inv[i]
   relapse_clinical_immunity = scenarios$relapse_clinical_immunity[i]
@@ -153,7 +157,7 @@ my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_r
   true_params = list(lambda = true_lambda,
                      phi_inv = true_phi_inv,
                      relapse_clinical_immunity = true_relapse_clinical_immunity)
-  fit = sampling(stan_model("../stan/temperate_8_1.stan"),
+  fit = sampling(model,
                  data = data,
                  iter = n_iter,
                  init = rep(list(true_params), 1),
@@ -163,7 +167,7 @@ my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_r
 
 # Apply function to simulated data
 tictoc::tic("Running Stan sampling")
-fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
+fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$relapse_clinical_immunity[i])
 })
 tictoc::toc()

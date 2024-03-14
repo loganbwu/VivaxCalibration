@@ -306,7 +306,7 @@ sim_cases_sample_nonseasonal = as_tibble(t(sim_cases[sample_ix,])) %>%
          legend = "95% prediction interval") %>%
   distinct(ts, .keep_all=T)
 
-p_ns_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01"))-years(1))) +
+p_ns_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01")))) +
   geom_ribbon(data = sim_cases_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
               alpha = 0.5) +
@@ -314,13 +314,13 @@ p_ns_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01"))-years(
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
-             aes(y = cases, group = NULL, color="Incidence data")) +
+             aes(y = cases, group = NULL, color="Case data")) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
-                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                    breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
                       values = c("steelblue", "tomato", "black")) +
   labs(subtitle = "Non-seasonal model, annual data",
        x = "Year",
