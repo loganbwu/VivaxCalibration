@@ -45,6 +45,7 @@ data_null = list(
   p_long = 0,
   p_silent = 0,
   N = 10000,
+  population_size = 10000,
   
   n_dormant = 11,
   eps = 1,
@@ -54,7 +55,7 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_7_1.stan"
+model_file = "../stan/temperate_8_1.stan"
 model = stan_model(model_file)
 ```
 
@@ -71,7 +72,7 @@ data = data_init(data_null,
                  n_dormant = 1,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_2(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
+data$y0 = state_init_3(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 true_params = list(lambda=1, phi_inv=0.1, relapse_clinical_immunity=0.8)
 
 sim_list = my_simulate_data_list(
@@ -125,9 +126,9 @@ data = data_init(data_null,
                  cases = cases,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_2(data, Sl1=1)
+data$y0 = state_init_3(data, Sl1=1)
 
-true_params = list(lambda = 1, phi_inv = 0.1, relapse_clinical_immunity = 0)
+true_params = list(lambda = 1, phi_inv = 0.1, relapse_clinical_immunity = 1e-16)
 
 sim_summary = my_simulate_data_list(
   file = model_file,
@@ -181,9 +182,9 @@ data = data_init(data_null,
                  gamma_l = 0,
                  gamma_d = 0)
 data_1 = data_2 = data_3 = data
-data_1$y0 = state_init_2(data, Sl12 = 1)
-data_2$y0 = state_init_2(data, Sl1 = 0.5, Sl12 = 0.5)
-data_3$y0 = state_init_2(data, Sl1 = 1)
+data_1$y0 = state_init_3(data, Sl12 = 1)
+data_2$y0 = state_init_3(data, Sl1 = 0.5, Sl12 = 0.5)
+data_3$y0 = state_init_3(data, Sl1 = 1)
 true_params = list(lambda = 1e-12)
 
 sims_out = list(
@@ -234,7 +235,7 @@ data = data_init(data_null,
                  eps = 0.001,
                  kappa = 5,
                  phase = 0)
-data$y0 = state_init_2(data, I0 = 0.01)
+data$y0 = state_init_3(data, I0 = 0.01)
 data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
 data_2$p_silent = 0.5
@@ -284,12 +285,12 @@ data = data_init(data_null,
                  cases = cases,
                  alpha = 0.8,
                  beta = 0.5,
-                 relapse_clinical_immunity = 0.8,
+                 relapse_clinical_immunity = 0,
                  p_long = 1,
                  p_silent = 0,
                  eps = 0,
                  kappa = 3)
-data$y0 = state_init_2(data, I0=0.01)
+data$y0 = state_init_3(data, I0=0.01)
 
 true_params = list(lambda = 0.045)
 
@@ -363,15 +364,11 @@ What happens when we simulate data?
 ```{r}
 data_sim = data
 data_sim$phi_2 = 0
-# data_sim$t0 = 0
 
+true_params = list(lambda = 0.03, phi_inv = 0.1, relapse_clinical_immunity = 0.5)
 
-
-tictoc::tic()
-true_params = list(lambda = 0.02, phi_inv = 0.1)
-
-synth_df = my_simulate_data_list(
-    file = "../stan/temperate_6_1.stan",
+synth_df = my_simulate_data(
+    file = model_file,
     path = "sim_data",
     data_name = "nonstationary",
     input_data = data_sim,
@@ -379,20 +376,8 @@ synth_df = my_simulate_data_list(
     vars = c("ts", "incidence", "sim_cases")
   )
 
-synth_df = tibble(
-  time = data_sim$ts,
-  cases = my_simulate_data_list(
-    file = "../stan/temperate_6_1.stan",
-    path = "sim_data",
-    data_name = paste0("data"),
-    input_data = data_sim,
-    param_values = true_params,
-    vars = c("cases_sim")
-  )$cases_sim) %>%
-  drop_na()
-tictoc::toc()
 
-ggplot(synth_df, aes(x=time/year, y=cases)) +
+ggplot(synth_df, aes(x=ts/year, y=cases)) +
   geom_col()
 ```
 
@@ -401,28 +386,31 @@ How well does parameter recovery work?
 ```{r}
 data_recovery = data_init(data_sim,
                           n_times = nrow(synth_df),
-                          ts = synth_df$time,
+                          ts = synth_df$ts,
                           cases = synth_df$cases,
                           run_estimation = 1)
 
 tictoc::tic()
-samp = sampling(stan_model("../stan/temperate_7_1.stan"),
+n_chains = 2
+samp = sampling(model,
                 data = data_recovery,
                 iter = 100,
                 chains = n_chains,
                 # init = rep(list(.theta_init), n_chains), # Start from MLE solution
-                cores = n_chains)
+                cores = n_chains,
+                pars = "y_extended",
+                include = FALSE)
 tictoc::toc()
 ```
 
 ```{r}
 # inspect parameter posteriors
-posterior_seasonal = rstan::extract(samp, c("lambda", "phi_inv")) %>%
-  as_tibble()
+posterior_seasonal = rstan::extract(samp, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
+  as_tibble() %>%
+  mutate(phi = 1/phi_inv) %>%
+  select(-phi_inv)
 
 posterior_seasonal %>%
-  mutate(phi = 1/phi_inv,
-         phi_inv = NULL) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
   geom_density(alpha=0.5) +
