@@ -247,10 +247,14 @@ transformed parameters {
   
   real incidence[n_times];
   
-  array[n_times+1] vector[len_y] y = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
+  array[n_times+1] vector[len_y] y_extended = ode_bdf(my_ode, y0, t0, ts_extended, theta, x_r, x_i);
   for (i in 1:n_times) {
-    incidence[i] = fmax(1e-12, y[i+1][n_compartments+1] - y[i][n_compartments+1] +
-        y[i+1][n_compartments+2] - y[i][n_compartments+2]);
+    incidence[i] = fmax(1e-12, y_extended[i+1][n_compartments+1] - y_extended[i][n_compartments+1] +
+        y_extended[i+1][n_compartments+2] - y_extended[i][n_compartments+2]);
+  }
+  array[n_times] vector[len_y] y;
+  for (i in 1:n_times) {
+    y[i] = y_extended[i+1];
   }
 }
 

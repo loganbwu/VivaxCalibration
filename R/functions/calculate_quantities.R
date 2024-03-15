@@ -41,6 +41,7 @@ calculate_quantities_v4 = function(x, data) {
            .keep = "used")
 }
 
+#' Use for models 5-7
 calculate_quantities_2 = function(x, data) {
   n_stages = names(x) %>%
     str_subset("Sl") %>%

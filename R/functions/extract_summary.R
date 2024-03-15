@@ -63,6 +63,7 @@ extract_summary_v4 = function(data, sim_out) {
 
 #' Adapted for updated clinical incidence model
 #' Also split into primary cases and relapses
+#' Use for models v5-v7
 extract_summary_2 = function(data, sim_out) {
   with(data, cbind(as.data.frame(
     summary(

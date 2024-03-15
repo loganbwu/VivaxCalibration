@@ -2,6 +2,7 @@
 
 // Changes from v2: omega is now 'suitability' function and equations are verified against the clinical pathways
 // Changes from v3: changed observation model for cases/relapses
+// Changes from v4: observations are split into cases and relapses
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {

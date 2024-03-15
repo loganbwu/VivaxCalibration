@@ -42,7 +42,7 @@ plot_output = function(output) {
 n_times = 365*10
 data_null = list(
   n_times = n_times,
-  t0 = 0,
+  t0 = -1,
   ts = 1:n_times,
   cases = rpois(n_times, 100),
   alpha = 1,
@@ -67,8 +67,11 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_4.stan"
+model_file = "../stan/temperate_6_1.stan"
 model = stan_model(model_file)
+my_state_init = state_init_2
+my_extract_summary = extract_summary_2
+my_calculate_quantities = calculate_quantities_2
 ```
 
 ```{r short_relapse}
@@ -82,12 +85,12 @@ data = data_init(data_null,
                  n_dormant = 1,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_v4(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
+data$y0 = my_state_init(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
 
 true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary_v4(data, sim_out)
+sim_summary = my_extract_summary(data, sim_out)
 
 plot_output(sim_summary)
 ```
@@ -103,12 +106,12 @@ data = data_init(data_null,
                  gamma_l = 0,
                  gamma_d = 0,
                  f = 99)
-data$y0 = state_init_v4(data, Sl1=1)
+data$y0 = my_state_init(data, Sl1=1)
 
 true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary_v4(data, sim_out)
+sim_summary = my_extract_summary(data, sim_out)
 
 plot_output(sim_summary)
 
@@ -142,12 +145,12 @@ data = data_init(data_null,
                  cases = cases,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_v4(data, Sl1=1)
+data$y0 = my_state_init(data, Sl1=1)
 
 # true_params = list(lambda = 0.0)
 
 sim_out = sampling(model, data = data, chains = 1, iter = 1)
-sim_summary = extract_summary_v4(data, sim_out)
+sim_summary = my_extract_summary(data, sim_out)
 
 plot_output(sim_summary)
 
@@ -183,7 +186,7 @@ data = data_init(data_null,
                  # f = 0,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_v4(data, Sl1 = 1)
+data$y0 = my_state_init(data, Sl1 = 1)
 data_1 = data_2 = data
 data_2$alpha = a2
 real_params = list(lambda = 0.01)
@@ -201,7 +204,7 @@ sims_out = list(data_1, data_2) %>%
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_v4(x)
+      my_calculate_quantities(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
@@ -226,7 +229,7 @@ data = data_init(data_null,
                  beta = 0.5,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_v4(data, Sl1 = 1)
+data$y0 = my_state_init(data, Sl1 = 1)
 data_1 = data_2 = data
 data_2$beta = 1
 real_params = list(lambda = 1e-12)
@@ -246,7 +249,7 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_v4(x)
+      my_calculate_quantities(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
@@ -274,7 +277,7 @@ data = data_init(data_null,
                  gamma_d = 0)
 
 
-data$y0 = state_init_v4(data, "Sl1" = 1)
+data$y0 = my_state_init(data, "Sl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
@@ -287,7 +290,7 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_v4(data)
+  my_calculate_quantities(data)
 
 plot_data = sim_out %>%
   select(time, ClinicalIncidence)
@@ -309,7 +312,7 @@ data = data_init(data_null,
                  relapse_clinical_immunity = 1,
                  delta = 0.1) # people get lost when the long relapse occurs
 
-data$y0 = state_init_v4(data, "Icl1" = 1)
+data$y0 = my_state_init(data, "Icl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
@@ -322,7 +325,7 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_v4(data)
+  my_calculate_quantities(data)
 
 # plot_output(sim_out)
 
@@ -356,7 +359,7 @@ data = data_init(data_null,
                  eps = 0,
                  kappa = 1)
 
-data$y0 = state_init_v4(data, "I0" = 0.01)
+data$y0 = my_state_init(data, "I0" = 0.01)
 real_params = list(lambda = 1)
 
 sim_out = my_simulate_data_list(
@@ -369,7 +372,7 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_v4(data) 
+  my_calculate_quantities(data) 
 
 plot_data = sim_out %>%
   select(time, ClinicalIncidence, matches("^(I|S).{,5}$")) %>%
@@ -406,9 +409,9 @@ data = data_init(data_null,
                  gamma_l = 0,
                  gamma_d = 0)
 data_1 = data_2 = data_3 = data
-data_1$y0 = state_init_v4(data, Sl12 = 1)
-data_2$y0 = state_init_v4(data, Sl1 = 0.5, Sl12 = 0.5)
-data_3$y0 = state_init_v4(data, Sl1 = 1)
+data_1$y0 = my_state_init(data, Sl12 = 1)
+data_2$y0 = my_state_init(data, Sl1 = 0.5, Sl12 = 0.5)
+data_3$y0 = my_state_init(data, Sl1 = 1)
 real_params = list(lambda = 1e-12)
 
 sims_out = list(
@@ -427,7 +430,7 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_v4(x)
+      my_calculate_quantities(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
@@ -455,7 +458,7 @@ data = data_init(data_null,
                  eps = 0.001,
                  kappa = 5,
                  phase = 0)
-data$y0 = state_init_v4(data, I0 = 0.01)
+data$y0 = my_state_init(data, I0 = 0.01)
 data_1 = data_2 = data_3 = data
 data_1$p_silent = 0
 data_2$p_silent = 0.5
@@ -478,7 +481,7 @@ sims_out = list(
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_v4(x)
+      my_calculate_quantities(x)
   })
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
@@ -535,7 +538,7 @@ init_I0 = 0.1
 sims_out = list(data_1, data_2, data_3) %>%
   setNames(paste0("n_dormant=", c(data_1$n_dormant, data_2$n_dormant, data_3$n_dormant))) %>%
   lapply(function(x) {
-    x$y0 = state_init_v4(x, I0 = init_I0)
+    x$y0 = my_state_init(x, I0 = init_I0)
     my_simulate_data_list(
       file = model_file,
       data_name = "dummy_data",
@@ -546,7 +549,7 @@ sims_out = list(data_1, data_2, data_3) %>%
       as_tibble() %>%
       setNames(names(x$y0)) %>%
       mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_v4(x)
+      my_calculate_quantities(x)
   })
 
 plot_data = sims_out %>%
@@ -577,7 +580,7 @@ data = data_init(data_null,
                  p_silent = 0.5,
                  gamma_l = 0,
                  gamma_d = 0)
-data$y0 = state_init_v4(data, I0 = 0.1)
+data$y0 = my_state_init(data, I0 = 0.1)
 real_params = list(lambda = 0.1)
 
 sim_out = my_simulate_data_list(
@@ -592,11 +595,11 @@ sim_out = sim_out$y %>%
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_v4(data) %>%
+  my_calculate_quantities(data) %>%
   mutate(omega = sim_out$omega)
 
 plot_data = sim_out %>%
-  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible, omega)) %>%
+  pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
   mutate(Type = ifelse(name =="ClinicalIncidence", "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
