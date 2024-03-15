@@ -151,16 +151,17 @@ functions {
     Icl[n_stages-1]*advance;
     
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
+    // We also count the first 'relapse' with no clinical immunity (i.e., cryptic primary infection) as a primary infection because it presents as a primary.
     real dAllPrimary = (S0*infect*(short_hyp + long_hyp*primary) +
     sum(Sl)*infect*(short_hyp + long_hyp*primary) +
-    sum(Scl)*infect*(short_hyp + long_hyp*primary)) * N;
+    sum(Scl)*infect*(short_hyp + long_hyp*primary) +
+    Sl[active]*relapse) * N;
     
-    real dAllRelapse = (Sl[active]*relapse + Scl[active]*relapse) * N;
+    real dAllRelapse = Scl[active]*relapse * N;
     
-    real dClinicalPrimary = dAllPrimary * treatedrelapse;
+    real dClinicalPrimary = dAllPrimary * treatedprimary;
     
-    real dClinicalRelapse = (Sl[active]*relapse*treatedprimary +
-    Scl[active]*relapse*treatedrelapse) * N;
+    real dClinicalRelapse = dAllRelapse * treatedrelapse;
     
     // Assign derivatives
     vector[num_elements(y)] dydt;

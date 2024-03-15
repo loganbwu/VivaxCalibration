@@ -24,8 +24,8 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-n_cores = parallelly::availableCores()
-# n_cores = 6
+# n_cores = parallelly::availableCores()
+n_cores = 8
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)

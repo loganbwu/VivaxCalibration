@@ -22,6 +22,25 @@ calculate_quantities = function(x, data) {
            .keep = "used")
 }
 
+# For use with temperate_4
+calculate_quantities_v4 = function(x, data) {
+  n_stages = names(x) %>%
+    str_subset("Sl") %>%
+    str_remove("Sl") %>%
+    as.numeric() %>%
+    max()
+  x %>%
+    mutate(time = time,
+           Infectious = rowSums(across(starts_with("I"))),
+           Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+           Latent = rowSums(across(matches(paste0("^Sc?l", data$n_dormant+1, "$")))),
+           Susceptible = S0,
+           Prevalence = 1 - S0,
+           Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
+           ClinicalIncidence = ClinicalIncidence - lag(ClinicalIncidence),
+           .keep = "used")
+}
+
 calculate_quantities_2 = function(x, data) {
   n_stages = names(x) %>%
     str_subset("Sl") %>%
@@ -36,6 +55,30 @@ calculate_quantities_2 = function(x, data) {
            Susceptible = S0,
            Prevalence = 1 - S0,
            Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
+           ClinicalPrimary = ClinicalPrimary - lag(ClinicalPrimary),
+           ClinicalRelapse = ClinicalRelapse - lag(ClinicalRelapse),
+           ClinicalIncidence = ClinicalPrimary + ClinicalRelapse,
+           .keep = "used")
+}
+
+# For use with model 8
+calculate_quantities_3 = function(x, data) {
+  n_stages = names(x) %>%
+    str_subset("Sl") %>%
+    str_remove("Sl") %>%
+    as.numeric() %>%
+    max()
+  x %>%
+    mutate(time = time,
+           Infectious = rowSums(across(starts_with("I"))),
+           Dormant = rowSums(across(matches(paste0("^Sc?l(", paste(seq_len(data$n_dormant), collapse="|"), ")$")))),
+           Latent = rowSums(across(matches(paste0("^Sc?l", data$n_dormant+1, "$")))),
+           Susceptible = S0,
+           Prevalence = 1 - S0,
+           Total = rowSums(across(matches(paste0("^(S|I).{,5}$")))),
+           AllPrimary = AllPrimary - lag(AllPrimary),
+           AllRelapse = AllRelapse - lag(AllRelapse),
+           AllIncidence = AllPrimary + AllRelapse,
            ClinicalPrimary = ClinicalPrimary - lag(ClinicalPrimary),
            ClinicalRelapse = ClinicalRelapse - lag(ClinicalRelapse),
            ClinicalIncidence = ClinicalPrimary + ClinicalRelapse,

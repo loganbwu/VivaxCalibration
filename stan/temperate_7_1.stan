@@ -150,12 +150,13 @@ functions {
       Icl[n_stages-1]*advance;
     
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
+    // We also count the first 'relapse' with no clinical immunity (i.e., cryptic primary infection) as a primary infection
     real dClinicalPrimary = (S0*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
       sum(Sl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
-      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary)) * N;
+      sum(Scl)*infect*(short_hyp*treatedprimary + long_hyp*primary*treatedprimary) +
+      Sl[active]*relapse*treatedprimary) * N;
       
-    real dClinicalRelapse = (Sl[active]*relapse*treatedprimary +
-      Scl[active]*relapse*treatedrelapse) * N;
+    real dClinicalRelapse = (Scl[active]*relapse*treatedrelapse) * N;
     
     // Assign derivatives
     vector[num_elements(y)] dydt;
@@ -199,7 +200,7 @@ data {
   int<lower=1> n_dormant;
   
   vector[2 + 3*(n_dormant+1) + 2] y0; # last element is clinical incidence
-  int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
+  // int<lower=0, upper=1> run_estimation; // https://khakieconomics.github.io/2017/04/30/An-easy-way-to-simulate-fake-data-in-stan.html
 }
 
 transformed data {
@@ -266,11 +267,11 @@ model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
   
-  if (run_estimation == 1) {
+  // if (run_estimation == 1) {
     for (i in 1:n_times) {
       cases[i] ~ neg_binomial_2(incidence[i], phi);
     }
-  }
+  // }
 }
 
 generated quantities {

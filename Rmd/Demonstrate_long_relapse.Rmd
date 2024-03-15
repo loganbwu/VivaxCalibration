@@ -49,221 +49,11 @@ data_null = list(
   phase = 130
 )
 
-model_file = "../stan/temperate_8_1.stan"
+model_file = "../stan/temperate_7_1.stan"
 model = stan_model(model_file)
-```
 
-People who who are non-infectious (have no blood stage infection) but have a short relapse phenotype are placed in the 'latent' compartment, where their relapse rate is constant and clinical relapses manifest as an exponential distribution.
-
-```{r short_relapse}
-n_times = 365*2
-ts = 1:n_times
-cases = rpois(n_times, 100)
-data = data_init(data_null,
-                 n_times = n_times,
-                 ts = ts,
-                 cases = cases,
-                 n_dormant = 1,
-                 gamma_l = 0,
-                 gamma_d = 0)
-data$y0 = state_init_3(data, list(1) %>% setNames(paste0("Sl", data$n_dormant+1)))
-true_params = list(lambda=1, phi_inv=0.1, relapse_clinical_immunity=0.8)
-
-sim_list = my_simulate_data_list(
-  file = model_file,
-  data_name = "dummy_data",
-  input_data = data,
-  param_values = true_params,
-  vars = c("y", "sim_cases", "incidence")
-)
-
-sim_summary = my_simulate_data_list(
-  file = model_file,
-  data_name = "dummy_data",
-  input_data = data,
-  param_values = true_params,
-  vars = c("y")
-)$y %>%
-  as_tibble() %>%
-  setNames(names(data$y0)) %>%
-  mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_2(data)
-
-plot_data = sim_summary %>%
-  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment %>% str_starts("Clinical"), "Incidence", "Compartment")) %>%
-  filter(Compartment %in% c("Infectious", "Latent", "Dormant", "ClinicalRelapse"))
-plot_labels = plot_data %>%
-  group_by(Compartment) %>%
-  arrange(desc(Proportion)) %>%
-  slice(1) %>%
-  filter(Proportion > 1e-12)
-
-ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
-  geom_line() +
-  geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
-  coord_cartesian(ylim=c(0, NA)) +
-  facet_wrap(vars(Type), scales="free_y", ncol=1) +
-  theme(legend.position = "none") +
-  labs(subtitle = "Short relapse duration")
-```
-
-In comparison, if we initialise the population with a long-relapse hypnozoite type, they pass through the delay compartments resulting in an Erlang distribution, and the original exponential short-relapse latent duration is added at the end, resulting in an overall delayed distribution.
-
-```{r all_stages_relapse}
-n_times = 365*2
-ts = 1:n_times
-cases = rpois(n_times, 100)
-data = data_init(data_null,
-                 n_times = n_times,
-                 ts = ts,
-                 cases = cases,
-                 gamma_l = 0,
-                 gamma_d = 0)
-data$y0 = state_init_3(data, Sl1=1)
-
-true_params = list(lambda = 1, phi_inv = 0.1, relapse_clinical_immunity = 1e-16)
-
-sim_summary = my_simulate_data_list(
-  file = model_file,
-  data_name = "dummy_data",
-  input_data = data,
-  param_values = true_params,
-  vars = c("y")
-)$y %>%
-  as_tibble() %>%
-  setNames(names(data$y0)) %>%
-  mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_2(data)
-
-# sim_out = sampling(model, data = data, chains = 1, iter = 1)
-# sim_summary = extract_summary_2(data, sim_out)
-
-plot_data = sim_summary %>%
-  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment %>% str_starts("Clinical"), "Incidence", "Compartment")) %>%
-  filter(!Compartment %in% c("Prevalence", "Susceptible", "Total", "ClinicalIncidence", "ClinicalPrimary", "Dormant", "Latent"))
-plot_labels = plot_data %>%
-  group_by(Compartment) %>%
-  arrange(desc(Proportion)) %>%
-  slice(1) %>%
-  filter(Proportion > 1e-12)
-
-ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
-  geom_line() +
-  geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
-  facet_wrap(vars(Type), scales="free_y", ncol=1) +
-  coord_cartesian(ylim=c(0, NA)) +
-  # theme(legend.position = "none") +
-  labs(subtitle = "Long-relapse hypnozoites with normal latent duration, no transmission, and complete treatment")
-```
-
-In scenarios where there is a combined presence of long/short phenotypes, the resulting relapse delays are bimodal depending on the proportion of phenotypes.
-
-```{r scenario_2}
-# Examine effect of p_long
-n_times = 365*2
-ts = 1:n_times
-cases = rpois(n_times, 100)
-data = data_init(data_null,
-                 n_times = n_times,
-                 ts = ts,
-                 cases = cases,
-                 alpha = 1,
-                 beta = 1,
-                 p_long = 0,
-                 p_silent = 1,
-                 gamma_l = 0,
-                 gamma_d = 0)
-data_1 = data_2 = data_3 = data
-data_1$y0 = state_init_3(data, Sl12 = 1)
-data_2$y0 = state_init_3(data, Sl1 = 0.5, Sl12 = 0.5)
-data_3$y0 = state_init_3(data, Sl1 = 1)
-true_params = list(lambda = 1e-12)
-
-sims_out = list(
-  `p_long=0` = data_1,
-  `p_long=0.5` = data_2,
-  `p_long=1` = data_3
-) %>%
-  lapply(function(x) {
-    my_simulate_data_list(
-      file = model_file,
-      data_name = "dummy_data",
-      input_data = x,
-      param_values = true_params,
-      vars = c("y")
-    )$y %>%
-      as_tibble() %>%
-      setNames(names(x$y0)) %>%
-      mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_2(x)
-  })
-
-plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ClinicalIncidence, ClinicalPrimary, ClinicalRelapse, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_starts("Clinical"), "Incidence", "Compartment")) %>%
-  filter(!name %in% c("Infectious", "ClinicalPrimary", "ClinicalIncidence"))
-
-ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
-  geom_line() +
-  coord_cartesian(ylim=c(0, NA)) +
-  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y") +
-  labs(subtitle = "The proportion beginning in Sl1 vs Sl[n] combines short and long relapse peaks")
-```
-
-Some phenotypes do not cause a primary infection immediately after inoculation, but instead appear to cause the first parasitaemia through the long-relapse mechanism. 
-
-```{r scenario_3}
-# Examine effect of p_silent
-n_times = 365*10
-ts = 1:n_times
-cases = rpois(n_times, 100)
-data = data_init(data_null,
-                 n_times = n_times,
-                 ts = ts,
-                 cases = cases,
-                 alpha = 0.8,
-                 beta = 0.7,
-                 p_long = 0.9,
-                 eps = 0.001,
-                 kappa = 5,
-                 phase = 0)
-data$y0 = state_init_3(data, I0 = 0.01)
-data_1 = data_2 = data_3 = data
-data_1$p_silent = 0
-data_2$p_silent = 0.5
-data_3$p_silent = 1
-true_params = list(lambda = 0.2)
-
-sims_out = list(
-  `p_silent=0` = data_1,
-  `p_silent=0.5` = data_2,
-  `p_silent=1` = data_3
-) %>%
-  lapply(function(x) {
-    my_simulate_data_list(
-      file = model_file,
-      data_name = "dummy_data",
-      input_data = x,
-      param_values = true_params,
-      vars = c("y")
-    )$y %>%
-      as_tibble() %>%
-      setNames(names(x$y0)) %>%
-      mutate(time = x$ts, .before=0) %>%
-      calculate_quantities_2(x)
-  })
-
-plot_data = sims_out %>% bind_rows(.id = "Var") %>%
-  pivot_longer(c(ClinicalIncidence, ClinicalRelapse, ClinicalPrimary, Infectious, Dormant, Latent), names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment %>% str_starts("Clinical"), "Incidence", "Compartment"))
-
-ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
-  geom_line() +
-  facet_grid(rows=vars(Type), cols=vars(Var), scales="free_y") +
-  scale_x_continuous(limits = c(max(ts - year)/year, max(ts)/year)) +
-  coord_cartesian(ylim=c(0, NA))
+my_state_init = state_init_2
+my_calculate_quantities = calculate_quantities_2
 ```
 
 We construct a scenario by hand that appears realistic for Chinese temperate data:
@@ -278,24 +68,14 @@ data = data_init(data_null,
                  ts = ts,
                  cases = cases,
                  alpha = 0.8,
-                 beta = 0.5,
-                 relapse_clinical_immunity = 0,
+                 beta = 0.2,
                  p_long = 1,
                  p_silent = 0,
                  eps = 0,
                  kappa = 3)
-data$y0 = state_init_3(data, I0=0.01)
+data$y0 = my_state_init(data, I0=0.01)
 
-true_params = list(lambda = 0.045)
-
-# sim_out = my_simulate_data(
-#     file = "../stan/champagne2022_nonstationary_2.stan",
-#     path = "sim_data",
-#     data_name = "nonstationary",
-#     input_data = data,
-#     param_values = params,
-#     vars = c("ts", "incidence", "sim_cases")
-#   )
+true_params = list(lambda = 0.05, phi_inv = 0.1, relapse_clinical_immunity = 0.9)
 
 sim_out = my_simulate_data_list(
   file = model_file,
@@ -307,17 +87,11 @@ sim_out = my_simulate_data_list(
   as_tibble() %>%
   setNames(names(data$y0)) %>%
   mutate(time = data$ts, .before=0) %>%
-  calculate_quantities_2(data)
-
-tibble(t = 0:365,
-       omega = make_m(0, 3)(t)) %>%
-  ggplot(aes(x=t, y=omega)) +
-  geom_line()
-
+  my_calculate_quantities(data)
 
 plot_data = sim_out %>%
   pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment %>% str_starts("Clinical"), "Incidence", "Compartment")) %>%
+  mutate(Type = ifelse(Compartment %>% str_detect("Clinical|All"), "Incidence", "Compartment")) %>%
   filter(Compartment %in% c("Infectious", "Latent", "Dormant"))
 plot_labels = plot_data %>%
   filter(time/year > 48) %>%
@@ -334,17 +108,17 @@ ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
   labs(subtitle = "Manual parameters")
 
 plot_data = sim_out %>%
-  pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment %>% str_starts("Clinical"), "Incidence", "Compartment")) %>%
-  filter(Compartment %>% str_starts("Clinical"))
+  pivot_longer(-time, names_to="Compartment") %>%
+  mutate(Type = ifelse(Compartment %>% str_detect("Clinical|All"), "Incidence", "Compartment")) %>%
+  filter(Type == "Incidence")
 plot_labels = plot_data %>%
   filter(time/year > 48) %>%
   group_by(Compartment) %>%
-  arrange(desc(Proportion)) %>%
+  arrange(desc(value)) %>%
   slice(1) %>%
-  filter(Proportion > 1e-12)
+  filter(value > 1e-12)
 
-ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
+ggplot(plot_data, aes(x=time/year, y=value, color=Compartment)) +
   geom_line() +
   geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
   # ggforce::facet_zoom(xlim = c(48, 50)) +
