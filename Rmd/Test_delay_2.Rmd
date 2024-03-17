@@ -67,7 +67,7 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_6_1.stan"
+model_file = "../stan/temperate_7_1.stan"
 model = stan_model(model_file)
 my_state_init = state_init_2
 my_extract_summary = extract_summary_2
@@ -118,7 +118,7 @@ plot_output(sim_summary)
 plot_data = sim_summary %>%
   select(-matches("True|Reported|Dormant|Prevalence|Infectious|Latent|Susceptible")) %>%
   pivot_longer(-time, names_to="Compartment", values_to="Proportion") %>%
-  mutate(Type = ifelse(Compartment == "ClinicalIncidence", "Incidence", "Compartment"))
+  mutate(Type = ifelse(Compartment %>% str_detect("Clinical|All"), "Incidence", "Compartment"))
 plot_labels = plot_data %>%
   group_by(Compartment) %>%
   arrange(desc(Proportion)) %>%
@@ -209,7 +209,7 @@ sims_out = list(data_1, data_2) %>%
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
   pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical"), "Incidence", "Compartment"))
+  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical|All"), "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
@@ -254,7 +254,7 @@ sims_out = list(
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
   pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical"), "Incidence", "Compartment"))
+  mutate(Type = ifelse(name %>% str_detect("Reported|True|Clinical|All"), "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time, y=value, color=name)) +
   geom_line() +
@@ -435,7 +435,7 @@ sims_out = list(
 
 plot_data = sims_out %>% bind_rows(.id = "Var") %>%
   pivot_longer(c(ClinicalIncidence, Infectious, Dormant, Latent, Susceptible)) %>%
-  mutate(Type = ifelse(name %>% str_starts("Reported|Clinical"), "Incidence", "Compartment"))
+  mutate(Type = ifelse(name %>% str_starts("Reported|Clinical|All"), "Incidence", "Compartment"))
 
 ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
