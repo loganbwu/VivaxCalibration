@@ -67,11 +67,11 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_7_1.stan"
+model_file = "../stan/temperate_8_1.stan"
 model = stan_model(model_file)
-my_state_init = state_init_2
+my_state_init = state_init_3
 my_extract_summary = extract_summary_2
-my_calculate_quantities = calculate_quantities_2
+my_calculate_quantities = calculate_quantities_3
 ```
 
 ```{r short_relapse}
