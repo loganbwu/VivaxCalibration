@@ -28,7 +28,7 @@ n_chains = 4
 
 # Initialise values for verification runs
 data_null = list(
-  t0 = -5*year,
+  t0 = -50*year,
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,

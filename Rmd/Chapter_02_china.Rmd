@@ -38,7 +38,7 @@ n_traces = 200 # limit for plotting sample trajectories
 
 
 # Compile model before we reach any sampling
-model_file = "../stan/temperate_7_1.stan"
+model_file = "../stan/temperate_9.stan"
 model = stan_model(model_file)
 my_state_init = state_init_2
 my_extract_summary = extract_summary_2
@@ -140,9 +140,9 @@ data_dengzhou = list(
   N = 10000,
   population_size = 10000,
   n_dormant = 4,
-  eps = 0,
-  kappa = 3,
-  phase = 120
+  # eps = 0,
+  # kappa = 3,
+  # phase = 120
 )
 data_dengzhou$y0 = my_state_init(data_dengzhou, I0=0.01)
 

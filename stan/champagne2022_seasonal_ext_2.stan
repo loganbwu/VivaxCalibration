@@ -4,7 +4,14 @@
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
-    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa); # no normalising beta function
+    // To speed up the ODE solver, we use omega=1 to get to equilibrium and only begin seasonality soon before the measurement period
+    real omega;
+    if (t < (-20*365.25)) {
+      omega = 1;
+    } else {
+      omega = eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa;
+    }
+    return(omega);
   }
   
   real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {

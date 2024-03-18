@@ -55,7 +55,7 @@ n_years = 10
 
 # constants for Stan
 data_consts = list(y0 = y0,
-                   t0 = -100*years,
+                   t0 = -10000*years,
                    N = 100000, # population size
                    r = 1./60, # r
                    gammal = 1./223, # gammal
@@ -75,7 +75,8 @@ data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
                  n_times = n_times)
-params = list(lambda=0.01, phi_inv=0.1, eps=0.001, kappa=1, phase=130)
+# params = list(lambda=0.01, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
+params = list(lambda=0.1, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 
 sim = my_simulate_data_list(
   file = "../stan/champagne2022_seasonal_ext_2.stan",
@@ -91,11 +92,7 @@ synth_df = with(sim, tibble(
   incidence = incidence,
   cases = cases
 ))
-```
 
-Insert the new seasonal data into a data list and run the seasonal model on it.
-
-```{r}
 # Edit data with generated values
 data_sim = data_init(data_consts,
                      n_times = nrow(synth_df),
