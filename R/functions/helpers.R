@@ -59,11 +59,12 @@ make_greek = function(name) {
   case_match(name, 
              c("transmission_rates", "lambda") ~ "λ",
              "phi" ~ "φ",
+             "phi_inv" ~ "1/φ",
              c("seasonality_ratio", "eps") ~ "ε",
              "kappa" ~ "κ",
              "phase" ~ "ψ",
              "tstar" ~ "t*",
              "xi" ~ "ξ",
-             "relapse_clinical_immunity" ~ "RCI",
+             "relapse_clinical_immunity" ~ "p_RCI",
              .default = as.character(name))
 }

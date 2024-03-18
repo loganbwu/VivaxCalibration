@@ -28,7 +28,7 @@ n_chains = 4
 
 # Initialise values for verification runs
 data_null = list(
-  t0 = -50*year,
+  t0 = -5*year,
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,
@@ -43,17 +43,17 @@ data_null = list(
   N = 10000,
   population_size = 10000,
   
-  n_dormant = 11,
+  n_dormant = 4,
   eps = 1,
   kappa = 1,
   phase = 130
 )
 
-model_file = "../stan/temperate_7_1.stan"
+model_file = "../stan/temperate_8_1.stan"
 model = stan_model(model_file)
 
-my_state_init = state_init_2
-my_calculate_quantities = calculate_quantities_2
+my_state_init = state_init_3
+my_calculate_quantities = calculate_quantities_3
 ```
 
 We construct a scenario by hand that appears realistic for Chinese temperate data:
@@ -67,7 +67,7 @@ data = data_init(data_null,
                  n_times = n_times,
                  ts = ts,
                  cases = cases,
-                 alpha = 0.8,
+                 alpha = 0.6,
                  beta = 0.2,
                  p_long = 1,
                  p_silent = 0,
@@ -109,11 +109,13 @@ ggplot(plot_data, aes(x=time/year, y=Proportion, color=Compartment)) +
 
 plot_data = sim_out %>%
   pivot_longer(-time, names_to="Compartment") %>%
-  mutate(Type = ifelse(Compartment %>% str_detect("Clinical|All"), "Incidence", "Compartment")) %>%
-  filter(Type == "Incidence")
+  filter(Compartment %>% str_detect("Clinical|All")) %>%
+  mutate(Type = Compartment %>% str_extract("Clinical|All"),
+         Compartment = Compartment %>% str_remove("Clinical|All")) %>%
+  drop_na()
 plot_labels = plot_data %>%
-  filter(time/year > 48) %>%
-  group_by(Compartment) %>%
+  # filter(time/year > 48) %>%
+  group_by(Compartment, Type) %>%
   arrange(desc(value)) %>%
   slice(1) %>%
   filter(value > 1e-12)
@@ -121,6 +123,7 @@ plot_labels = plot_data %>%
 ggplot(plot_data, aes(x=time/year, y=value, color=Compartment)) +
   geom_line() +
   geom_label_repel(data=plot_labels, aes(label=Compartment), direction="y", nudge_x=0.01, max.overlaps=1e6, fill = alpha(c("white"),0.3), label.padding=0.1, alpha=0.7) +
+  facet_grid(rows = vars(Type)) +
   # ggforce::facet_zoom(xlim = c(48, 50)) +
   coord_cartesian(ylim=c(0, NA)) +
   # theme(legend.position = "none") +
@@ -131,9 +134,6 @@ What happens when we simulate data?
 
 ```{r}
 data_sim = data
-data_sim$phi_2 = 0
-
-true_params = list(lambda = 0.03, phi_inv = 0.1, relapse_clinical_immunity = 0.5)
 
 synth_df = my_simulate_data(
     file = model_file,
@@ -176,16 +176,22 @@ tictoc::toc()
 posterior_seasonal = rstan::extract(samp, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
   as_tibble() %>%
   mutate(phi = 1/phi_inv) %>%
-  select(-phi_inv)
+  select(-phi_inv) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value")
+
+true_params_df = as_tibble(true_params) %>%
+  mutate(phi = 1/phi_inv) %>%
+  select(-phi_inv) %>%
+  pivot_longer(everything(), names_to = "parameter", values_to = "value")
 
 posterior_seasonal %>%
-  pivot_longer(everything(), names_to = "parameter", values_to = "value") %>%
   ggplot(aes(x = value, fill=parameter, color=parameter)) +
+  geom_vline(data=true_params_df, aes(xintercept = value), linetype="dashed") +
   geom_density(alpha=0.5) +
   scale_fill_manual(values = param_colors, drop=F) +
   scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
-  facet_wrap(vars(parameter), scales="free") +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter estimates")
 
 # ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
