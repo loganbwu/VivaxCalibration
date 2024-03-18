@@ -49,7 +49,7 @@ data_null = list(
   phase = 130
 )
 
-model_file = "../stan/temperate_8_1.stan"
+model_file = "../stan/temperate_9.stan"
 model = stan_model(model_file)
 
 my_state_init = state_init_3
@@ -60,7 +60,7 @@ We construct a scenario by hand that appears realistic for Chinese temperate dat
 
 ```{r}
 dt = year/12
-ts = seq(0, 5*year, by=dt)
+ts = seq(1, 5*year, by=dt)
 n_times = length(ts)
 cases = rpois(n_times, 100)
 data = data_init(data_null,
@@ -75,7 +75,7 @@ data = data_init(data_null,
                  kappa = 3)
 data$y0 = my_state_init(data, I0=0.01)
 
-true_params = list(lambda = 0.05, phi_inv = 0.1, relapse_clinical_immunity = 0.9)
+true_params = list(lambda = 0.05, phi_inv = 0.1, relapse_clinical_immunity = 0.9, eps=0.01, kappa=3, phase=120)
 
 sim_out = my_simulate_data_list(
   file = model_file,
@@ -172,7 +172,8 @@ tictoc::toc()
 
 ```{r}
 # inspect parameter posteriors
-posterior_seasonal = rstan::extract(samp, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
+parameters = c("lambda", "phi_inv", "eps", "kappa", "phase", "relapse_clinical_immunity")
+posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
   as_tibble() %>%
   mutate(phi = 1/phi_inv) %>%
   select(-phi_inv) %>%
@@ -238,9 +239,9 @@ tictoc::tic("Fitting relapse clinical immunity")
 samp_noimmunity = sampling(stan_model("../stan/temperate_6_1.stan"),
                            data = data_recovery_2,
                            iter = 100,
-                           chains = 4,
+                           chains = n_chains,
                            # init = rep(list(theta_init), n_chains), # Start from MLE solution
-                           cores = 4)
+                           cores = n_chains)
 tictoc::toc()
 ```
 

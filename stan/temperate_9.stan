@@ -17,23 +17,23 @@ functions {
     // Unpack theta
     real lambda = theta[1];
     real relapse_clinical_immunity = theta[2];
+    real eps = theta[3];
+    real kappa = theta[4];
+    real phase = theta[5];
     
     // Unpack x_r
     real alpha = x_r[1];
     real beta = x_r[2];
     // real relapse_clinical_immunity = x_r[3];
-    real gamma_d = x_r[4];
-    real gamma_l = x_r[5];
-    real delta = x_r[6];
+    real gamma_d = x_r[3];
+    real gamma_l = x_r[4];
+    real delta = x_r[5];
     // real phi_2 = x_r[7];
-    real f = x_r[8];
-    real r = x_r[9];
-    real p_long = x_r[10];
-    real p_silent = x_r[11];
-    real N = x_r[12];
-    real eps = x_r[13];
-    real kappa = x_r[14];
-    real phase = x_r[15];
+    real f = x_r[6];
+    real r = x_r[7];
+    real p_long = x_r[8];
+    real p_silent = x_r[9];
+    real N = x_r[10];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -152,16 +152,17 @@ functions {
     Icl[n_stages-1]*advance;
     
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
+    // We also count the first 'relapse' with no clinical immunity (i.e., cryptic primary infection) as a primary infection because it presents as a primary.
     real dAllPrimary = (S0*infect*(short_hyp + long_hyp*primary) +
     sum(Sl)*infect*(short_hyp + long_hyp*primary) +
-    sum(Scl)*infect*(short_hyp + long_hyp*primary)) * N;
+    sum(Scl)*infect*(short_hyp + long_hyp*primary) +
+    Sl[active]*relapse) * N;
     
-    real dAllRelapse = (Sl[active]*relapse + Scl[active]*relapse) * N;
+    real dAllRelapse = Scl[active]*relapse * N;
     
-    real dClinicalPrimary = dAllPrimary * treatedrelapse;
+    real dClinicalPrimary = dAllPrimary * treatedprimary;
     
-    real dClinicalRelapse = (Sl[active]*relapse*treatedprimary +
-    Scl[active]*relapse*treatedrelapse) * N;
+    real dClinicalRelapse = dAllRelapse * treatedrelapse;
     
     // Assign derivatives
     vector[num_elements(y)] dydt;
@@ -189,20 +190,14 @@ data {
   
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
-  // real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
-  // real<lower=0> phi_2;
   real<lower=0> f;
   real<lower=0> r;
   real<lower=0, upper=1> p_long;
   real<lower=0, upper=1> p_silent;
   real<lower=0> N;
-  real<lower=0, upper=1> eps;
-  real<lower=0> kappa;
-  real phase;
-  
   
   int<lower=1> n_dormant;
   
@@ -210,22 +205,17 @@ data {
 }
 
 transformed data {
-  real x_r[15] = {
+  real x_r[10] = {
     alpha,
     beta,
-    0, // relapse_clinical_immunity
     gamma_d,
     gamma_l,
     delta,
-    0, // phi_2,
     f,
     r,
     p_long,
     p_silent,
-    N,
-    eps,
-    kappa,
-    phase
+    N
   };
   
   int x_i[1] = {
@@ -248,12 +238,18 @@ parameters {
   real<lower=0> lambda;
   real<lower=0> phi_inv;
   real<lower=0, upper=1> relapse_clinical_immunity;
+  real<lower=0, upper=1> eps;
+  real<lower=0> kappa;
+  real<lower=0, upper=365.25> phase;
 }
 
 transformed parameters {
-  vector[2] theta;
+  vector[5] theta;
   theta[1] = lambda;
   theta[2] = relapse_clinical_immunity;
+  theta[3] = eps;
+  theta[4] = kappa;
+  theta[5] = phase;
   real phi = 1. / phi_inv;
   
   real incidence[n_times];
@@ -272,6 +268,9 @@ transformed parameters {
 model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
+  eps ~ uniform(0, 1);
+  kappa ~ exponential(0.1);
+  phase ~ uniform(0, 365.25);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
