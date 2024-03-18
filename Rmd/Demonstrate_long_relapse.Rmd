@@ -155,8 +155,7 @@ How well does parameter recovery work?
 data_recovery = data_init(data_sim,
                           n_times = nrow(synth_df),
                           ts = synth_df$ts,
-                          cases = synth_df$cases,
-                          run_estimation = 1)
+                          cases = synth_df$cases)
 
 tictoc::tic()
 n_chains = 2
@@ -211,7 +210,7 @@ incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
          legend = "95% prediction interval")
 
 
-ggplot(mapping = aes(x=ts)) +
+ggplot(mapping = aes(x=ts/years)) +
   geom_ribbon(data = incidence_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +

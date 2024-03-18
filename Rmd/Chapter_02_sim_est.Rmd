@@ -28,7 +28,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_years = 10
+n_years = 5
 n_iter = 100 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
@@ -37,7 +37,7 @@ timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 
 data_null = list(
-  t0 = -50*years,
+  t0 = -10*years,
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,
@@ -51,7 +51,7 @@ data_null = list(
   p_silent = 0,
   N = 10000,
   population_size = 10000,
-  n_dormant = 11,
+  n_dormant = 4,
   eps = 1,
   kappa = 1,
   phase = 130
@@ -76,8 +76,8 @@ simulate_cases = function(data_consts, lambda, phi_inv, relapse_clinical_immunit
                    n_times = n_times,
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    cases = rep(1, n_times), # Dummy value
-                   alpha = 0.8,
-                   beta = 0.5,
+                   alpha = 0.6,
+                   beta = 0.2,
                    p_long = 1,
                    p_silent = 0,
                    eps = 0,
@@ -99,9 +99,9 @@ Create scenarios
 ```{r}
 # Define the scenarios
 scenarios = expand_grid(
-  lambda = 0.045,
+  lambda = 0.015,
   phi_inv = 0.1,
-  relapse_clinical_immunity = c(0.33, 0.67),
+  relapse_clinical_immunity = c(0.1, 0.9),
   rep = seq_len(n_repetitions)
 ) %>%
   mutate(ID = row_number(), .before=0)
@@ -117,11 +117,7 @@ cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 # Attach simulation results to the scenarios dataframe
 scenarios$ts = lapply(cases_scenarios, function(x) {x$ts})
 scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
-```
 
-What do our synthetic data look like?
-
-```{r}
 if (n_repetitions > 1) {
   title = paste(n_repetitions, "repetitions of synthetic scenario data")
 } else {
@@ -132,7 +128,7 @@ scenarios %>%
   ggplot(aes(x = ts/years, y = cases, group=interaction(lambda, relapse_clinical_immunity, rep))) +
   geom_line(alpha = 0.6) +
   scale_x_continuous(breaks = 0:n_years) +
-  scale_y_log10(labels = label_auto2) +
+  # scale_y_log10(labels = label_auto2) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   facet_grid(rows = vars(lambda),
              cols = vars(relapse_clinical_immunity),
@@ -167,7 +163,7 @@ my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_r
 
 # Apply function to simulated data
 tictoc::tic("Running Stan sampling")
-fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$relapse_clinical_immunity[i])
 })
 tictoc::toc()
@@ -235,7 +231,8 @@ for (param in c("lambda", "phi", "relapse_clinical_immunity")) {
   p = ggplot(plot_data, aes(x = value, fill = factor(rep), color = factor(rep), group = rep)) +
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
-    facet_grid(rows = vars(lambda), cols = vars(relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
+    # facet_grid(rows = vars(lambda), cols = vars(relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
+    facet_wrap(vars(lambda, relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
     scale_color_brewer(palette = "Set2") +
     scale_fill_brewer(palette = "Set2") +
     coord_cartesian(xlim = x_limits) +
