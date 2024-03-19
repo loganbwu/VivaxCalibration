@@ -414,37 +414,6 @@ omega_params %>%
 ggsave("../plots/rondonia_omega.png", width=8, height=4)
 ```
 
-Comparison of stationary and nonstationary parameter estimates
-
-```{r}
-posterior_comparison = bind_rows(Seasonal = posterior_seasonal,
-                                 Nonseasonal = posterior_nonseasonal,
-                                 .id = "Model") %>%
-  pivot_longer(-Model, names_to="parameter") %>%
-  filter(parameter %in% c("lambda", "phi"))
-
-posterior_ranges_2 = posterior_comparison %>%
-  group_by(parameter) %>%
-  summarise(mean = mean(value),
-            lq = quantile(value, 0.01),
-            uq = quantile(value, 0.99),
-            min = lq - (mean-lq)*1.5,
-            max = uq + (uq-mean)*1.5,
-            Model = NA) %>%
-  pivot_longer(c(min, max))
-
-ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
-  geom_blank(data = posterior_ranges_2) +
-  geom_density(alpha = 0.5) +
-  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(title = "Posterior comparison between seasonal and nonseasonal models",
-       subtitle = "Method applied to data from Rondonia between 2015 and 2018",
-       x = "Value",
-       y = "Posterior density")
-
-ggsave("../plots/rondonia_seasonality_comparison.png", width=8, height=4)
-```
-
 What if we used the steady-state fit to simulate posteriors in the full model?
 
 ```{r}

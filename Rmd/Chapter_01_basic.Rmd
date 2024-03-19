@@ -499,7 +499,8 @@ Single trace
 ```{r}
 scenarios_long$est_incidence[[2]] %>%
   ggplot(aes(x=ts, y=incidence, color=rep, group=interaction(trace, rep))) +
-  geom_line()
+  geom_line(alpha = 0.01) +
+  coord_cartesian(ylim = c(0, NA))
 
 ```
 

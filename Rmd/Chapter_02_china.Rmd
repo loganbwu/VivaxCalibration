@@ -125,7 +125,7 @@ data_dengzhou = list(
   cases = ts_dengzhou$Cases,
   alpha = 0.5,
   beta = 0.5,
-  relapse_clinical_immunity = 0.9,
+  relapse_clinical_immunity = 0,
   gamma_d = 1/434.,
   gamma_l = 1/223,
   delta = 1/162,
@@ -171,7 +171,8 @@ posterior_seasonal %>%
   scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates")
+  labs(subtitle = "Parameter estimates") +
+  theme(legend.position = "none")
 
 ggsave("plots/china_posterior.png", width=8, height=4)
 
@@ -209,6 +210,21 @@ ggplot(mapping = aes(x=ts/years)) +
 
 
 ggsave("plots/china_incidence.png", width=8, height=4)
+```
+
+What if we fit it with no clinical immunity?
+
+```{r}
+tictoc::tic()
+samp_noRCI = sampling(stan_model("../stan/temperate_9_noRCI.stan"),
+                      data = data_dengzhou,
+                      iter = n_iter,
+                      chains = n_chains,
+                      # init = rep(list(.theta_init), n_chains), # Start from MLE solution
+                      cores = n_chains,
+                      pars = "y_extended",
+                      include = FALSE)
+tictoc::toc()
 ```
 
 End of script.

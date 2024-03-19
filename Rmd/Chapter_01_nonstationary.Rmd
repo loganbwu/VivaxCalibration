@@ -35,8 +35,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 500 # should be at least 500
-n_chains = 4
+n_iter = 200 # should be at least 500
+n_chains = 1
 n_repetitions = 3 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
@@ -164,7 +164,7 @@ simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase, xi, t
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
                    n_times = n_times)
-  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, xi=xi, tstar=tstar)my_
+  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, xi=xi, tstar=tstar)
   synth_df = my_simulate_data(
     file = "../stan/champagne2022_nonstationary_2.stan",
     path = "sim_data",
