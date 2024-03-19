@@ -146,7 +146,7 @@ data_dengzhou$y0 = my_state_init(data_dengzhou, I0=0.01)
 tictoc::tic()
 samp = sampling(model,
                 data = data_dengzhou,
-                iter = 100,
+                iter = n_iter,
                 chains = n_chains,
                 # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                 cores = n_chains,

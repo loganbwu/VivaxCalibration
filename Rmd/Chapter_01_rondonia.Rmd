@@ -199,9 +199,11 @@ Perform MCMC sampling for both models
 
 ```{r}
 tictoc::tic("Seasonal model elapsed")
+params_init = list(lambda=0.05, phi_inv=0.5, eps=0.5, kappa=1, phase=100)
 samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
+                    init = rep(list(params_init), n_chains),
                     chains = n_chains)
 tictoc::toc()
 
@@ -209,6 +211,7 @@ tictoc::tic("Nonseasonal model elapsed")
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
                                 iter = n_iter,
+                                init = rep(list(params_init), n_chains),
                                 chains = n_chains)
 tictoc::toc()
 ```
@@ -315,6 +318,7 @@ p_ns_ci = ggplot(mapping = aes(x=ts + as.Date(paste0(min_year, "-01-01")))) +
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_ro_agg$ts, cases = data_ro_agg$cases),
              aes(y = cases, group = NULL, color="Case data")) +
+  scale_x_date(limits = as.Date(paste0(c(min_year, max_year+1), "-01-01"))) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Case data"),
