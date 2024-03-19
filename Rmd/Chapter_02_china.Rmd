@@ -28,11 +28,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_years = 5
-n_iter = 100 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
-n_repetitions = 1 # how many times to duplicate each scenario
-limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 
@@ -40,7 +37,7 @@ n_traces = 200 # limit for plotting sample trajectories
 # Compile model before we reach any sampling
 model_file = "../stan/temperate_9.stan"
 model = stan_model(model_file)
-my_state_init = state_init_2
+my_state_init = state_init_3
 my_extract_summary = extract_summary_2
 ```
 ## Parameter recovery on real data
@@ -139,7 +136,7 @@ data_dengzhou = list(
   p_silent = 0,
   N = 10000,
   population_size = 10000,
-  n_dormant = 4,
+  n_dormant = 4
   # eps = 0,
   # kappa = 3,
   # phase = 120
@@ -176,7 +173,7 @@ posterior_seasonal %>%
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter estimates")
 
-# ggsave("plots/rondonia_seasonal_posterior.png", width=8, height=4)
+ggsave("plots/china_posterior.png", width=8, height=4)
 
 # Plot credible intervals
 n_traces = 100
@@ -209,6 +206,9 @@ ggplot(mapping = aes(x=ts/years)) +
   labs(subtitle = "Seasonal model, monthly synthetic data",
        x = "Year",
        y = "Annual incidence")
+
+
+ggsave("plots/china_incidence.png", width=8, height=4)
 ```
 
 End of script.

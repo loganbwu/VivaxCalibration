@@ -82,7 +82,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0> lambda;
+  real<lower=0, upper=0.1> lambda;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
   real<lower=0, upper=365.25> phase;
@@ -110,7 +110,7 @@ transformed parameters{
 
 model {
   //priors
-  lambda ~ exponential(10);
+  lambda ~ exponential(1);
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   phase ~ uniform(0, 365.25);

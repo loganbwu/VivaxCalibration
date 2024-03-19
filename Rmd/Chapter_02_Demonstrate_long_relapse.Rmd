@@ -1,5 +1,5 @@
 _---
-title: "PLAN for Chapter 1. Methodology for fitting ODE epidemic models"
+title: "PLAN for Chapter 2. Fitting the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
 html_notebook:
@@ -19,16 +19,15 @@ library(ggrepel)
 library(pbmcapply)
 library(pbapply)
 library(RColorBrewer)
+source("../R/constants.R")
 source("../R/load_functions.R")
 
-year = 365.25
 param_colors = brewer.pal(2, "Set2")
 names(param_colors) = c("lambda", "phi")
-n_chains = 4
 
 # Initialise values for verification runs
 data_null = list(
-  t0 = -50*year,
+  t0 = -50*years,
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,
@@ -49,6 +48,7 @@ data_null = list(
   phase = 130
 )
 
+n_chains = 4
 model_file = "../stan/temperate_9.stan"
 model = stan_model(model_file)
 
@@ -60,7 +60,7 @@ We construct a scenario by hand that appears realistic for Chinese temperate dat
 
 ```{r}
 dt = year/12
-ts = seq(1, 5*year, by=dt)
+ts = seq(1, 5*years, by=dt)
 n_times = length(ts)
 cases = rpois(n_times, 100)
 data = data_init(data_null,
