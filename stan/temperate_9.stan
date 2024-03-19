@@ -278,6 +278,7 @@ model {
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   phase ~ uniform(0, 365.25);
+  relapse_clinical_immunity ~ uniform(0, 1);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
