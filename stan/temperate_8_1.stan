@@ -272,6 +272,7 @@ transformed parameters {
 model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
+  relapse_clinical_immunity ~ uniform(0, 1);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);
