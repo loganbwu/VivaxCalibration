@@ -35,7 +35,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 200 # should be at least 500
+n_iter = 400 # should be at least 500
 n_chains = 1
 n_repetitions = 3 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -227,8 +227,8 @@ scenarios %>%
   scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
-  facet_grid(rows = vars(tstar),
-             cols = vars(xi),
+  facet_grid(rows = vars(xi),
+             cols = vars(tstar),
              labeller = plot_labeller_years) +
   labs(title = title,
        x = "Year",
@@ -268,7 +268,9 @@ fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$eps[i], scenarios$kappa[i], scenarios$phase[i], scenarios$tstar[i], scenarios$xi[i])
 })
 tictoc::toc()
+```
 
+```{r}
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
   posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
@@ -299,7 +301,7 @@ scenarios$est_incidence = lapply(fits_scenarios, function(x) {
     pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
     drop_na(j) %>%
     group_by(j) %>%
-    mutate(ts = data_sim$ts[j],
+    mutate(ts = data_consts$ts[j],
            lower = quantile(incidence, 0.025, na.rm=T),
            upper = quantile(incidence, 0.975, na.rm=T),
            legend = "95% prediction interval")
@@ -310,8 +312,10 @@ Do diagnostic plots
 
 ```{r}
 # Interesting parameter estimates
-for (param in c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")) {
+make_param_plot = function(param) {
   plot_data = scenarios %>%
+    mutate(tstar = tstar/years,
+           est_tstar = lapply(est_tstar, function(x) {x / years})) %>%
     unnest(!!paste0("est_", param)) %>% 
     mutate(value = get(paste0("est_", param)))
   true_values = plot_data %>%
@@ -325,25 +329,30 @@ for (param in c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi")) {
   } else {
     x_limits = c(NA, NA)
   }
-  param_rename = make_greek(param)
+  
   if (n_repetitions > 1) {
-    title = paste("Posterior estimates of", param_rename, "under", n_repetitions, "repetitions")
+    title = paste("Posterior estimates of", make_greek(param), "under", n_repetitions, "repetitions")
   } else {
-    title = paste("Posterior estimate of", param_rename)
+    title = paste("Posterior estimate of", make_greek(param))
   }
   p = ggplot(plot_data, aes(x = value, fill = factor(rep), color = factor(rep), group = rep)) +
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
-    facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller, scales="free_y") +
+    facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller, scales="free_y") +
     scale_color_brewer(palette = "Set2") +
     scale_fill_brewer(palette = "Set2") +
     coord_cartesian(xlim = x_limits) +
-    labs(title = title) +
+    labs(title = title, x = ifelse(param == "tstar", "t* (years)", make_greek(param)), y = NULL) +
     theme(legend.position = "none")
-  print(p)
-  ggsave(paste0("../plots/nonstationary_", param, ".png"), width=8, height=4)
 }
+param_plots = lapply(c("lambda", "phi", "eps", "kappa", "phase", "tstar", "xi") %>% setNames({.}), make_param_plot)
+(param_plots$tstar + labs(title = NULL, subtitle = paste("Parameter estimates for", make_greek("tstar")))) +
+  (param_plots$xi + labs(title = NULL, subtitle = paste("Parameter estimates for", make_greek("xi")))) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Posterior model fits, coloured by repetition",
+                  tag_levels = "A")
 
+ggsave("../plots/nonstationary_posterior_stepchange.png", width=8, height=4)
 ```
 
 Plot incidence fits
@@ -363,15 +372,60 @@ scenarios_overlay = scenarios %>%
 max_y = max(scenarios_overlay$cases) * 1.2
 
 ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
-  geom_line(alpha = 0.25) +
-  geom_point(data=scenarios_overlay, aes(y=cases)) +
+  geom_point(data=scenarios_overlay, aes(y=cases), size=1) +
+  geom_line(alpha = 0.8) +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
   # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(tstar), cols = vars(xi), labeller = plot_labeller_years) +
+  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller_years) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(ylim = c(0, max_y)) +
   labs(title = "Estimated incidence") +
   scale_color_brewer(palette = "Set2") +
   theme(legend.position = "none")
+```
+
+Can we graphically represent the posterior?
+
+```{r}
+tt = seq(0, n_years*years, length.out=1000)
+scenarios_unnested = scenarios %>%
+  select(rep, lambda, tstar, xi, est_tstar, est_xi) %>%
+  unnest(c(est_tstar, est_xi))
+scenarios_traces = scenarios_unnested %>%
+  group_by(tstar, xi, rep) %>%
+  sample_n(min(n_traces, n()))
+
+traces = lapply(seq_len(nrow(scenarios_traces)), function(i) {
+  lambda = scenarios_traces$lambda[i]
+  est_tstar = scenarios_traces$est_tstar[i]
+  est_xi = scenarios_traces$est_xi[i]
+  tibble(rep = scenarios_traces$rep[i],
+         i = i,
+         tstar = scenarios_traces$tstar[i],
+         xi = scenarios_traces$xi[i],
+         ts = c(0, est_tstar, n_years*years),
+         lambda = c(lambda, lambda*est_xi, lambda*est_xi))
+}) %>%
+  bind_rows()
+
+true_values = traces %>%
+  distinct(lambda, tstar, xi)
+
+ggplot(traces, aes(x = ts/years, y = lambda, color=factor(rep), group = interaction(i, rep))) +
+  geom_step(alpha = 0.1) +
+  geom_vline(data=true_values, aes(xintercept = tstar/years), linetype="dashed") +
+  geom_hline(data=true_values, aes(yintercept = xi*lambda), linetype="dashed") +
+  # geom_density(alpha = 0.5) +
+  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller_years) +
+  # scale_fill_manual(values = param_colors, drop=F) +
+  # scale_color_manual(values = param_colors, drop=F) +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Estimated step change in transmissibility, coloured by repetition",
+       x = "Time (years)",
+       y = "Transmissibility") +
+  scale_color_brewer(palette = "Set2") +
+  theme(legend.position = "none")
+
+ggsave("../plots/nonstationary_visual_stepchange.png", width=8, height=4)
 ```

@@ -5,7 +5,7 @@
 // Changes from v5: observation model is negative binomial not poisson
 // Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
 // Changes from v7: now includes all primaries/relapses, not just clinical primaries/relapses
-// Changes from v8 (TODO): seasonal parameters are now estimated.
+// Changes from v8: seasonal parameters are now estimated.
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {

@@ -29,7 +29,7 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 100 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_repetitions = 1 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -132,7 +132,8 @@ scenarios %>%
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   facet_grid(rows = vars(lambda),
              cols = vars(relapse_clinical_immunity),
-             labeller = plot_labeller_years) +
+             labeller = plot_labeller_years,
+             scales = "free_y") +
   labs(title = title,
        x = "Year",
        y = "Monthly cases")
@@ -163,7 +164,7 @@ my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_r
 
 # Apply function to simulated data
 tictoc::tic("Running Stan sampling")
-fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
+fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$relapse_clinical_immunity[i])
 })
 tictoc::toc()

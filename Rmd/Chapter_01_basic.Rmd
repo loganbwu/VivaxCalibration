@@ -32,9 +32,9 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 500 # should be at least 500
+n_iter = 300 # should be at least 500
 n_chains = 1
-n_repetitions = 5 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 3*hr
@@ -76,7 +76,7 @@ data = data_init(data_consts,
                  cases = rep(1, n_times),
                  n_times = n_times)
 # params = list(lambda=0.01, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
-params = list(lambda=0.1, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
+params = list(lambda=0.05, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 
 sim = my_simulate_data_list(
   file = "../stan/champagne2022_seasonal_ext_2.stan",
@@ -185,7 +185,7 @@ Create scenarios
 
 ```{r}
 # Define the scenarios
-range_lambda = seq(0.01, 0.012, length.out=3)
+range_lambda = seq(0.010, 0.012, length.out=3)
 range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
   lambda = range_lambda,
@@ -345,6 +345,9 @@ scenarios_long$est_incidence = lapply(seq_len(nrow(scenarios_long)), function(i)
            legend = "95% prediction interval",
            rep = scenario$rep)
 })
+
+scenarios_long = scenarios_long %>%
+  filter(lambda > 0.01)
 ```
 
 Diagnostic plots
