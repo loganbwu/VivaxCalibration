@@ -29,15 +29,15 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 200 # should be at least 500
-n_chains = 4
-n_repetitions = 1 # how many times to duplicate each scenario
+n_iter = 100 # should be at least 500
+n_chains = 1
+n_repetitions = 3 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 60*60 * 5
 n_traces = 200 # limit for plotting sample trajectories
 
 data_null = list(
-  t0 = -10*years,
+  t0 = -100*years,
   alpha = 1,
   beta = 1,
   relapse_clinical_immunity = 0,
@@ -60,8 +60,8 @@ data_null$y0 = state_init_3(data_null, I0=0.01)
 data_consts = data_null
 
 # Compile model before we reach any sampling
-model_file = "../stan/temperate_8_1.stan"
-model = stan_model("../stan/temperate_8_1.stan")
+model_file = "../stan/temperate_9.stan"
+model = stan_model(model_file)
 ```
 
 ## Model implementation
@@ -70,7 +70,7 @@ model = stan_model("../stan/temperate_8_1.stan")
 Define a function to simulate cases for a scenario
 
 ```{r}
-simulate_cases = function(data_consts, lambda, phi_inv, relapse_clinical_immunity) {
+simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase, relapse_clinical_immunity) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
                    n_times = n_times,
@@ -79,14 +79,12 @@ simulate_cases = function(data_consts, lambda, phi_inv, relapse_clinical_immunit
                    alpha = 0.6,
                    beta = 0.2,
                    p_long = 1,
-                   p_silent = 0,
-                   eps = 0,
-                   kappa = 3)
-  params = list(lambda=lambda, phi_inv=phi_inv, relapse_clinical_immunity=relapse_clinical_immunity)
+                   p_silent = 0)
+  params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase, relapse_clinical_immunity=relapse_clinical_immunity)
   synth_df = my_simulate_data(
     file = model_file,
     path = "sim_data",
-    data_name = "temperate_8_1",
+    data_name = "chapter_02_sim_est",
     input_data = data,
     param_values = params,
     vars = c("ts", "incidence", "sim_cases")
@@ -99,19 +97,19 @@ Create scenarios
 ```{r}
 # Define the scenarios
 scenarios = expand_grid(
-  lambda = 0.015,
+  lambda = 0.02,
   phi_inv = 0.1,
-  relapse_clinical_immunity = c(0.1, 0.9),
+  eps = c(1e-16, 0.5, 1-1e-16),
+  kappa = 1,
+  phase = 130,
+  relapse_clinical_immunity = c(1e-16, 0.5, 1-1e-16),
   rep = seq_len(n_repetitions)
 ) %>%
   mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
 cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
-  lambda = scenarios$lambda[i]
-  phi_inv = scenarios$phi_inv[i]
-  relapse_clinical_immunity = scenarios$relapse_clinical_immunity[i]
-  simulate_cases(data_null, lambda, phi_inv, relapse_clinical_immunity)
+  with(scenarios[i,], simulate_cases(data_null, lambda, phi_inv, eps, kappa, phase, relapse_clinical_immunity))
 })
 
 # Attach simulation results to the scenarios dataframe
@@ -130,7 +128,7 @@ scenarios %>%
   scale_x_continuous(breaks = 0:n_years) +
   # scale_y_log10(labels = label_auto2) +
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
-  facet_grid(rows = vars(lambda),
+  facet_grid(rows = vars(eps),
              cols = vars(relapse_clinical_immunity),
              labeller = plot_labeller_years,
              scales = "free_y") +
@@ -145,12 +143,16 @@ Define a function to perform the model fit, then apply it to each scenario
 
 ```{r}
 # Define function that takes simulated data
-my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_relapse_clinical_immunity) {
+my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_eps, true_kappa, true_phase, true_relapse_clinical_immunity) {
   n_times = length(ts)
   data = data_init(data_consts,
-                   cases = cases,
+                   n_times = n_times,
                    ts = ts,
-                   n_times = n_times)
+                   cases = cases,
+                   alpha = 0.6,
+                   beta = 0.2,
+                   p_long = 1,
+                   p_silent = 0)
   true_params = list(lambda = true_lambda,
                      phi_inv = true_phi_inv,
                      relapse_clinical_immunity = true_relapse_clinical_immunity)
@@ -164,8 +166,8 @@ my_sampling = function(data_consts, ts, cases, true_lambda, true_phi_inv, true_r
 
 # Apply function to simulated data
 tictoc::tic("Running Stan sampling")
-fits_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
-  my_sampling(data_consts, scenarios$ts[[i]], scenarios$cases[[i]], scenarios$lambda[i], scenarios$phi_inv[i], scenarios$relapse_clinical_immunity[i])
+fits_scenarios = pbmclapply(seq_len(nrow(scenarios)), function(i) {
+  with(scenarios[i,], my_sampling(data_consts, unlist(ts), unlist(cases), lambda, phi_inv, eps, kappa, phase, relapse_clinical_immunity))
 })
 tictoc::toc()
 ```
@@ -173,7 +175,7 @@ tictoc::toc()
 ```{r}
 # Extract parameters into dataframe
 estimates_scenarios = lapply(fits_scenarios, function(x) {
-  posterior = rstan::extract(x, c("lambda", "phi_inv", "relapse_clinical_immunity")) %>%
+  posterior = rstan::extract(x, c("lambda", "phi_inv", "eps", "relapse_clinical_immunity")) %>%
     as_tibble()
 })
 
@@ -233,7 +235,7 @@ for (param in c("lambda", "phi", "relapse_clinical_immunity")) {
     geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
     geom_density(alpha = 0.5) +
     # facet_grid(rows = vars(lambda), cols = vars(relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
-    facet_wrap(vars(lambda, relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
+    facet_wrap(vars(eps, relapse_clinical_immunity), labeller = plot_labeller, scales="free_y") +
     scale_color_brewer(palette = "Set2") +
     scale_fill_brewer(palette = "Set2") +
     coord_cartesian(xlim = x_limits) +
@@ -254,23 +256,27 @@ incidence_join = lapply(seq_along(incidence_scenarios), function(i) {
     mutate(ID = i)
 }) %>%
   bind_rows() %>%
-  left_join(scenarios %>% select(ID, lambda, relapse_clinical_immunity, rep), by="ID")
+  left_join(scenarios %>% select(ID, lambda, eps, relapse_clinical_immunity, rep), by="ID")
 
 scenarios_overlay = scenarios %>%
   unnest(c(ts, cases))
 
 max_y = max(scenarios_overlay$cases) * 1.2
 
-ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
-  geom_line(alpha = 0.25) +
-  # geom_point(data=scenarios_overlay, aes(y=cases)) +
+ggplot(incidence_join, aes(x = ts/years, y = incidence, fill=factor(rep), group = rep)) +
+  geom_point(data=scenarios_overlay, aes(y=cases), alpha=0.8, size=0.5) +
+  geom_ribbon(aes(ymin=lower, ymax=upper, color=NULL), alpha = 0.8) +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
   # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(lambda), cols = vars(relapse_clinical_immunity), labeller = plot_labeller_years) +
+  facet_grid(rows = vars(eps), cols = vars(relapse_clinical_immunity), labeller = plot_labeller_years) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(ylim = c(0, max_y)) +
-  labs(title = "Estimated incidence") +
+  labs(title = "Estimated incidence",
+       x = "Year") +
   scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
   theme(legend.position = "none")
+
+ggsave("../plots/temperate_incidence_fit.png", width=8, height=4)
 ```

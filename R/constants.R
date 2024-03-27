@@ -3,7 +3,7 @@ c_posterior = "blue"
 
 years = 365.25
 annual_subdivisions = 12
-hr = 60*60
+hr = hrs = 60*60
 n_traces = 100 # maximum traces to plot
 
 comparison_colors = c("lambda_nonseasonal_poisson" = "tomato",

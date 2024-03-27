@@ -26,8 +26,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
-n_chains = 1
+n_iter = 200 # should be at least 500
+n_chains = 3
 n_traces = 200 # limit for plotting sample trajectories
 
 # Compile model before we reach any sampling
@@ -95,20 +95,11 @@ china_decomp = lapply(unique(china_data$Region) %>% setNames({.}), function(x) {
 }) %>%
   bind_rows(.id = "Region")
 
-dummy = china_decomp %>%
-  group_by(Region) %>%
-  arrange(Date) %>%
-  filter(name == "trend") %>%
-  slice(1) %>%
-  mutate(value = 0,
-         name = "Trend")
-
 china_decomp %>%
   filter(name %in% c("Cases", "trend", "seasonal", "remainder")) %>%
   mutate(name = name %>% str_to_title()) %>%
   ggplot(aes(x = Date, y = value, color = name)) +
   geom_line() +
-  geom_blank(data = dummy) +
   scale_x_date(date_breaks = "years", date_labels = "%Y") +
   facet_grid(rows=vars(name), cols=vars(Region), scales="free")
 
@@ -118,14 +109,14 @@ ggsave("../plots/china_decomp.png", width=8, height=4)
 Now we fit the model for Dengzhou
 
 ```{r}
-selected_region = "Dengzhou"
+selected_region = "Guantang"
 ts_region = china_data %>%
   filter(Region == selected_region)
 first_year = min(year(ts_region$Date))
 ts_region = ts_region %>%
   mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
 data_region = list(
-  t0 = -50*years,
+  t0 = -100*years,
   n_times = nrow(ts_region),
   ts = ts_region$ts,
   cases = ts_region$Cases,
@@ -177,8 +168,7 @@ posterior_seasonal %>%
   scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(title = selected_region,
-       subtitle = "Parameter estimates") +
+  labs(subtitle = "Parameter estimates") +
   theme(legend.position = "none")
 
 ggsave("../plots/china_posterior.png", width=8, height=4)
@@ -223,8 +213,7 @@ ggplot(mapping = aes(x=ts/years)) +
   scale_colour_manual("", 
                       breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
                       values = c("steelblue", "tomato", "black")) +
-  labs(title = selected_region,
-       subtitle = "Seasonal model, monthly synthetic data",
+  labs(subtitle = "Seasonal model, monthly synthetic data",
        x = "Year",
        y = "Annual incidence")
 
@@ -246,6 +235,7 @@ samp_noRCI = sampling(stan_model("../stan/temperate_9_noRCI.stan"),
                       include = FALSE)
 tictoc::toc()
 ```
+
 
 ```{r}
 # inspect parameter posteriors
@@ -272,7 +262,7 @@ posterior_seasonal %>%
 n_traces = 100
 incidence = rstan::extract(samp_noRCI, "incidence")[[1]]
 sample_ix = sample(seq_len(dim(incidence)[1]), n_traces, replace=T)
-incidence_sample_temperate = as_tibble(t(incidence[sample_ix,])) %>%
+incidence_sample_nonseasonal = as_tibble(t(incidence[sample_ix,])) %>%
   mutate(j = row_number()) %>%
   pivot_longer(-j, names_to = "trace", values_to = "incidence") %>%
   drop_na(j) %>%
@@ -282,23 +272,9 @@ incidence_sample_temperate = as_tibble(t(incidence[sample_ix,])) %>%
          upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
-sim_cases = rstan::extract(samp_noRCI, "sim_cases")[[1]]
-sim_cases_sample_temperate = as_tibble(t(sim_cases)) %>%
-  mutate(j = row_number()) %>%
-  pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
-  group_by(j) %>%
-  mutate(ts = data_region$ts[j],
-         lower = quantile(sim_cases, 0.025, na.rm=T),
-         upper = quantile(sim_cases, 0.975, na.rm=T),
-         legend = "95% prediction interval") %>%
-  distinct(j, .keep_all=T)
-
 
 ggplot(mapping = aes(x=ts/years)) +
-  geom_ribbon(data = sim_cases_sample_temperate,
-              aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
-              alpha = 0.5) +
-  geom_ribbon(data = incidence_sample_temperate,
+  geom_ribbon(data = incidence_sample_nonseasonal,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
   geom_point(data = tibble(ts = data_region$ts, cases = data_region$cases),
@@ -310,16 +286,13 @@ ggplot(mapping = aes(x=ts/years)) +
   scale_colour_manual("", 
                       breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
                       values = c("steelblue", "tomato", "black")) +
-  labs(title = selected_region,
-       subtitle = "Seasonal model, monthly synthetic data",
+  labs(subtitle = "Seasonal model, monthly synthetic data",
        x = "Year",
        y = "Annual incidence")
 
 
 # ggsave("../plots/china_incidence.png", width=8, height=4)
 ```
-
-End of script.
 
 ```{r}
 print("Done.")

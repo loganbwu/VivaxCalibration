@@ -421,7 +421,7 @@ ggplot(traces, aes(x = ts/years, y = lambda, color=factor(rep), group = interact
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(ylim = c(0, NA)) +
-  labs(title = "Estimated step change in transmissibility, coloured by repetition",
+  labs(title = "Re-stimated step change in transmissibility, coloured by repetition",
        x = "Time (years)",
        y = "Transmissibility") +
   scale_color_brewer(palette = "Set2") +
