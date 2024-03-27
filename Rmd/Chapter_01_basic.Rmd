@@ -243,7 +243,7 @@ scenarios_long %>%
   labs(title = "Input data for each scenario",
        subtitle = "Seasonal scenario in cases per month; nonseasonal scenario per year",
        x = "Year",
-       y = "Cases",
+       y = "Monthly cases",
        color = "Method")
 ggsave("../plots/synth_data.png", width=8, height=4)
 ```
