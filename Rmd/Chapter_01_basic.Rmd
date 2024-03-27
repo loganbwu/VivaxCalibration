@@ -51,7 +51,7 @@ Generate some data
 #initial conditions
 I_init = 0.01
 y0 = c(Il=0, I0=I_init, Sl=0, S0=1-I_init, CumulativeInfections=0)
-n_years = 10
+n_years = 5
 
 # constants for Stan
 data_consts = list(y0 = y0,
