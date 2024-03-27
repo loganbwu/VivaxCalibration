@@ -232,6 +232,7 @@ scenarios_long %>%
                             TRUE ~ "Nonseasonal")) %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
+  mutate(cases = ifelse(method == "Nonseasonal", cases/annual_subdivisions, cases)) %>%
   ggplot(aes(x = ts/years, y = cases, color=method, group=interaction(method, rep))) +
   geom_line(alpha = 0.6) +
   scale_x_continuous(breaks = 0:n_years) +
