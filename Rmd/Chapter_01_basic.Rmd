@@ -289,9 +289,17 @@ tictoc::toc()
 # Redo for just nonseasonal runs
 nonseasonal_ix = which(scenarios_long$method == "../stan/champagne2022_poisson.stan")
 new_fits_scenarios = pbmclapply(nonseasonal_ix, function(i) {
-  with_timeout(
+  result = with_timeout(
     my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]], scenarios_long$lambda[i]),
     cpu = timelimit_per_run)
+  
+  if (!is.null(result)) {
+    if (result@mode == 2) {
+      memoise::drop_cache(my_sampling, scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+    }
+  }
+  
+  return(result)
 })
 fits_scenarios[nonseasonal_ix] = new_fits_scenarios
 ```
