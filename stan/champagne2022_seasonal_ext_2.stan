@@ -111,9 +111,9 @@ transformed parameters{
 model {
   //priors
   lambda ~ exponential(1);
-  eps ~ uniform(0, 1);
+  // eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
-  phase ~ uniform(0, 365.25);
+  // phase ~ uniform(0, 365.25);
   phi_inv ~ exponential(5);
   
   //sampling distribution

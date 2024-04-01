@@ -26,8 +26,8 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
-n_chains = 1
+n_iter = 200 # should be at least 500
+n_chains = 4
 n_traces = 200 # limit for plotting sample trajectories
 
 # Compile model before we reach any sampling
@@ -143,9 +143,6 @@ data_region = list(
   N = 10000,
   population_size = 10000,
   n_dormant = 4
-  # eps = 0,
-  # kappa = 3,
-  # phase = 120
 )
 data_region$y0 = my_state_init(data_region, I0=0.01)
 

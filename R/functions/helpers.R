@@ -40,10 +40,7 @@ my_simulate_data_list = function(...) {
 }
 
 my_simulate_data = function(...) {
-  synth_data = simulate_data(...)
-  
-  synth_data_rds = readRDS(synth_data$datasets[1])
-  file.remove(synth_data$datasets[1])
+  synth_data_rds = my_simulate_data_list(...)
   indx <- sapply(synth_data_rds, length)
   synth_df = lapply(synth_data_rds, function(x) {length(x) = max(indx); x}) %>%
     as.data.frame() %>%
