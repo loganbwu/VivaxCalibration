@@ -20,15 +20,15 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-n_cores = parallelly::availableCores()
-# n_cores = 9
-options(mc.cores = n_cores)
-message("Running on ", n_cores, " cores")
+# n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
 n_iter = 200 # should be at least 500
-n_chains = 4
+n_chains = 3
+n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
 
 # Compile model before we reach any sampling
 model_file = "../stan/temperate_9.stan"
@@ -125,7 +125,7 @@ first_year = min(year(ts_region$Date))
 ts_region = ts_region %>%
   mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
 data_region = list(
-  t0 = -50*years,
+  t0 = -200*years,
   n_times = nrow(ts_region),
   ts = ts_region$ts,
   cases = ts_region$Cases,
@@ -153,18 +153,15 @@ samp = sampling(model,
                 chains = n_chains,
                 # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                 cores = n_chains,
-                pars = "y_extended",
-                include = FALSE)
+                pars = c("lambda", "phi", "eps", "kappa", "phase", "relapse_clinical_immunity", "incidence"))
 tictoc::toc()
 ```
 
 ```{r}
 # inspect parameter posteriors
-parameters = c("lambda", "phi_inv", "eps", "kappa", "phase", "relapse_clinical_immunity")
+parameters = c("lambda", "phi", "eps", "kappa", "phase", "relapse_clinical_immunity")
 posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
   as_tibble() %>%
-  mutate(phi = 1/phi_inv) %>%
-  select(-phi_inv) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value")
 
 posterior_seasonal %>%
@@ -239,18 +236,15 @@ samp_noRCI = sampling(stan_model("../stan/temperate_9_noRCI.stan"),
                       chains = n_chains,
                       # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                       cores = n_chains,
-                      pars = "y_extended",
-                      include = FALSE)
+                      pars = c("lambda", "phi", "eps", "kappa", "phase", "relapse_clinical_immunity", "incidence"))
 tictoc::toc()
 ```
 
 ```{r}
 # inspect parameter posteriors
-parameters = c("lambda", "phi_inv", "eps", "kappa", "phase", "relapse_clinical_immunity")
+parameters = c("lambda", "phi", "eps", "kappa", "phase", "relapse_clinical_immunity")
 posterior_seasonal = rstan::extract(samp_noRCI, parameters[parameters %in% names(samp_noRCI)]) %>%
   as_tibble() %>%
-  mutate(phi = 1/phi_inv) %>%
-  select(-phi_inv) %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value")
 
 posterior_seasonal %>%

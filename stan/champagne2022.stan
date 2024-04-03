@@ -87,9 +87,7 @@ transformed parameters{
 
 model {
   //priors
-  lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
-  
+  lambda ~ exponential(1);
   phi_inv ~ exponential(5);
   
   //sampling distribution

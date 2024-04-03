@@ -82,7 +82,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0, upper=0.1> lambda;
+  real<lower=0, upper=0.9> lambda;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
   real<lower=0, upper=365.25> phase;
