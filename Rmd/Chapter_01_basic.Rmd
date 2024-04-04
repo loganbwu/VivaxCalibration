@@ -25,7 +25,7 @@ source("../R/constants.R")
 source("../R/load_functions.R")
 
 # n_cores = parallelly::availableCores()
-n_cores = 9
+n_cores = 6
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
@@ -34,7 +34,7 @@ cd = cachem::cache_disk("memoise")
 
 n_iter = 200 # should be at least 500
 n_chains = 1
-n_repetitions = 3 # how many times to duplicate each scenario
+n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 12*hr
@@ -562,9 +562,9 @@ ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = in
   geom_line(alpha = 0.1) +
   facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
   scale_x_continuous(breaks = 0:n_years) +
-  scale_y_log10(labels = label_auto2) +
+  scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Mean estimated incidence rates for the first scenario repetition",
-       subtitle = "Nonseasonal (annual) results scaled to per-month",
+       subtitle = "Nonseasonal (annual) results scaled to per-month\nNear-zero or elimination not shown on log scale",
        x = "Year",
        y = "Incidence", color = "Method") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
@@ -612,11 +612,11 @@ resimulated_2 = resimulated %>%
 ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = interaction(method, trace))) +
   geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
   geom_line(alpha = 0.25) +
-  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller) +
   scale_x_continuous(breaks = 0:n_years) +
-  scale_y_log10(labels = label_auto2) +
+  scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Re-simulated incidence rates for the first scenario repetition",
-       # subtitle = "Nonseasonal (annual) results scaled to per-month",
+       subtitle = "Incidence of very near zero (elimination) not plotted on log scale",
        x = "Year",
        y = "Incidence", color = "Method") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
