@@ -5,17 +5,19 @@
 // Changes from v5: observation model is negative binomial not poisson
 // Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
 // Changes from v7: now includes all primaries/relapses, not just clinical primaries/relapses
-// Changes from v8: seasonal parameters are now estimated.
+// Changes from v8 (TODO): seasonal parameters are now estimated.
+// Changes from v9: relapse clinical immunity is now a fixed data variable
+// Changes from v9_noRCI: seasonality is now fixed but alpha and beta are fit with strongly informative priors
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
     // To speed up the ODE solver, we use omega=1 to get to equilibrium and only begin seasonality soon before the measurement period
     real omega;
-    if (t < (-100*365.25)) {
-      omega = 1;
-    } else {
+    // if (t < (-*365.25)) {
+    //   omega = 1;
+    // } else {
       omega = eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa;
-    }
+    // }
     return(omega);
   }
   
@@ -23,24 +25,24 @@ functions {
     
     // Unpack theta
     real lambda = theta[1];
-    real relapse_clinical_immunity = theta[2];
-    real eps = theta[3];
-    real kappa = theta[4];
-    real phase = theta[5];
+    real alpha = theta[2];
+    real beta = theta[3];
     
     // Unpack x_r
-    real alpha = x_r[1];
-    real beta = x_r[2];
-    // real relapse_clinical_immunity = x_r[3];
+    // real alpha = x_r[1];
+    // real beta = x_r[2];
     real gamma_d = x_r[3];
     real gamma_l = x_r[4];
     real delta = x_r[5];
-    // real phi_2 = x_r[7];
     real f = x_r[6];
     real r = x_r[7];
     real p_long = x_r[8];
     real p_silent = x_r[9];
     real N = x_r[10];
+    real relapse_clinical_immunity = x_r[11];
+    real eps = x_r[12];
+    real kappa = x_r[13];
+    real phase = x_r[14];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -195,8 +197,8 @@ data {
   real ts[n_times];
   int cases[n_times];
   
-  real<lower=0, upper=1> alpha;
-  real<lower=0, upper=1> beta;
+  // real<lower=0, upper=1> alpha;
+  // real<lower=0, upper=1> beta;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
@@ -205,6 +207,10 @@ data {
   real<lower=0, upper=1> p_long;
   real<lower=0, upper=1> p_silent;
   real<lower=0> N;
+  real<lower=0, upper=1> relapse_clinical_immunity;
+  real<lower=0, upper=1> eps;
+  real<lower=0> kappa;
+  real phase;
   
   int<lower=1> n_dormant;
   
@@ -212,9 +218,11 @@ data {
 }
 
 transformed data {
-  real x_r[10] = {
-    alpha,
-    beta,
+  real x_r[14] = {
+    // alpha,
+    0,
+    // beta,
+    0,
     gamma_d,
     gamma_l,
     delta,
@@ -222,7 +230,11 @@ transformed data {
     r,
     p_long,
     p_silent,
-    N
+    N,
+    relapse_clinical_immunity,
+    eps,
+    kappa,
+    phase
   };
   
   int x_i[1] = {
@@ -244,19 +256,15 @@ transformed data {
 parameters {
   real<lower=0, upper=0.1> lambda;
   real<lower=0> phi_inv;
-  real<lower=0, upper=1> relapse_clinical_immunity;
-  real<lower=0, upper=1> eps;
-  real<lower=0, upper=10> kappa;
-  real<lower=0, upper=365.25> phase;
+  real<lower=0, upper=1> alpha;
+  real<lower=0, upper=1> beta;
 }
 
 transformed parameters {
-  vector[5] theta;
+  vector[3] theta;
   theta[1] = lambda;
-  theta[2] = relapse_clinical_immunity;
-  theta[3] = eps;
-  theta[4] = kappa;
-  theta[5] = phase;
+  theta[2] = alpha;
+  theta[3] = beta;
   real phi = 1. / phi_inv;
   
   real incidence[n_times];
@@ -275,10 +283,8 @@ transformed parameters {
 model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
-  eps ~ uniform(0, 1);
-  kappa ~ exponential(0.1);
-  phase ~ uniform(0, 365.25);
-  relapse_clinical_immunity ~ uniform(0, 1);
+  alpha ~ beta(1300, 320);
+  beta ~ beta(1300, 320);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);

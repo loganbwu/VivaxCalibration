@@ -6,6 +6,7 @@
 // Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
 // Changes from v7: now includes all primaries/relapses, not just clinical primaries/relapses
 // Changes from v8: seasonal parameters are now estimated.
+// Changes from v9: includes a proportion of delayed primary infections
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -27,10 +28,14 @@ functions {
     real eps = theta[3];
     real kappa = theta[4];
     real phase = theta[5];
+    real p_long = theta[6];
+    real p_silent = theta[7];
+    real alpha = theta[8];
+    real beta = theta[9];
     
     // Unpack x_r
-    real alpha = x_r[1];
-    real beta = x_r[2];
+    // real alpha = x_r[1];
+    // real beta = x_r[2];
     // real relapse_clinical_immunity = x_r[3];
     real gamma_d = x_r[3];
     real gamma_l = x_r[4];
@@ -38,9 +43,7 @@ functions {
     // real phi_2 = x_r[7];
     real f = x_r[6];
     real r = x_r[7];
-    real p_long = x_r[8];
-    real p_silent = x_r[9];
-    real N = x_r[10];
+    real N = x_r[8];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -195,15 +198,13 @@ data {
   real ts[n_times];
   int cases[n_times];
   
-  real<lower=0, upper=1> alpha;
-  real<lower=0, upper=1> beta;
+  // real<lower=0, upper=1> alpha;
+  // real<lower=0, upper=1> beta;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
   real<lower=0> f;
   real<lower=0> r;
-  real<lower=0, upper=1> p_long;
-  real<lower=0, upper=1> p_silent;
   real<lower=0> N;
   
   int<lower=1> n_dormant;
@@ -212,16 +213,16 @@ data {
 }
 
 transformed data {
-  real x_r[10] = {
-    alpha,
-    beta,
+  real x_r[8] = {
+    // alpha,
+    0,
+    // beta,
+    0,
     gamma_d,
     gamma_l,
     delta,
     f,
     r,
-    p_long,
-    p_silent,
     N
   };
   
@@ -244,19 +245,27 @@ transformed data {
 parameters {
   real<lower=0, upper=0.1> lambda;
   real<lower=0> phi_inv;
+  real<lower=0, upper=1> alpha;
+  real<lower=0, upper=1> beta;
   real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0, upper=1> eps;
   real<lower=0, upper=10> kappa;
   real<lower=0, upper=365.25> phase;
+  real<lower=0, upper=1> p_long;
+  real<lower=0, upper=1> p_silent;
 }
 
 transformed parameters {
-  vector[5] theta;
+  vector[9] theta;
   theta[1] = lambda;
   theta[2] = relapse_clinical_immunity;
   theta[3] = eps;
   theta[4] = kappa;
   theta[5] = phase;
+  theta[6] = p_long;
+  theta[7] = p_silent;
+  theta[8] = alpha;
+  theta[9] = beta;
   real phi = 1. / phi_inv;
   
   real incidence[n_times];
@@ -275,10 +284,13 @@ transformed parameters {
 model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
+  alpha ~ beta(12, 3);
   eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   phase ~ uniform(0, 365.25);
   relapse_clinical_immunity ~ uniform(0, 1);
+  p_long ~ beta(1, 0.001);
+  p_silent ~ beta(126, 175);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);

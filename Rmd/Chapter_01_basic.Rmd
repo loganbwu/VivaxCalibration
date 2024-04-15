@@ -25,7 +25,7 @@ source("../R/constants.R")
 source("../R/load_functions.R")
 
 # n_cores = parallelly::availableCores()
-n_cores = 6
+n_cores = 9
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
@@ -34,12 +34,11 @@ cd = cachem::cache_disk("memoise")
 
 n_iter = 200 # should be at least 500
 n_chains = 1
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 12*hr
-n_traces = 100 # limit for plotting sample trajectories
-n_traces = min(n_traces, n_iter)
+n_traces = min(100, n_iter) # limit for plotting sample trajectories
 set.seed(0)
 ```
 
