@@ -104,7 +104,8 @@ transformed parameters{
   }
   
   for (i in 1:n_times) {
-    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+    // incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+    incidence[i] = (y[i+1, 5] - y[i, 5]) * N * alpha;
   }
 }
 
