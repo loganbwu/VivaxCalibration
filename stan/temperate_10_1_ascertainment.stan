@@ -283,8 +283,8 @@ transformed parameters {
 model {
   lambda ~ exponential(5);
   phi_inv ~ exponential(5);
-  alpha ~ beta(1300, 320);
-  beta ~ beta(1300, 320);
+  alpha ~ beta(11, 91);
+  beta ~ beta(91, 11);
   
   for (i in 1:n_times) {
     cases[i] ~ neg_binomial_2(incidence[i], phi);

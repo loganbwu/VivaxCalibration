@@ -6,6 +6,8 @@ html_notebook:
 number_sections: true
 ---
 
+Change from v1: Use model 10_1 where ascertainment is very low.
+
 ```{r setup}
 library(R.utils)
 library(tidyverse)
@@ -24,14 +26,14 @@ source("../R/load_functions.R")
 rstan_options(auto_write = TRUE)
 
 n_iter = 100 # should be at least 500
-n_chains = 8
+n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
 # Compile model before we reach any sampling
-model_file = "../stan/temperate_9_1_delayed.stan"
+model_file = "../stan/temperate_10_1_ascertainment.stan"
 model = stan_model(model_file)
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
@@ -88,14 +90,14 @@ ggsave("../plots/china_selected.png", width=8, height=4)
 Now we fit the model for [Selected region]
 
 ```{r}
-selected_region = "Guantang"
+selected_region = "Dengzhou"
 ts_region = china_data %>%
   filter(Region == selected_region)
 first_year = min(year(ts_region$Date))
 ts_region = ts_region %>%
   mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
 data_region = list(
-  t0 = -100*years,
+  t0 = -200*years,
   n_times = nrow(ts_region),
   ts = ts_region$ts,
   cases = ts_region$Cases,
@@ -109,7 +111,7 @@ data_region = list(
   f = 1/72,
   r = 1/60,
   p_long = 1,
-  p_silent = 0.2,
+  p_silent = 0.34, # includes a proportion of delayed primary infections
   N = 10000,
   population_size = 10000,
   n_dormant = 4,
@@ -126,13 +128,13 @@ samp = sampling(model,
                 chains = n_chains,
                 # init = rep(list(.theta_init), n_chains), # Start from MLE solution
                 cores = n_chains,
-                pars = c("lambda", "phi", "alpha", "beta", "p_long", "p_silent", "incidence", "sim_cases"))
+                pars = c("lambda", "phi", "alpha", "beta", "incidence", "sim_cases"))
 tictoc::toc()
 ```
 
 ```{r}
 # inspect parameter posteriors
-parameters = c("lambda", "phi", "alpha", "beta", "p_long", "p_silent")
+parameters = c("lambda", "phi", "alpha", "beta", "eps")
 posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
   as_tibble() %>%
   pivot_longer(everything(), names_to = "parameter", values_to = "value")
@@ -148,7 +150,9 @@ posterior_seasonal %>%
        subtitle = "Parameter estimates") +
   theme(legend.position = "none")
 
-ggsave("../plots/china_posterior.png", width=8, height=4)
+
+filename = paste0("../plots/china_", str_to_lower(selected_region), "_posterior_norci.png")
+ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
 incidence = rstan::extract(samp, "incidence")[[1]]
@@ -174,13 +178,15 @@ incidence_sample_temperate = as_tibble(t(incidence)) %>%
 #   distinct(j, .keep_all=T)
 
 
-ggplot(mapping = aes(x=ts/years)) +
+ggplot(mapping = aes(x=ts/years + first_year)) +
   # geom_ribbon(data = sim_cases_sample_temperate,
   #             aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
   #             alpha = 0.5) +
   geom_ribbon(data = incidence_sample_temperate,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
+  geom_line(data = incidence_sample_temperate,
+            aes(y = incidence, group = trace, color = "Sampled traces"), alpha=0.03) +
   geom_point(data = tibble(ts = data_region$ts, cases = data_region$cases),
              aes(y = cases, group = NULL, color="Incidence data")) +
   coord_cartesian(ylim = c(0, NA)) +
@@ -188,20 +194,22 @@ ggplot(mapping = aes(x=ts/years)) +
                     breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data"),
-                      values = c("steelblue", "tomato", "black")) +
+                      breaks = c("95% case prediction interval", "95% mean incidence interval", "Incidence data", "Sampled traces"),
+                      values = c("steelblue", "tomato", "black", "navy")) +
   labs(title = selected_region,
-       subtitle = "Seasonal model, monthly synthetic data",
+       subtitle = "Seasonal model, monthly data",
        x = "Year",
-       y = "Annual incidence")
+       y = "Annual incidence") +
+  guides(color = guide_legend(override.aes = list(alpha = 0.7)))
 
-
-ggsave("../plots/china_incidence_norci.png", width=8, height=4)
+filename = paste0("../plots/china_", str_to_lower(selected_region), "_incidence_norci.png")
+ggsave(filename, width=8, height=4)
 ```
 
 End of script.
 
 ```{r}
+beepr::beep()
 print("Done.")
 ```
 
