@@ -6,11 +6,11 @@ functions {
   real suitability(real t, real eps, real kappa, real phase) {
     // To speed up the ODE solver, we use omega=1 to get to equilibrium and only begin seasonality soon before the measurement period
     real omega;
-    if (t < (-20*365.25)) {
-      omega = 1;
-    } else {
+    // if (t < (-20*365.25)) {
+    //   omega = 1;
+    // } else {
       omega = eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa;
-    }
+    // }
     return(omega);
   }
   
@@ -91,7 +91,7 @@ parameters {
 
 transformed parameters{
   real y[n_times+1, 5];
-  real incidence[n_times];
+  real<lower=0> incidence[n_times];
   real phi = 1. / phi_inv;
   {
     real theta[4];
@@ -104,8 +104,8 @@ transformed parameters{
   }
   
   for (i in 1:n_times) {
-    // incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
-    incidence[i] = (y[i+1, 5] - y[i, 5]) * N * alpha;
+    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
+    // incidence[i] = (y[i+1, 5] - y[i, 5]) * N * alpha;
   }
 }
 

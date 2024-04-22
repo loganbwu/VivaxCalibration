@@ -32,7 +32,7 @@ aggregate_data = function(.data) {
 }
 
 my_simulate_data_list = function(...) {
-  synth_data = simulate_data(...)
+  synth_data = compiled_simulate_data(...)
   
   synth_data_rds = readRDS(synth_data$datasets[1])
   file.remove(synth_data$datasets[1])

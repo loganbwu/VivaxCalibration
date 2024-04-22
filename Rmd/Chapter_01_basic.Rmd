@@ -34,7 +34,7 @@ cd = cachem::cache_disk("memoise")
 
 n_iter = 300 # should be at least 500
 n_chains = 1
-n_repetitions = 5 # how many times to duplicate each scenario
+n_repetitions = 2 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 12*hr
@@ -77,8 +77,9 @@ data = data_init(data_consts,
 # params = list(lambda=0.01, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 params = list(lambda=0.05, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 
+model = stan_model("../stan/champagne2022_seasonal_ext_2.stan")
 sim = my_simulate_data_list(
-  file = "../stan/champagne2022_seasonal_ext_2.stan",
+  file = model,
   path = "sim_data",
   data_name = "seasonal",
   input_data = data,
@@ -161,6 +162,7 @@ ggplot(incidence_nonseasonal, aes(x=ts, y=incidence, group=trace)) +
 Define a function to simulate cases for a scenario
 
 ```{r}
+model = stan_model("../stan/champagne2022_seasonal_ext_2.stan")
 simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
   n_times = annual_subdivisions * n_years
   data = data_init(data_consts,
@@ -169,7 +171,7 @@ simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
                    n_times = n_times)
   params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase)
   synth_df = my_simulate_data(
-    file = "../stan/champagne2022_seasonal_ext_2.stan",
+    file = model,
     path = "sim_data",
     data_name = "seasonal",
     input_data = data,
@@ -561,7 +563,7 @@ ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = in
   geom_line(alpha = 0.1) +
   facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
   scale_x_continuous(breaks = 0:n_years) +
-  scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
+  # scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Mean estimated incidence rates for the first scenario repetition",
        subtitle = "Nonseasonal (annual) results scaled to per-month\nNear-zero or elimination not shown on log scale",
        x = "Year",
@@ -580,7 +582,7 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
   if (is.null(valid_scenarios_long$est_incidence[[i]])){
     return(NULL)
   }
-  pblapply(seq_len(8), function(j) {
+  pblapply(seq_len(1), function(j) {
     if (is.null(valid_scenarios_long$est_lambda[[i]])) {
       return(NULL)
     }

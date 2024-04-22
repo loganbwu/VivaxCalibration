@@ -166,22 +166,22 @@ incidence_sample_temperate = as_tibble(t(incidence)) %>%
          upper = quantile(incidence, 0.975, na.rm=T),
          legend = "95% prediction interval")
 
-# sim_cases = rstan::extract(samp, "sim_cases")[[1]]
-# sim_cases_sample_temperate = as_tibble(t(sim_cases)) %>%
-#   mutate(j = row_number()) %>%
-#   pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
-#   group_by(j) %>%
-#   mutate(ts = data_region$ts[j],
-#          lower = quantile(sim_cases, 0.025, na.rm=T),
-#          upper = quantile(sim_cases, 0.975, na.rm=T),
-#          legend = "95% prediction interval") %>%
-#   distinct(j, .keep_all=T)
+sim_cases = rstan::extract(samp, "sim_cases")[[1]]
+sim_cases_sample_temperate = as_tibble(t(sim_cases)) %>%
+  mutate(j = row_number()) %>%
+  pivot_longer(-j, names_to = "trace", values_to = "sim_cases") %>%
+  group_by(j) %>%
+  mutate(ts = data_region$ts[j],
+         lower = quantile(sim_cases, 0.025, na.rm=T),
+         upper = quantile(sim_cases, 0.975, na.rm=T),
+         legend = "95% prediction interval") %>%
+  distinct(j, .keep_all=T)
 
 
 ggplot(mapping = aes(x=ts/years + first_year)) +
-  # geom_ribbon(data = sim_cases_sample_temperate,
-  #             aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
-  #             alpha = 0.5) +
+  geom_ribbon(data = sim_cases_sample_temperate,
+              aes(ymin=lower, ymax=upper, fill="95% case prediction interval"),
+              alpha = 0.5) +
   geom_ribbon(data = incidence_sample_temperate,
               aes(ymin=lower, ymax=upper, fill="95% mean incidence interval"),
               alpha = 0.5) +
