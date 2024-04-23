@@ -84,23 +84,25 @@ functions {
     
     // Compute derivatives
     // S0
+    real refactor_0 = infect*(short_hyp*treatedprimary*complete + long_hyp*(primary*treatedprimary*complete + silent*treatedsilent*complete));
     real dS0dt = -S0*infect*(short_hyp*(treatedprimary*incomplete+untreatedprimary) + long_hyp*(primary*(treatedprimary*incomplete + untreatedprimary) + silent*(treatedsilent*incomplete + untreatedsilent))) +
-    sum(Sl)*(infect*(short_hyp*treatedprimary*complete+long_hyp*(primary*treatedprimary*complete+silent*treatedsilent*complete))) +
-    Sl[active]*relapse*treatedprimary*complete +
-    sum(Sl[1:n_dormant])*clear_d +
-    Sl[active]*clear_l +
-    sum(Scl)*infect*(short_hyp*treatedprimary*complete + long_hyp*(primary*treatedprimary*complete + silent*treatedsilent*complete)) +
-    Scl[active]*relapse*treatedrelapse*complete +
-    sum(Scl[1:n_dormant])*clear_d +
-    Scl[active]*clear_l +
-    I0*recover;
+      sum(Sl)*refactor_0 +
+      Sl[active]*relapse*treatedprimary*complete +
+      sum(Sl[1:n_dormant])*clear_d +
+      Sl[active]*clear_l +
+      sum(Scl)*refactor_0 +
+      Scl[active]*relapse*treatedrelapse*complete +
+      sum(Scl[1:n_dormant])*clear_d +
+      Scl[active]*clear_l +
+      I0*recover;
     
     // Sl
     real dSldt[n_stages];
-    dSldt[1] = -Sl[1]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
-    S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
+    real refactor_1 = infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d;
+    dSldt[1] = -Sl[1]*refactor_1 +
+      S0*infect*long_hyp*silent*(treatedsilent*incomplete + untreatedsilent);
     for (i in 2:n_stages-1) {
-      dSldt[i] = -Sl[i]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + advance + clear_d) +
+      dSldt[i] = -Sl[i]*refactor_1 +
       Sl[i-1]*advance;
     }
     dSldt[n_stages] = -Sl[n_stages]*(infect*(short_hyp + long_hyp*(primary + silent*treatedsilent*complete)) + relapse + clear_l) +
@@ -108,24 +110,26 @@ functions {
     
     // Scl
     real dScldt[n_stages];
-    dScldt[1] = -Scl[1]*(infect*(short_hyp + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + advance + clear_d) +
-    S0*infect*long_hyp*primary*treatedprimary*incomplete +
-    Sl[1]*infect*long_hyp*primary*treatedprimary*incomplete +
-    Icl[1]*recover;
+    real refactor_2 = infect*(short_hyp + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + advance + clear_d;
+    real refactor_21 = infect*long_hyp*primary*treatedprimary*incomplete;
+    dScldt[1] = -Scl[1]*refactor_2 +
+      S0*refactor_21 +
+      Sl[1]*refactor_21 +
+      Icl[1]*recover;
     for (i in 2:n_stages-1) {
-      dScldt[i] = -Scl[i]*(infect*(short_hyp + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + advance + clear_d) +
+      dScldt[i] = -Scl[i]*refactor_2 +
       Scl[i-1]*advance +
-      Sl[i]*infect*long_hyp*primary*treatedprimary*incomplete +
+      Sl[i]*refactor_21 +
       Icl[i]*recover;
     }
     dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete + untreatedrelapse) + clear_l) +
-    S0*infect*short_hyp*treatedprimary*incomplete +
-    sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
-    Sl[n_stages]*infect*long_hyp*primary*treatedprimary*incomplete +
-    Sl[n_stages]*relapse*treatedprimary*incomplete +
-    sum(Scl[1:n_dormant])*infect*short_hyp*treatedprimary*incomplete +
-    Scl[n_stages-1]*advance +
-    Icl[n_stages]*recover;
+      S0*infect*short_hyp*treatedprimary*incomplete +
+      sum(Sl)*infect*short_hyp*treatedprimary*incomplete +
+      Sl[n_stages]*refactor_21 +
+      Sl[n_stages]*relapse*treatedprimary*incomplete +
+      sum(Scl[1:n_dormant])*infect*short_hyp*treatedprimary*incomplete +
+      Scl[n_stages-1]*advance +
+      Icl[n_stages]*recover;
     
     // I0
     real dI0dt = -I0*(infect + recover) +
@@ -134,28 +138,30 @@ functions {
     
     // Icl
     real dIcldt[n_stages];
-    dIcldt[1] = -Icl[1]*(infect*short_hyp + advance + clear_d + recover) +
-    S0*(infect*long_hyp*primary*untreatedprimary) +
-    Sl[1]*infect*long_hyp*primary*untreatedprimary +
-    Scl[1]*infect*long_hyp*primary*untreatedprimary +
-    I0*infect*long_hyp;
+    real refactor_3 = infect*short_hyp + advance + clear_d + recover;
+    real refactor_31 = infect*long_hyp*primary*untreatedprimary;
+    dIcldt[1] = -Icl[1]*refactor_3 +
+      S0*refactor_31 +
+      Sl[1]*refactor_31 +
+      Scl[1]*refactor_31 +
+      I0*infect*long_hyp;
     for (i in 2:n_stages-1) {
-      dIcldt[i] = -Icl[i]*(infect*short_hyp + advance + clear_d + recover) +
-      Sl[i]*infect*long_hyp*primary*untreatedprimary +
-      Scl[i]*infect*long_hyp*primary*untreatedprimary +
-      Icl[i-1]*advance;
+      dIcldt[i] = -Icl[i]*refactor_3 +
+        Sl[i]*refactor_31 +
+        Scl[i]*refactor_31 +
+        Icl[i-1]*advance;
     }
     dIcldt[n_stages] = -Icl[n_stages]*(clear_l + recover) +
-    S0*infect*short_hyp*untreatedprimary +
-    sum(Sl)*infect*short_hyp*untreatedprimary +
-    Sl[n_stages]*infect*long_hyp*primary*untreatedprimary +
-    Sl[n_stages]*relapse*untreatedprimary +
-    sum(Scl)*infect*short_hyp*untreatedprimary +
-    Scl[n_stages]*infect*long_hyp*primary*untreatedprimary +
-    Scl[n_stages]*relapse*untreatedrelapse +
-    I0*infect*short_hyp +
-    sum(Icl[1:n_dormant])*infect*short_hyp +
-    Icl[n_stages-1]*advance;
+      S0*infect*short_hyp*untreatedprimary +
+      sum(Sl)*infect*short_hyp*untreatedprimary +
+      Sl[n_stages]*refactor_31 +
+      Sl[n_stages]*relapse*untreatedprimary +
+      sum(Scl)*infect*short_hyp*untreatedprimary +
+      Scl[n_stages]*refactor_31 +
+      Scl[n_stages]*relapse*untreatedrelapse +
+      I0*infect*short_hyp +
+      sum(Icl[1:n_dormant])*infect*short_hyp +
+      Icl[n_stages-1]*advance;
     
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
     // We also count the first 'relapse' with no clinical immunity (i.e., cryptic primary infection) as a primary infection because it presents as a primary.
