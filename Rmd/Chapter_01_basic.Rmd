@@ -21,6 +21,7 @@ library(pbmcapply)
 library(pbapply)
 library(memoise)
 library(RColorBrewer)
+library(ggh4x)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
@@ -198,7 +199,7 @@ scenarios = expand_grid(
   mutate(ID = row_number(), .before=0)
 
 # Simulate cases for each scenario
-cases_scenarios = pblapply(seq_len(nrow(scenarios)), function(i) {
+cases_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   lambda = scenarios$lambda[i]
   phi_inv = scenarios$phi_inv[i]
   eps = scenarios$eps[i]
@@ -561,7 +562,8 @@ scenarios_overlay = scenarios %>%
 ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = interaction(method, rep, trace))) +
   geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
   geom_line(alpha = 0.1) +
-  facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y") +
+  facet_wrap()
+  facet_grid2(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y", independent="y") +
   scale_x_continuous(breaks = 0:n_years) +
   # scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Mean estimated incidence rates for the first scenario repetition",

@@ -33,7 +33,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
 # Compile model before we reach any sampling
-model_file = "../stan/temperate_10_1_ascertainment.stan"
+model_file = "../stan/temperate_10_1_ascertainment_poisson.stan"
 model = stan_model(model_file)
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
@@ -151,7 +151,7 @@ posterior_seasonal %>%
   theme(legend.position = "none")
 
 
-filename = paste0("../plots/china_", str_to_lower(selected_region), "_posterior_norci.png")
+filename = paste0("../plots/china_", str_to_lower(selected_region), "_posterior_norci_poisson.png")
 ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
@@ -202,7 +202,7 @@ ggplot(mapping = aes(x=ts/years + first_year)) +
        y = "Annual incidence") +
   guides(color = guide_legend(override.aes = list(alpha = 0.7)))
 
-filename = paste0("../plots/china_", str_to_lower(selected_region), "_incidence_norci.png")
+filename = paste0("../plots/china_", str_to_lower(selected_region), "_incidence_norci_poisson.png")
 ggsave(filename, width=8, height=4)
 ```
 

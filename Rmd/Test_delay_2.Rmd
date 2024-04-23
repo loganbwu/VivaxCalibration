@@ -67,11 +67,11 @@ data_null = list(
   run_estimation = 0
 )
 
-model_file = "../stan/temperate_8_1.stan"
-model = stan_model(model_file)
+model = stan_model("../stan/temperate_8_1.stan")
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
 my_calculate_quantities = calculate_quantities_3
+start_time = Sys.time()
 ```
 
 ```{r short_relapse}
@@ -195,7 +195,7 @@ sims_out = list(data_1, data_2) %>%
   setNames(paste0("alpha=", c(a1, a2))) %>%
   lapply(function(x) {
     my_simulate_data_list(
-      file = model_file,
+      file = model,
       data_name = "dummy_data",
       input_data = x,
       param_values = real_params,
@@ -240,7 +240,7 @@ sims_out = list(
 ) %>%
   lapply(function(x) {
     my_simulate_data_list(
-      file = model_file,
+      file = model,
       data_name = "dummy_data",
       input_data = x,
       param_values = real_params,
@@ -281,7 +281,7 @@ data$y0 = my_state_init(data, "Sl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
-  file = model_file,
+  file = model,
   data_name = "dummy_data",
   input_data = data,
   param_values = real_params,
@@ -316,7 +316,7 @@ data$y0 = my_state_init(data, "Icl1" = 1)
 real_params = list(lambda = 1e-12)
 
 sim_out = my_simulate_data_list(
-  file = model_file,
+  file = model,
   data_name = "dummy_data",
   input_data = data,
   param_values = real_params,
@@ -363,7 +363,7 @@ data$y0 = my_state_init(data, "I0" = 0.01)
 real_params = list(lambda = 1)
 
 sim_out = my_simulate_data_list(
-  file = model_file,
+  file = model,
   data_name = "dummy_data",
   input_data = data,
   param_values = real_params,
@@ -421,7 +421,7 @@ sims_out = list(
 ) %>%
   lapply(function(x) {
     my_simulate_data_list(
-      file = model_file,
+      file = model,
       data_name = "dummy_data",
       input_data = x,
       param_values = real_params,
@@ -472,7 +472,7 @@ sims_out = list(
 ) %>%
   lapply(function(x) {
     my_simulate_data_list(
-      file = model_file,
+      file = model,
       data_name = "dummy_data",
       input_data = x,
       param_values = real_params,
@@ -540,7 +540,7 @@ sims_out = list(data_1, data_2, data_3) %>%
   lapply(function(x) {
     x$y0 = my_state_init(x, I0 = init_I0)
     my_simulate_data_list(
-      file = model_file,
+      file = model,
       data_name = "dummy_data",
       input_data = x,
       param_values = real_params,
@@ -584,7 +584,7 @@ data$y0 = my_state_init(data, I0 = 0.1)
 real_params = list(lambda = 0.1)
 
 sim_out = my_simulate_data_list(
-  file = model_file,
+  file = model,
   data_name = "dummy_data",
   input_data = data,
   param_values = real_params,
@@ -606,4 +606,10 @@ ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
   geom_line() +
   facet_grid(rows=vars(Type), scales="free_y") +
   labs(color = NULL)
+```
+
+```{r}
+end_time = Sys.time()
+print("Done.")
+print(end_time - start_time)
 ```

@@ -67,7 +67,7 @@ compiled_simulate_data <-
     #### input checks ####
     # file must be character
     if (!(typeof(file) == "character" | "stanmodel" %in% class(file)))
-      stop("file must be of type character or stanmodel")
+      stop("file must be of type character or of class stanmodel")
     
     # data_name must be character
     if (!is.character(data_name))

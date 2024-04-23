@@ -293,13 +293,13 @@ model {
   beta ~ beta(91, 11);
   
   for (i in 1:n_times) {
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
+    cases[i] ~ poisson(incidence[i]);
   }
 }
 
 generated quantities {
   vector[n_times] sim_cases;
   for (i in 1:n_times) {
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
+    sim_cases[i] = poisson_rng(incidence[i]);
   }
 }
