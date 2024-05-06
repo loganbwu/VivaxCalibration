@@ -8,6 +8,8 @@
 // Changes from v8 (TODO): seasonal parameters are now estimated.
 // Changes from v9: relapse clinical immunity is now a fixed data variable
 // Changes from v9_noRCI: seasonality is now fixed but alpha and beta are fit with strongly informative priors
+// Changes from v10: Setup for overwinter as per draft chapter. Alpha and beta have strongly informative priors. Seasonality is still estimated.
+// Changes from v11: Tighter priors
 
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
@@ -27,22 +29,22 @@ functions {
     real lambda = theta[1];
     real alpha = theta[2];
     real beta = theta[3];
+    real relapse_clinical_immunity = theta[4];
+    real p_long = theta[5];
+    real p_silent = theta[6];
+    // real eps = theta[7];
+    real kappa = theta[7];
+    real phase = theta[8];
+  
     
     // Unpack x_r
-    // real alpha = x_r[1];
-    // real beta = x_r[2];
-    real gamma_d = x_r[3];
-    real gamma_l = x_r[4];
-    real delta = x_r[5];
-    real f = x_r[6];
-    real r = x_r[7];
-    real p_long = x_r[8];
-    real p_silent = x_r[9];
-    real N = x_r[10];
-    real relapse_clinical_immunity = x_r[11];
-    real eps = x_r[12];
-    real kappa = x_r[13];
-    real phase = x_r[14];
+    real N = x_r[1];
+    real gamma_d = x_r[2];
+    real gamma_l = x_r[3];
+    real delta = x_r[4];
+    real f = x_r[5];
+    real r = x_r[6];
+    real eps = x_r[7];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -121,9 +123,9 @@ functions {
       Icl[1]*recover;
     for (i in 2:n_stages-1) {
       dScldt[i] = -Scl[i]*refactor_2 +
-        Scl[i-1]*advance +
-        Sl[i]*refactor_21 +
-        Icl[i]*recover;
+      Scl[i-1]*advance +
+      Sl[i]*refactor_21 +
+      Icl[i]*recover;
     }
     dScldt[n_stages] = -Scl[n_stages]*(infect*(short_hyp*(treatedprimary*complete + untreatedprimary) + long_hyp*(primary*(treatedprimary*complete + untreatedprimary) + silent*treatedsilent*complete)) + relapse*(treatedrelapse*complete + untreatedrelapse) + clear_l) +
       S0*infect*short_hyp*treatedprimary*incomplete +
@@ -203,6 +205,7 @@ data {
   real ts[n_times];
   int cases[n_times];
   
+  real<lower=0> N;
   // real<lower=0, upper=1> alpha;
   // real<lower=0, upper=1> beta;
   real<lower=0> gamma_d;
@@ -210,13 +213,12 @@ data {
   real<lower=0> delta;
   real<lower=0> f;
   real<lower=0> r;
-  real<lower=0, upper=1> p_long;
-  real<lower=0, upper=1> p_silent;
-  real<lower=0> N;
-  real<lower=0, upper=1> relapse_clinical_immunity;
+  // real<lower=0, upper=1> p_long;
+  // real<lower=0, upper=1> p_silent;
+  // real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0, upper=1> eps;
-  real<lower=0> kappa;
-  real phase;
+  // real<lower=0> kappa;
+  // real phase;
   
   int<lower=1> n_dormant;
   
@@ -224,23 +226,14 @@ data {
 }
 
 transformed data {
-  real x_r[14] = {
-    // alpha,
-    0,
-    // beta,
-    0,
+  real x_r[7] = {
+    N,
     gamma_d,
     gamma_l,
     delta,
     f,
     r,
-    p_long,
-    p_silent,
-    N,
-    relapse_clinical_immunity,
-    eps,
-    kappa,
-    phase
+    eps
   };
   
   int x_i[1] = {
@@ -264,13 +257,25 @@ parameters {
   real<lower=0> phi_inv;
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
+  real<lower=0, upper=1> relapse_clinical_immunity;
+  real<lower=0, upper=1> p_long;
+  real<lower=0, upper=1> p_silent;
+  // real<lower=0, upper=1> eps;
+  real<lower=0, upper=10> kappa;
+  real<lower=0, upper=365.25> phase;
 }
 
 transformed parameters {
-  vector[3] theta;
+  vector[8] theta;
   theta[1] = lambda;
   theta[2] = alpha;
   theta[3] = beta;
+  theta[4] = relapse_clinical_immunity;
+  theta[5] = p_long;
+  theta[6] = p_silent;
+  // theta[7] = eps;
+  theta[7] = kappa;
+  theta[8] = phase;
   real phi = 1. / phi_inv;
   
   real incidence[n_times];
@@ -291,15 +296,19 @@ model {
   phi_inv ~ exponential(5);
   alpha ~ beta(10, 90);
   beta ~ beta(90, 10);
+  kappa ~ exponential(0.1);
+  relapse_clinical_immunity ~ beta(1, 50); // very little clinical immunity
+  p_long ~ beta(100, 1); // almost complete long relapse
+  p_silent ~ beta(15, 30);
   
   for (i in 1:n_times) {
-    cases[i] ~ poisson(incidence[i]);
+    cases[i] ~ neg_binomial_2(incidence[i], phi);
   }
 }
 
 generated quantities {
   vector[n_times] sim_cases;
   for (i in 1:n_times) {
-    sim_cases[i] = poisson_rng(incidence[i]);
+    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
   }
 }

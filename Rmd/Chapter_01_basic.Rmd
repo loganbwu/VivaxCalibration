@@ -246,7 +246,7 @@ scenarios_long %>%
        x = "Year",
        y = "Monthly cases",
        color = "Method")
-ggsave("../plots/synth_data.png", width=8, height=4)
+ggsave("../plots/basic_data.png", width=8, height=4)
 ```
 
 Define a function to perform the model fit, then apply it to each scenario
@@ -496,13 +496,16 @@ true_values_2 = true_values %>%
   mutate(eps = as.numeric(as.character(eps))) %>%
   left_join(tibble(method = c("Seasonal", "Nonseasonal")), by=character())
 
-ggplot(plot_data_2, aes(x = value, y = method, color = method, fill = method, group = interaction(lambda, rep, method))) +
+ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, group = interaction(lambda, rep, method))) +
   geom_vline(data=true_values_2, aes(xintercept = value), linetype="dashed") +
   geom_density_ridges(alpha = 0.25) +
+  # geom_density(aes(y=NULL)) +
   scale_x_continuous(breaks = unique(true_values_2$value), minor_breaks=NULL) +
   # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
-  theme(legend.position = "none") +
+  theme(legend.position = "none",
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
   labs(title = paste("Estimates of", make_greek("lambda"), "over repeated scenarios"),
        x = "Value", y = NULL, color = "Method", fill = "Method")
 
@@ -560,12 +563,12 @@ scenarios_overlay = scenarios %>%
   inner_join(first_successful_scenario, by=c("rep", "lambda", "eps"))
 
 ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = interaction(method, rep, trace))) +
-  geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
+  # geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
   geom_line(alpha = 0.1) +
-  facet_wrap()
-  facet_grid2(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller, scales="free_y", independent="y") +
+  facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
+  # facet_grid2(rows = vars(eps), cols = vars(lambda), scales="free_y", independent="y") +
   scale_x_continuous(breaks = 0:n_years) +
-  # scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
+  scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Mean estimated incidence rates for the first scenario repetition",
        subtitle = "Nonseasonal (annual) results scaled to per-month\nNear-zero or elimination not shown on log scale",
        x = "Year",

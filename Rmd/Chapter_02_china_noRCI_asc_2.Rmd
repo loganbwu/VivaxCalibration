@@ -37,6 +37,7 @@ model_file = "../stan/temperate_10_1_ascertainment_poisson.stan"
 model = stan_model(model_file)
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
+start_time = Sys.time()
 ```
 ## Parameter recovery on real data
 
@@ -209,7 +210,9 @@ ggsave(filename, width=8, height=4)
 End of script.
 
 ```{r}
-beepr::beep()
 print("Done.")
+beepr::beep()
+end_time = Sys.time()
+print(end_time - start_time)
 ```
 

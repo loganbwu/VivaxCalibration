@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 1000 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -30,7 +30,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
 # Compile model before we reach any sampling
-model = stan_model("../stan/temperate_11.stan")
+model = stan_model("../stan/temperate_11_2_plausible.stan")
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
 start_time = Sys.time()
@@ -84,7 +84,7 @@ ggplot(china_data_all) +
 ggsave("../plots/china_selected.png", width=8, height=4)
 ```
 
-```{r, eval=F}
+```{r}
 source("../R/functions/decompose_data.R")
 china_decomp = lapply(unique(china_data$Region) %>% setNames({.}), function(x) {
   china_data %>%
@@ -114,11 +114,11 @@ china_decomp %>%
 ggsave("../plots/china_decomp.png", width=8, height=4)
 ```
 
-Now we fit the model for both locations
+What if we fit it with no clinical immunity?
 
 ```{r}
 selected_regions = c("Dengzhou", "Guantang") %>% setNames({.})
-samp_results = list()
+samp_results_plausible = list()
 data_regions = lapply(selected_regions, function(region) {
   ts_region = china_data %>%
     filter(Region == region)
@@ -130,8 +130,6 @@ data_regions = lapply(selected_regions, function(region) {
     n_times = nrow(ts_region),
     ts = ts_region$ts,
     cases = ts_region$Cases,
-    alpha = 0.1,
-    beta = 0.9,
     relapse_clinical_immunity = 0,
     gamma_d = 1/434.,
     gamma_l = 1/223,
@@ -140,20 +138,18 @@ data_regions = lapply(selected_regions, function(region) {
     f = 1/72,
     r = 1/60,
     p_long = 1,
-    p_silent = 0,
+    p_silent = 0.34, # includes a proportion of delayed primary infections
     N = 10000,
     population_size = 10000,
     n_dormant = 4,
-    eps = 0.01
+    eps = 0,
+    kappa = 2,
+    phase = 130
   )
-  if (region == "Guantang") {
-    data_region$population_size = 40000 # Yang (2020), 'From [...] Guantang'
-  } else if (region == "Dengzhou") {
-    data_region$population_size = 300000 # UN World Population Prospects, via macrotrends.net
-  }
   data_region$y0 = my_state_init(data_region, I0=0.01)
   return(data_region)
 })
+
 for (selected_region in selected_regions) {
   data_region = data_regions[[selected_region]]
   
@@ -163,30 +159,23 @@ for (selected_region in selected_regions) {
                   iter = n_iter,
                   chains = n_chains,
                   cores = n_chains,
-                  pars = c("y_extended"),
+                  pars = c("y", "y_extended"),
                   include = F)
   tictoc::toc()
-  samp_results[[selected_region]] = samp
+  samp_results_plausible[[selected_region]] = samp
 }
 ```
 
 ```{r}
 # inspect parameter posteriors
-parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "relapse_clinical_immunity", "p_long", "p_silent")
+parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "psi", "relapse_clinical_immunity", "p_long", "p_silent")
 
-posterior_seasonal = lapply(samp_results, function(samp) {
+posterior_seasonal = lapply(samp_results_plausible, function(samp) {
   posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
     as_tibble() %>%
     pivot_longer(everything(), names_to = "parameter", values_to = "value")
 }) %>%
   bind_rows(.id = "Region")
-
-credible_intervals = posterior_seasonal %>%
-  group_by(Region, parameter) %>%
-  summarise(mean = mean(value),
-            lower = quantile(value, 0.025),
-            upper = quantile(value, 0.975))
-print(credible_intervals)
 
 posterior_seasonal %>%
   ggplot(aes(x = value, fill=Region, color=Region)) +
@@ -195,13 +184,14 @@ posterior_seasonal %>%
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates")
+  labs(subtitle = "Parameter estimates") +
+  theme(legend.position = "none")
 
-filename = paste0("../plots/china_posterior.png")
+filename = paste0("../plots/china_posterior_plausible.png")
 ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results, function(samp) {
+traces = lapply(samp_results_plausible, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -211,10 +201,9 @@ traces = lapply(samp_results, function(samp) {
     mutate(j = row_number()) %>%
     pivot_longer(-j, names_to = "trace", values_to = "value")
   
-  bind_rows(`Post. pred. cases` = cases_sample_temperate,
-            `Mean incidence` = incidence_sample_temperate,
+  bind_rows(incidence = incidence_sample_temperate,
+            cases = cases_sample_temperate,
             .id = "metric") %>%
-    mutate(metric = fct_inorder(metric)) %>%
     group_by(j, metric) %>%
     summarise(ts = data_region$ts[j],
               lower = quantile(value, 0.025, na.rm=T),
@@ -238,16 +227,17 @@ ggplot(mapping = aes(x=ts/years)) +
              aes(y = cases, group = NULL, color="Case observations")) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
-                    breaks = c("Post. pred. cases", "Mean incidence", "Incidence data"),
+                    breaks = c("cases", "incidence", "Incidence data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("Post. pred. cases", "Mean incidence", "Case observations"),
+                      breaks = c("cases", "incidence", "Case observations"),
                       values = c("steelblue", "tomato", "black")) +
   facet_wrap(vars(Region), scales="free_y") +
-  labs(x = "Year",
+  labs(subtitle = "Seasonal model, monthly synthetic data",
+       x = "Year",
        y = "Monthly incidence")
 
-filename = paste0("../plots/china_incidence.png")
+filename = paste0("../plots/china_incidence_plausible.png")
 ggsave(filename, width=8, height=4)
 ```
 
@@ -255,14 +245,8 @@ Save workspace
 
 ```{r}
 end_time = Sys.time()
-print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_plausible", Sys.Date(), ".RData")
 save.image(workspace_filename)
 ```
 
-
-```{r}
-x = samp %>%
-  calculate_quantities()
-```

@@ -609,7 +609,7 @@ ggplot(plot_data, aes(x=time/year, y=value, color=name)) +
 ```
 
 ```{r}
-end_time = Sys.time()
 print("Done.")
+end_time = Sys.time()
 print(end_time - start_time)
 ```
