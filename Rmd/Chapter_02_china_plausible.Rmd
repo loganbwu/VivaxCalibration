@@ -191,7 +191,7 @@ filename = paste0("../plots/china_posterior_plausible.png")
 ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results_plausible, function(samp) {
+traces = lapply(samp_results, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -201,9 +201,10 @@ traces = lapply(samp_results_plausible, function(samp) {
     mutate(j = row_number()) %>%
     pivot_longer(-j, names_to = "trace", values_to = "value")
   
-  bind_rows(incidence = incidence_sample_temperate,
-            cases = cases_sample_temperate,
+  bind_rows(`Post. pred. cases` = cases_sample_temperate,
+            `Mean incidence` = incidence_sample_temperate,
             .id = "metric") %>%
+    mutate(metric = fct_inorder(metric)) %>%
     group_by(j, metric) %>%
     summarise(ts = data_region$ts[j],
               lower = quantile(value, 0.025, na.rm=T),
@@ -245,8 +246,10 @@ Save workspace
 
 ```{r}
 end_time = Sys.time()
+print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_plausible", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_plausible_", Sys.Date(), ".RData")
 save.image(workspace_filename)
+beepr::beep()
 ```
 

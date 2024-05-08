@@ -301,14 +301,10 @@ model {
   p_long ~ beta(100, 1); // almost complete long relapse
   p_silent ~ beta(15, 30);
   
-  for (i in 1:n_times) {
-    cases[i] ~ neg_binomial_2(incidence[i], phi);
-  }
+  cases ~ neg_binomial_2(incidence, phi);
+  
 }
 
 generated quantities {
-  vector[n_times] sim_cases;
-  for (i in 1:n_times) {
-    sim_cases[i] = neg_binomial_2_rng(incidence[i], phi);
-  }
+  int sim_cases[n_times] = neg_binomial_2_rng(incidence, phi);
 }

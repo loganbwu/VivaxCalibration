@@ -66,7 +66,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0, upper=0.05> lambda;
+  real<lower=0, upper=0.9> lambda;
   // real<lower=0> delta;
 }
 
@@ -88,8 +88,7 @@ transformed parameters{
 
 model {
   //priors
-  lambda ~ normal(0, 1e4);
-  delta ~ normal(0, 1e4);
+  lambda ~ exponential(1);
   
   //sampling distribution
   for (i in 1:n_times) {

@@ -33,14 +33,16 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 300 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 1
-n_repetitions = 2 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 12*hr
 n_traces = min(100, n_iter) # limit for plotting sample trajectories
 set.seed(0)
+
+start_time = Sys.time()
 ```
 
 ## Model implementation
@@ -79,6 +81,13 @@ data = data_init(data_consts,
 params = list(lambda=0.05, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 
 model = stan_model("../stan/champagne2022_seasonal_ext_2.stan")
+
+test = compiled_simulate_data(file = model,
+                              path = "sim_data",
+                              data_name = "seasonal",
+                              input_data = data,
+                              param_values = params,
+                              vars = c("ts", "incidence", "sim_cases"))
 sim = my_simulate_data_list(
   file = model,
   path = "sim_data",
@@ -104,11 +113,11 @@ data_sim_agg = aggregate_data(data_sim)
 synth_df_agg = with(data_sim_agg, tibble(ts = ts, cases = cases)) 
 
 with(data_sim, tibble(ts = ts/years, cases = cases)) %>%
-  ggplot(aes(x=ts, y=cases)) +
+  ggplot(aes(x=ts, y=cases*12/years)) +
   geom_col() +
   scale_x_continuous(breaks = 0:100)
 with(data_sim_agg, tibble(ts = ts/years, cases = cases)) %>%
-  ggplot(aes(x=ts, y=cases)) +
+  ggplot(aes(x=ts, y=cases/years)) +
   geom_col() +
   scale_x_continuous(breaks = 0:100)
 ```
@@ -125,6 +134,81 @@ fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
                            iter = n_iter,
                            init = list(params),
                            chains = n_chains)
+```
+
+Use Champagne's analytic solution
+
+```{r}
+mydata = with(data_sim, tibble(
+  h = mean(cases * 12 / years) / N * 1,
+  # h = mean(cases / years) / N,
+  prop_import = 0,
+  alpha = alpha,
+  beta = beta,
+  rho = alpha,
+  omega = 1,
+  r = 1/60
+))
+mydata_withR0RC = VivaxModelR::calibrate_vivax_equilibrium(df=mydata, f=1/72, gamma=1/223, r=1/60, return.all = TRUE)
+print(mydata_withR0RC)
+# fit_analytic =
+```
+
+Perform sample importance resampling to turn the analytic solution into a Bayesian solution
+
+```{r}
+# assume we have at most a 10% error
+n_samples_1 = 1000
+lambda_domain = seq(params$lambda*0.8, params$lambda*1.1, length.out=n_samples_1)
+lambda_prior = dexp(lambda_domain, 1) # effectively uniform, but consistent with rate in stan code
+
+pv_champ_function <- function(t, state, parameters) { # with optional birth death
+    with(as.list(c(state, parameters)), {
+      FOI = 1*lambda*(Il+I0)
+      
+      rate.S0_Il = FOI * (1-alpha) # infection without treatment
+      rate.S0_Sl = FOI * alpha*(1-beta) # infection with blood stage treatment only
+      
+      rate.Sl_S0 = gamma + (FOI+f)*alpha*beta # liver clearance + prompt treatment of reinfection/relapse
+      rate.Sl_Il = (FOI+f)*(1-alpha) # relapse or infection and no treatment
+      
+      rate.I0_S0 = FOI*alpha*beta + r # reinfection and full treatment or blood stage recovery
+      rate.I0_Il = FOI # reinfection, no treatment
+      
+      rate.Il_I0 = gamma # liver clearance
+      rate.Il_Sl = r # blood stage recovery
+      
+      dS0 = -rate.S0_Il*S0 - rate.S0_Sl*S0 + rate.Sl_S0*Sl + rate.I0_S0*I0
+      dSl = rate.S0_Sl*S0 - rate.Sl_S0*Sl - rate.Sl_Il*Sl + rate.Il_Sl*Il
+      dI0 = -rate.I0_S0*I0 + rate.Il_I0*Il - rate.I0_Il*I0
+      dIl = rate.S0_Il*S0 + rate.Sl_Il*Sl + rate.I0_Il*I0 - rate.Il_I0*Il - rate.Il_Sl*Il
+      
+      dCases = (
+        FOI * (S0 + Sl) + # force of infection for new blood infections, assume no immunity
+          f * Sl # relapses
+      ) * alpha * N # detected in the population
+      
+      list(c(dIl, dI0, dSl, dS0, dCases))
+    }) # end with(as.list ...
+}
+
+.calculate_likelihood = function(lambda, annual_pop_incidence) {
+  pv_state = c(Il = 0.1, I0 = 0, Sl = 0, S0 = 0.9, Cases = 0)
+  pv_parameters = with(mydata, list(alpha=alpha, beta=beta, lambda=lambda, delta=0, gamma=1/223, f=1/72, r=1/60, N=data_consts$N))
+  
+  pv_times = c(0, 10000, 10001)
+  pv_sol = deSolve::ode(y = pv_state, times = pv_times, func = pv_champ_function, parms = pv_parameters) %>%
+    as_tibble() %>%
+    mutate(Cases = Cases - lag(Cases))
+  h_total = pv_sol$Cases[length(pv_times)] * 365.25
+  likelihood = dpois(round(annual_pop_incidence), h_total)
+}
+calculate_likelihood = Vectorize(.calculate_likelihood)
+
+observed_annual_cases = round(rev(data_sim_agg$cases)[1])
+
+likelihood = calculate_likelihood(lambda_domain, observed_annual_cases)
+plot(lambda_domain, likelihood, 'l')
 ```
 
 Manually inspect fits
@@ -215,7 +299,8 @@ scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
 # Duplicate for each method
 scenarios_long = scenarios %>%
   cross_join(tibble(method = c("../stan/champagne2022_seasonal_ext_2.stan",
-                               "../stan/champagne2022_poisson.stan")))
+                               "../stan/champagne2022.stan")))
+                               # "../stan/champagne2022_poisson.stan")))
 # Replace data with aggregate data depending on the method
 for (i in seq_len(nrow(scenarios_long))) {
   if (!scenarios_long$method[i] %>% str_detect("seasonal")) {
@@ -223,6 +308,58 @@ for (i in seq_len(nrow(scenarios_long))) {
     scenarios_long$cases[[i]] = aggregate_cases(scenarios_long$cases[[i]])
   }
 }
+
+# Add champagne solution
+lambda_champagne = function(ts, cases, data) {
+  dt = ts[2] - ts[1]
+  mydata = with(data, tibble(
+    h = mean(cases / dt) / N,
+    prop_import = 0,
+    alpha = alpha,
+    beta = beta,
+    rho = rho,
+    omega = 1,
+    r = r
+  ))
+  
+  mydata_withR0RC = suppressMessages(VivaxModelR::calibrate_vivax_equilibrium(df=mydata, f=data$f, gamma=data$gamma, r=data$r, return.all = TRUE))
+  
+  return(mydata_withR0RC$lambda)
+}
+
+scenarios_long$lambda_champagne = NA_real_
+for (i in seq_len(nrow(scenarios_long))) {
+  cases = scenarios_long$cases[[i]]
+  ts = scenarios_long$ts[[i]]
+  data = data_consts
+  
+  dt = ts[2] - ts[1]
+  print(dt)
+  mydata = with(data, tibble(
+    h = mean(cases / dt) / N,
+    prop_import = 0,
+    alpha = alpha,
+    beta = beta,
+    rho = rho,
+    omega = 1,
+    r = r
+  ))
+  
+  mydata_withR0RC = suppressMessages(VivaxModelR::calibrate_vivax_equilibrium(df=mydata, f=data$f, gamma=data$gamma, r=data$r, return.all = TRUE))
+  
+  lambda_champagne = mydata_withR0RC$lambda
+  
+  scenarios_long$lambda_champagne[i] = lambda_champagne
+}
+
+scenarios_long$lambda_champagne
+
+ggplot(scenarios_long, aes(x=lambda, y=lambda_champagne, color=method)) +
+  geom_point(alpha = 0.8) +
+  geom_abline(slope=1, intercept=0)
+
+scenarios_long %>%
+  select(lambda, lambda_champagne, method)
 ```
 
 What do our synthetic data look like?
@@ -265,15 +402,16 @@ Define a function to perform the model fit, then apply it to each scenario
   } else {
     result = sampling(stan_model(method),
                       data = data,
-                      iter = n_iter,
+                      iter = n_iter*10,
                       init = list(list(lambda = true_lambda)),
                       chains = 1,
                       pars = c("lambda", "incidence"))
   }
   result
 }
-my_sampling = memoise::memoise(.my_sampling, cache = cd)
+# my_sampling = memoise::memoise(.my_sampling, cache = cd)
 # memoise::forget(my_sampling)
+my_sampling = .my_sampling
 
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
@@ -292,7 +430,22 @@ fit_ix = function(i) {
   
   return(result)
 }
-fits_scenarios = pbmclapply(seq_len(nrow(scenarios_long)), fit_ix)
+ix_nonseasonal = which(!str_detect(scenarios_long$method, "easonal"))
+ix_seasonal = which(str_detect(scenarios_long$method, "easonal"))
+fits_nonseasonal = pbmclapply(ix_nonseasonal, fit_ix)
+fits_seasonal = pbmclapply(ix_seasonal, fit_ix)
+# assign seasonal and nonseasonal fits back into the original list
+setClass("Nullsim", representation=representation(mode = "numeric"))
+fits_scenarios = as.list(rep(NA, nrow(scenarios_long)))
+for (i in seq_along(ix_seasonal)) {
+  j = ix_seasonal[i]
+  fits_scenarios[[j]] = fits_seasonal[[i]]
+  # fits_scenarios[[j]] = new("Nullsim", mode=2)
+}
+for (i in seq_along(ix_nonseasonal)) {
+  j = ix_nonseasonal[i]
+  fits_scenarios[[j]] = fits_nonseasonal[[i]]
+}
 tictoc::toc()
 ```
 
@@ -424,6 +577,8 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = l
 ggsave("../plots/basic_seasonal_posterior.png", width=8, height=4)
 ```
 
+Then compare some parameters between seasonal and nonseasonal models
+
 ```{r}
 plot_data = scenarios_long %>%
   select(-ts, -cases, -est_incidence) %>%
@@ -432,11 +587,13 @@ plot_data = scenarios_long %>%
   drop_na(value) %>%
   mutate(name = name %>% str_remove("^est_"),
          method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal")) %>%
-  group_by(name) %>%
+  # filter(method == "Seasonal") %>%
+  group_by(name, method) %>%
   mutate(lq = quantile(value, 0.01),
          uq = quantile(value, 0.99)) %>%
-  filter(value > lq,
-         value < uq)
+  filter(value >= lq,
+         value <= uq) %>%
+  ungroup()
 
 true_values = scenarios_long %>%
   distinct(lambda, phi, eps, kappa, phase) %>%
@@ -503,8 +660,7 @@ ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, group =
   scale_x_continuous(breaks = unique(true_values_2$value), minor_breaks=NULL) +
   # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
-  theme(legend.position = "none",
-        axis.text.y = element_blank(),
+  theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
   labs(title = paste("Estimates of", make_greek("lambda"), "over repeated scenarios"),
        x = "Value", y = NULL, color = "Method", fill = "Method")
@@ -518,7 +674,7 @@ Single trace
 
 ```{r}
 scenarios_long$est_incidence[[10]] %>%
-  ggplot(aes(x=ts/years, y=incidence, color=rep, group=interaction(trace, rep))) +
+  ggplot(aes(x=ts/years, y=incidence, color=as.factor(rep), group=interaction(trace, rep))) +
   geom_line(alpha = 0.01) +
   coord_cartesian(ylim = c(0, NA))
 
@@ -563,14 +719,14 @@ scenarios_overlay = scenarios %>%
   inner_join(first_successful_scenario, by=c("rep", "lambda", "eps"))
 
 ggplot(incidence_join, aes(x = ts/years, y = incidence, color=method, group = interaction(method, rep, trace))) +
-  # geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
-  geom_line(alpha = 0.1) +
+  geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
+  geom_line(alpha = 0.5) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
   # facet_grid2(rows = vars(eps), cols = vars(lambda), scales="free_y", independent="y") +
   scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
   labs(title = "Mean estimated incidence rates for the first scenario repetition",
-       subtitle = "Nonseasonal (annual) results scaled to per-month\nNear-zero or elimination not shown on log scale",
+       subtitle = "Nonseasonal (annual) results scaled to per-month",
        x = "Year",
        y = "Incidence", color = "Method") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
@@ -584,10 +740,10 @@ Re-simulate data with the true seasonality
 valid_scenarios_long = scenarios_long %>%
   inner_join(first_successful_scenario)
 resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
-  if (is.null(valid_scenarios_long$est_incidence[[i]])){
-    return(NULL)
-  }
-  pblapply(seq_len(1), function(j) {
+  # if (is.null(valid_scenarios_long$est_incidence[[i]])){
+  #   return(NULL)
+  # }
+  pblapply(seq_len(n_traces), function(j) {
     if (is.null(valid_scenarios_long$est_lambda[[i]])) {
       return(NULL)
     }
@@ -599,10 +755,10 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
     x = simulate_cases(data_consts, lambda, phi_inv, eps, kappa, phase)
     if (is.data.frame(x)) {
       result = x %>%
-      mutate(lambda = valid_scenarios_long$lambda[i],
-             eps = eps,
-             method = valid_scenarios_long$method[i],
-             trace = j)
+        mutate(lambda = valid_scenarios_long$lambda[i],
+               eps = eps,
+               method = valid_scenarios_long$method[i],
+               trace = j)
       return(result)
     } else {
       return(NULL)
@@ -613,11 +769,11 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
 })
 resimulated_2 = resimulated %>%
   bind_rows() %>%
-  mutate(method = ifelse(method %>% str_detect("poisson"), "Nonseasonal", "Seasonal"))
+  mutate(method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal"))
 
 ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = interaction(method, trace))) +
   geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
-  geom_line(alpha = 0.25) +
+  geom_line(alpha = 0.1) +
   facet_grid(rows = vars(lambda), cols = vars(eps), labeller = plot_labeller) +
   scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
@@ -628,4 +784,13 @@ ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = int
   guides(color = guide_legend(override.aes = list(alpha = 1)))
 
 ggsave("../plots/basic_resimulation.png", width=8, height=4)
+```
+
+```{r}
+end_time = Sys.time()
+print(end_time)
+print(end_time - start_time)
+workspace_filename = paste0("workspaces/Chapter_01_basic_", Sys.Date(), ".RData")
+save.image(workspace_filename)
+beepr::beep()
 ```

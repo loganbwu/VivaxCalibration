@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -259,6 +259,7 @@ print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData")
 save.image(workspace_filename)
+beepr::beep()
 ```
 
 
