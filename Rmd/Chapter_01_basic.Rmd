@@ -35,7 +35,7 @@ cd = cachem::cache_disk("memoise")
 
 n_iter = 1000 # should be at least 500
 n_chains = 1
-n_repetitions = 3 # how many times to duplicate each scenario
+n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 12*hr
@@ -138,7 +138,7 @@ fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
 
 Use Champagne's analytic solution
 
-```{r}
+```{r, eval=F}
 mydata = with(data_sim, tibble(
   h = mean(cases * 12 / years) / N * 1,
   # h = mean(cases / years) / N,
@@ -156,7 +156,7 @@ print(mydata_withR0RC)
 
 Perform sample importance resampling to turn the analytic solution into a Bayesian solution
 
-```{r}
+```{r, eval=F}
 # assume we have at most a 10% error
 n_samples_1 = 1000
 lambda_domain = seq(params$lambda*0.8, params$lambda*1.1, length.out=n_samples_1)
@@ -308,7 +308,9 @@ for (i in seq_len(nrow(scenarios_long))) {
     scenarios_long$cases[[i]] = aggregate_cases(scenarios_long$cases[[i]])
   }
 }
+```
 
+```{r eval=F}
 # Add champagne solution
 lambda_champagne = function(ts, cases, data) {
   dt = ts[2] - ts[1]
