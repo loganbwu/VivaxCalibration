@@ -129,7 +129,7 @@ fit_seasonal = sampling(stan_model("../stan/champagne2022_seasonal_ext_2.stan"),
                         init = list(params),
                         chains = n_chains)
 
-fit_nonseasonal = sampling(stan_model("../stan/champagne2022_poisson.stan"),
+fit_nonseasonal = sampling(stan_model("../stan/champagne2022.stan"),
                            data = data_sim_agg,
                            iter = n_iter,
                            init = list(params),
@@ -407,7 +407,7 @@ Define a function to perform the model fit, then apply it to each scenario
                       iter = n_iter,
                       init = list(list(lambda = true_lambda)),
                       chains = 1,
-                      pars = c("lambda", "incidence"))
+                      pars = c("lambda", "phi_inv", "incidence"))
   }
   result
 }
@@ -478,9 +478,9 @@ estimates_scenarios = lapply(seq_len(length(fits_scenarios)), function(i) {
     posterior = rstan::extract(fit, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
       as_tibble()
   } else {
-    posterior = rstan::extract(fit, c("lambda")) %>%
+    posterior = rstan::extract(fit, c("lambda", "phi_inv")) %>%
       as_tibble() %>%
-      mutate(phi_inv = NA, eps = NA, kappa = NA, phase = NA)
+      mutate(eps = NA, kappa = NA, phase = NA)
   }
   return(posterior)
 })
@@ -586,6 +586,65 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = l
 ggsave("../plots/basic_seasonal_posterior.png", width=8, height=4)
 ```
 
+Do the same for the nonseasonal model
+
+```{r}
+plot_data = scenarios_long %>%
+  filter(!method %>% str_detect("seasonal")) %>%
+  select(-ts, -cases, -est_incidence) %>%
+  pivot_longer(matches("^est")) %>%
+  unnest(value) %>%
+  drop_na(value) %>%
+  mutate(name = name %>% str_remove("^est_"),
+         method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal")) %>%
+  group_by(ID, name) %>%
+  mutate(lq = quantile(value, 0.01),
+         uq = quantile(value, 0.99)) %>%
+  filter(value < uq) %>%
+  ungroup()
+
+true_values = scenarios_long %>%
+  distinct(lambda, phi, eps, kappa, phase) %>%
+  mutate(lambda2 = lambda,
+         eps2 = eps) %>%
+  pivot_longer(-c(lambda2, eps2)) %>%
+  dplyr::rename(lambda = lambda2,
+                eps = eps2) %>%
+  filter(name %in% plot_data$name)
+
+my_labeller <- function(variable, value){
+  var = make_greek(variable)
+  if (is.numeric(value)) {
+    value = round(value, 6)
+  }
+  if (variable == "name") {
+    return(make_greek(value))
+  } else {
+    return(paste(var, "=", value))
+  }
+}
+
+ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = lambda, group = interaction(as.factor(lambda), as.factor(rep)))) +
+  geom_density_ridges(alpha = 0.25) +
+  # geom_boxplot(outliers = FALSE) +
+  # geom_violin(alpha = 0.25) +
+  # geom_density() +
+  geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
+  # facet_wrap(vars(name), scales="free_y")
+  facet_grid(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
+                                                                                     eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
+                                                                                     .multi_line=F)) +
+  labs(title = "Posterior parameter densities of the seasonal model",
+       subtitle ="True values denoted by circles",
+       x = "Value",
+       y = paste("Scenario", make_greek("lambda")),
+       color = paste("Scenario", make_greek("lambda")),
+       fill = paste("Scenario", make_greek("lambda"))) +
+  theme(legend.position = "none")
+
+ggsave("../plots/basic_nonseasonal_posterior.png", width=8, height=4)
+```
+
 Then compare some parameters between seasonal and nonseasonal models
 
 ```{r}
@@ -662,17 +721,46 @@ true_values_2 = true_values %>%
   mutate(eps = as.numeric(as.character(eps))) %>%
   left_join(tibble(method = c("Seasonal", "Nonseasonal")), by=character())
 
-ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, group = interaction(lambda, rep, method))) +
+xbreaks = unique(true_values_2$value)
+dx = xbreaks[2] - xbreaks[1]
+xbreaks = c(min(xbreaks)-dx, xbreaks, max(xbreaks)+dx)
+xrange = c(min(xbreaks), max(xbreaks))
+
+p1 = ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, group = interaction(lambda, rep, method))) +
   geom_vline(data=true_values_2, aes(xintercept = value), linetype="dashed") +
   geom_density_ridges(alpha = 0.25) +
   # geom_density(aes(y=NULL)) +
-  scale_x_continuous(breaks = unique(true_values_2$value), minor_breaks=NULL) +
+  scale_x_continuous(breaks = xbreaks, minor_breaks=NULL) +
+  expand_limits(x=xrange) +
+  # coord_cartesian(xlim = c(min(xbreaks), max(xbreaks))) +
   # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
-  labs(title = paste("Estimates of", make_greek("lambda"), "over repeated scenarios"),
+  labs(subtitle = paste("Estimates of", make_greek("lambda")),
        x = "Value", y = NULL, color = "Method", fill = "Method")
+
+plot_data_2 = plot_data %>%
+  filter(name == "phi") %>%
+  mutate(eps = as.numeric(as.character(eps)))
+true_values_2 = true_values %>%
+  filter(name == "phi") %>%
+  mutate(eps = as.numeric(as.character(eps))) %>%
+  left_join(tibble(method = c("Seasonal", "Nonseasonal")), by=character())
+
+p2 = ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, group = interaction(lambda, rep, method))) +
+  geom_vline(data=true_values_2, aes(xintercept = value), linetype="dashed") +
+  geom_density_ridges(alpha = 0.25) +
+  # geom_density(aes(y=NULL)) +
+  # scale_x_continuous(breaks = unique(true_values_2$value), minor_breaks=NULL) +
+  # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
+  facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(subtitle = paste("Estimates of", make_greek("phi")),
+       x = "Value", y = NULL, color = "Method", fill = "Method")
+
+p1 + p2 + plot_layout(guides="collect") + plot_annotation(title = "Parameter estimates over repeated scenarios")
 
 ggsave("../plots/basic_method_comparison.png", width=8, height=4)
 ```
