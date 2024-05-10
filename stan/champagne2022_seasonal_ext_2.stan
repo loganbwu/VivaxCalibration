@@ -34,14 +34,13 @@ functions {
     real kappa = theta[3];
     real phase = theta[4];
     real omega = suitability(t, eps, kappa, phase);
-    // real foi = theta[1] * omega;
-    real infect = theta[1] * omega * (Il + I0);
+    real infect = (theta[1] * omega + delta) * (Il + I0);
     
-    real dIl_dt = (1-alpha)*(infect+delta)*(S0+Sl) + (infect+delta)*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
-    real dI0_dt = -(infect+delta)*I0 + gammal*Il - r*I0;
-    real dSl_dt = -(1-alpha*(1-beta))*(infect+delta+f)*Sl + alpha*(1-beta)*(infect+delta)*S0 - gammal*Sl + r*Il;
-    real dS0_dt = -(1-alpha*beta)*(infect+delta)*S0 + (infect+delta)*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
-    real dCumulativeInfections = (infect+delta)*(S0+Sl) + f*Sl;
+    real dIl_dt = (1-alpha)*infect*(S0+Sl) + infect*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;
+    real dI0_dt = -infect*I0 + gammal*Il - r*I0;
+    real dSl_dt = -(1-alpha*(1-beta))*(infect+f)*Sl + alpha*(1-beta)*infect*S0 - gammal*Sl + r*Il;
+    real dS0_dt = -(1-alpha*beta)*infect*S0 + infect*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
+    real dCumulativeInfections = infect*(S0+Sl) + f*Sl;
     
     return {dIl_dt, dI0_dt, dSl_dt, dS0_dt, dCumulativeInfections};
   }

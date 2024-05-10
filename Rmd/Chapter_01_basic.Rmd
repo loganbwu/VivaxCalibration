@@ -65,7 +65,7 @@ data_consts = list(y0 = y0,
                    alpha = 0.21, # alpha
                    beta = 0.66, # beta
                    rho = 0.21, # rho
-                   delta = 0
+                   delta = 0 # importation - should ALWAYS be zero for us
 )
 ```
 
