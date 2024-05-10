@@ -17,7 +17,6 @@ functions {
     real beta = x_r[5];
     real delta = x_r[6];
     
-    real lambda = theta[1];
     real infect = (theta[1] + delta) * (Il + I0);
     
     real dIl_dt = (1-alpha)*infect*(S0+Sl) + infect*I0 + (1-alpha)*f*Sl - gammal*Il - r*Il;

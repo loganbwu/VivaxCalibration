@@ -634,7 +634,7 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = l
   facet_grid(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
                                                                                      eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
                                                                                      .multi_line=F)) +
-  labs(title = "Posterior parameter densities of the seasonal model",
+  labs(title = "Posterior parameter densities of the nonseasonal model",
        subtitle ="True values denoted by circles",
        x = "Value",
        y = paste("Scenario", make_greek("lambda")),
