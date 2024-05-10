@@ -1,4 +1,4 @@
-_---
+---
 title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 1000 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -69,49 +69,6 @@ china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", 
 china_data = china_data_all %>%
   filter(include == "grey20") %>%
   select(-include)
-
-ggplot(china_data_all) +
-  geom_rect(data=china_selections, aes(xmin=min, xmax=max, ymin=1, ymax=Inf, x=NULL, y=NULL), alpha=0.4, fill="tomato") +
-  geom_col(aes(x=Date, y=Cases, fill=include)) +
-  facet_wrap(vars(Region), ncol=1, scales="free_y") +
-  scale_x_date(breaks = seq(as.Date("1900-01-01"), as.Date("2025-01-01"), by="2 years"), date_labels = "%Y", limits=c(NA_Date_, as.Date("2009-12-31"))) +
-  scale_y_log10() +
-  scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in central China",
-       x = "Notification date",
-       y = "Cases")
-
-ggsave("../plots/china_selected.png", width=8, height=4)
-```
-
-```{r}
-source("../R/functions/decompose_data.R")
-china_decomp = lapply(unique(china_data$Region) %>% setNames({.}), function(x) {
-  china_data %>%
-    filter(Region == x) %>%
-    mutate(logCases = log(Cases+1)) %>%
-    decompose_data()
-}) %>%
-  bind_rows(.id = "Region")
-
-dummy = china_decomp %>%
-  group_by(Region) %>%
-  arrange(Date) %>%
-  filter(name == "trend") %>%
-  slice(1) %>%
-  mutate(value = 0,
-         name = "Trend")
-
-china_decomp %>%
-  filter(name %in% c("Cases", "trend", "seasonal", "remainder")) %>%
-  mutate(name = name %>% str_to_title()) %>%
-  ggplot(aes(x = Date, y = value, color = name)) +
-  geom_line() +
-  geom_blank(data = dummy) +
-  scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  facet_grid(rows=vars(name), cols=vars(Region), scales="free")
-
-ggsave("../plots/china_decomp.png", width=8, height=4)
 ```
 
 What if we fit it with no clinical immunity?
@@ -133,7 +90,8 @@ data_regions = lapply(selected_regions, function(region) {
     relapse_clinical_immunity = 0,
     gamma_d = 1/434.,
     gamma_l = 1/223,
-    delta = 1/162,
+    # delta = 1/162,
+    delta = 1/220,
     phi = 0,
     f = 1/72,
     r = 1/60,
@@ -168,7 +126,7 @@ for (selected_region in selected_regions) {
 
 ```{r}
 # inspect parameter posteriors
-parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "psi", "relapse_clinical_immunity", "p_long", "p_silent")
+parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "relapse_clinical_immunity", "p_long", "p_silent")
 
 posterior_seasonal = lapply(samp_results_plausible, function(samp) {
   posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
@@ -177,7 +135,7 @@ posterior_seasonal = lapply(samp_results_plausible, function(samp) {
 }) %>%
   bind_rows(.id = "Region")
 
-posterior_seasonal %>%
+var_plot = posterior_seasonal %>%
   ggplot(aes(x = value, fill=Region, color=Region)) +
   geom_density(alpha=0.5) +
   # scale_fill_manual(values = param_colors, drop=F) +
@@ -186,12 +144,13 @@ posterior_seasonal %>%
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter estimates") +
   theme(legend.position = "none")
+var_plot
 
-filename = paste0("../plots/china_posterior_plausible.png")
+filename = paste0("../plots/china_variables_plausible.png")
 ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results, function(samp) {
+traces = lapply(samp_results_plausible, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -220,7 +179,7 @@ plot_original_data = lapply(data_regions, function(x) {
 }) %>%
   bind_rows(.id = "Region")
 
-ggplot(mapping = aes(x=ts/years)) +
+epi_plot = ggplot(mapping = aes(x=ts/years)) +
   geom_ribbon(data = traces,
               aes(ymin=lower, ymax=upper, fill=metric),
               alpha = 0.5) +
@@ -228,18 +187,22 @@ ggplot(mapping = aes(x=ts/years)) +
              aes(y = cases, group = NULL, color="Case observations")) +
   coord_cartesian(ylim = c(0, NA)) +
   scale_fill_manual("", 
-                    breaks = c("cases", "incidence", "Incidence data"),
+                    breaks = c("Post. pred. cases", "Mean incidence", "Incidence data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
-                      breaks = c("cases", "incidence", "Case observations"),
+                      breaks = c("Post. pred. cases", "Mean incidence", "Case observations"),
                       values = c("steelblue", "tomato", "black")) +
   facet_wrap(vars(Region), scales="free_y") +
-  labs(subtitle = "Seasonal model, monthly synthetic data",
-       x = "Year",
+  labs(x = "Year",
        y = "Monthly incidence")
+epi_plot
 
 filename = paste0("../plots/china_incidence_plausible.png")
 ggsave(filename, width=8, height=4)
+
+epi_plot / var_plot + plot_annotation(tag_levels="A")
+filename = paste0("../plots/china_posterior_plausible.png")
+ggsave(filename, width=8, height=8)
 ```
 
 Save workspace

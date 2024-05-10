@@ -33,12 +33,12 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 1000 # should be at least 500
+n_iter = 2000 # should be at least 500
 n_chains = 1
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 12*hr
+timelimit_per_run = 48*hr
 n_traces = min(100, n_iter) # limit for plotting sample trajectories
 set.seed(0)
 
@@ -404,7 +404,7 @@ Define a function to perform the model fit, then apply it to each scenario
   } else {
     result = sampling(stan_model(method),
                       data = data,
-                      iter = n_iter*10,
+                      iter = n_iter,
                       init = list(list(lambda = true_lambda)),
                       chains = 1,
                       pars = c("lambda", "incidence"))
@@ -422,13 +422,13 @@ fit_ix = function(i) {
     my_sampling(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]]),
     cpu = timelimit_per_run)
   
-  if (is.null(result)) {
-    memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
-  } else if (!"stanfit" %in% class(result)) {
-    memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
-  } else if (result@mode == 2) {
-    memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
-  }
+  # if (is.null(result)) {
+  #   memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+  # } else if (!"stanfit" %in% class(result)) {
+  #   memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+  # } else if (result@mode == 2) {
+  #   memoise::drop_cache(my_sampling)(scenarios_long$method[i], scenarios_long$ts[[i]], scenarios_long$cases[[i]])
+  # }
   
   return(result)
 }
@@ -447,6 +447,13 @@ for (i in seq_along(ix_seasonal)) {
 for (i in seq_along(ix_nonseasonal)) {
   j = ix_nonseasonal[i]
   fits_scenarios[[j]] = fits_nonseasonal[[i]]
+}
+# Add null sims instead of nulls or errors
+for (i in seq_along(fits_scenarios)) {
+  fit = fits_scenarios[[i]]
+  if (is.null(fit) | "try-error" %in% class(fit)) {
+    fits_scenarios[[j]] = new("Nullsim", mode=2)
+  }
 }
 tictoc::toc()
 ```
@@ -794,5 +801,5 @@ print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_01_basic_", Sys.Date(), ".RData")
 save.image(workspace_filename)
-beepr::beep()
+if (hour(Sys.time()) >= 9) {beepr::beep()}
 ```

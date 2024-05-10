@@ -54,6 +54,8 @@ make_greek = function(name) {
     name = as.character(name)
   }
   case_match(name, 
+             "alpha" ~ "α",
+             "beta" ~ "β",
              c("transmission_rates", "lambda") ~ "λ",
              "phi" ~ "φ",
              "phi_inv" ~ "1/φ",
