@@ -1,8 +1,7 @@
 // structure based on https://mc-stan.org/users/documentation/case-studies/boarding_school_case_study.html
 
 functions {
-  real[] champagne(real t, real[] y, real[] theta, 
-  real[] x_r, int[] x_i) {
+  real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
     
     real Il = y[1];
     real I0 = y[2];
@@ -24,7 +23,6 @@ functions {
     real dSl_dt = -(1-alpha*(1-beta))*(infect+f)*Sl + alpha*(1-beta)*infect*S0 - gammal*Sl + r*Il;
     real dS0_dt = -(1-alpha*beta)*infect*S0 + infect*alpha*beta*Sl + alpha*beta*f*Sl + gammal*Sl + r*I0;
     real dCumulativeInfections = infect*(S0+Sl) + f*Sl;
-    
     
     return {dIl_dt, dI0_dt, dSl_dt, dS0_dt, dCumulativeInfections};
   }
@@ -67,12 +65,12 @@ transformed data {
 
 parameters {
   real<lower=0, upper=0.9> lambda;
-  real<lower=0, upper=9> phi_inv;
+  real<lower=0> phi_inv;
 }
 
 transformed parameters{
   real y[n_times+1, 5];
-  real incidence[n_times];
+  real<lower=0> incidence[n_times];
   real phi = 1. / phi_inv;
   {
     real theta[1];
@@ -82,7 +80,7 @@ transformed parameters{
   }
   
   for (i in 1:n_times) {
-    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N); # incorrect, just for testing
+    incidence[i] = fmax(1e-12, (y[i+1, 5] - y[i, 5]) * N * alpha);
   }
 }
 

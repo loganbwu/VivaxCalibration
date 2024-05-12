@@ -189,8 +189,7 @@ var_plot = posterior_seasonal %>%
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates") +
-  theme(legend.position = "none")
+  labs(subtitle = "Parameter estimates")
 var_plot
 
 filename = paste0("../plots/china_variables.png")

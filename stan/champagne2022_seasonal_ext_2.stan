@@ -5,13 +5,7 @@
 functions {
   real suitability(real t, real eps, real kappa, real phase) {
     // To speed up the ODE solver, we use omega=1 to get to equilibrium and only begin seasonality soon before the measurement period
-    real omega;
-    // if (t < (-20*365.25)) {
-    //   omega = 1;
-    // } else {
-      omega = eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa;
-    // }
-    return(omega);
+    return(eps + (1-eps)*pi()/beta(0.5, kappa+0.5)*((1+sin(2*pi()*(t - phase)/365.25))/2)^kappa);
   }
   
   real[] champagne(real t, real[] y, real[] theta, real[] x_r, int[] x_i) {
@@ -83,10 +77,10 @@ transformed data {
 
 parameters {
   real<lower=0, upper=0.9> lambda;
+  real<lower=0> phi_inv;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;
   real<lower=0, upper=365.25> phase;
-  real<lower=0> phi_inv;
 }
 
 transformed parameters{
@@ -112,10 +106,10 @@ transformed parameters{
 model {
   //priors
   lambda ~ exponential(1);
+  phi_inv ~ exponential(5);
   // eps ~ uniform(0, 1);
   kappa ~ exponential(0.1);
   // phase ~ uniform(0, 365.25);
-  phi_inv ~ exponential(5);
   
   //sampling distribution
   for (i in 1:n_times) {

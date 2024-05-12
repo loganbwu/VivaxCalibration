@@ -99,7 +99,7 @@ data_regions = lapply(selected_regions, function(region) {
     p_silent = 0.34, # includes a proportion of delayed primary infections
     N = 10000,
     population_size = 10000,
-    n_dormant = 4,
+    n_dormant = 11,
     eps = 0,
     kappa = 2,
     phase = 130
@@ -144,10 +144,10 @@ var_plot = posterior_seasonal %>%
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter estimates") +
   theme(legend.position = "none")
-var_plot
-
-filename = paste0("../plots/china_variables_plausible.png")
-ggsave(filename, width=8, height=4)
+# var_plot
+# 
+# filename = paste0("../plots/china_variables_plausible.png")
+# ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
 traces = lapply(samp_results_plausible, function(samp) {
@@ -195,10 +195,10 @@ epi_plot = ggplot(mapping = aes(x=ts/years)) +
   facet_wrap(vars(Region), scales="free_y") +
   labs(x = "Year",
        y = "Monthly incidence")
-epi_plot
-
-filename = paste0("../plots/china_incidence_plausible.png")
-ggsave(filename, width=8, height=4)
+# epi_plot
+# 
+# filename = paste0("../plots/china_incidence_plausible.png")
+# ggsave(filename, width=8, height=4)
 
 epi_plot / var_plot + plot_annotation(tag_levels="A")
 filename = paste0("../plots/china_posterior_plausible.png")

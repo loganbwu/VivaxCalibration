@@ -33,9 +33,9 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 2000 # should be at least 500
+n_iter = 300 # should be at least 500
 n_chains = 1
-n_repetitions = 5 # how many times to duplicate each scenario
+n_repetitions = 1 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 48*hr
@@ -414,6 +414,7 @@ Define a function to perform the model fit, then apply it to each scenario
 # my_sampling = memoise::memoise(.my_sampling, cache = cd)
 # memoise::forget(my_sampling)
 my_sampling = .my_sampling
+# my_sampling = .my_sampling
 
 # Apply function to simulated data
 tictoc::tic("Running all scenarios")
@@ -463,6 +464,16 @@ How many didn't time out?
 ```{r}
 sapply(fits_scenarios, is.null)
 sapply(fits_scenarios, function(x) {x@mode})
+
+# Redo any that didn't work
+ix_redo = which(sapply(fits_scenarios, is.null) | sapply(fits_scenarios, function(x) {x@mode == 2}))
+# fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
+if (length(ix_redo) == 1) {
+  fits_scenarios[[ix_redo]] = lapply(list(ix_redo), fit_ix)
+} else if (length(ix_redo) > 1) {
+  fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
+}
+
 ```
 
 ```{r}
@@ -735,7 +746,8 @@ p1 = ggplot(plot_data_2, aes(x = value, y = 1, color = method, fill = method, gr
   # coord_cartesian(xlim = c(min(xbreaks), max(xbreaks))) +
   # geom_point(data = true_values_2, aes(y = method, color=NULL, fill = NULL, group=NULL), shape=1) +
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller, scales = "free_y") +
-  theme(axis.text.y = element_blank(),
+  theme(axis.text.x = element_text(angle = -45, vjust = 0.5, hjust=0),
+        axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
   labs(subtitle = paste("Estimates of", make_greek("lambda")),
        x = "Value", y = NULL, color = "Method", fill = "Method")
