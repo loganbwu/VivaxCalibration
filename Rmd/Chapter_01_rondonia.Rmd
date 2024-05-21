@@ -168,7 +168,9 @@ Create data for the full model
 data_ro = data_init(data_consts,
                     cases = rondonia$cases,
                     ts = seq_len(nrow(rondonia)) * years / annual_subdivisions,
-                    n_times = nrow(rondonia))
+                    n_times = nrow(rondonia),
+                    lambda_lower = 0.050,
+                    lambda_upper = 0.054)
 ```
 
 Create data for the nonseasonal model
@@ -186,7 +188,9 @@ rondonia_agg = integrated_dataset %>%
 data_ro_agg = data_init(data_consts,
                         cases = rondonia_agg$cases,
                         ts = seq_len(nrow(rondonia_agg)) * years,
-                        n_times = nrow(rondonia_agg))
+                        n_times = nrow(rondonia_agg),
+                        lambda_lower = 0.050,
+                        lambda_upper = 0.054)
 
 tibble(ts = data_ro_agg$ts / years + (min_year-1),
        cases = data_ro_agg$cases) %>%
@@ -199,11 +203,11 @@ Perform MCMC sampling for both models
 
 ```{r}
 tictoc::tic("Seasonal model elapsed")
-params_init = list(lambda=0.05, phi_inv=0.5, eps=0.5, kappa=1, phase=100)
+# params_init = list(lambda=0.05, phi_inv=0.5, eps=0.5, kappa=1, phase=100)
 samp_ext = sampling(stan_model_champagne2022_seasonal_ext,
                     data = data_ro,
                     iter = n_iter,
-                    init = rep(list(params_init), n_chains),
+                    # init = rep(list(params_init), n_chains),
                     chains = n_chains)
 tictoc::toc()
 
@@ -211,7 +215,7 @@ tictoc::tic("Nonseasonal model elapsed")
 samp_ext_nonseasonal = sampling(stan_model_champagne2022,
                                 data = data_ro_agg,
                                 iter = n_iter,
-                                init = rep(list(params_init), n_chains),
+                                # init = rep(list(params_init), n_chains),
                                 chains = n_chains)
 tictoc::toc()
 ```

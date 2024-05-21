@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 200 # should be at least 500
+n_iter = 1000 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -144,7 +144,7 @@ data_regions = lapply(selected_regions, function(region) {
     p_silent = 0,
     N = 10000,
     population_size = 10000,
-    n_dormant = 4,
+    n_dormant = 100,
     eps = 0.01
   )
   if (region == "Guantang") {
@@ -260,10 +260,4 @@ print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 beepr::beep()
-```
-
-
-```{r}
-x = samp %>%
-  calculate_quantities()
 ```

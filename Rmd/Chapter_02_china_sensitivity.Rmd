@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 1000 # should be at least 500
+n_iter = 100 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -35,15 +35,10 @@ my_state_init = state_init_3
 my_extract_summary = extract_summary_2
 start_time = Sys.time()
 ```
-## Parameter recovery on real data
 
-We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
-
-Data:
-
-- Hainan data (tropical China) but this has been difficult to acquire.
-We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
-- Brazilian 'integrated data set', available per county or municipality and very detailed.
+What happens when we:
+1. Run the model normally
+2. Try to 
 
 ```{r}
 china_selections = tribble(
@@ -71,18 +66,26 @@ china_data = china_data_all %>%
   select(-include)
 ```
 
-What if we fit it with no clinical immunity?
+Set up runs
 
 ```{r}
-selected_regions = c("Dengzhou", "Guantang") %>% setNames({.})
-samp_results_plausible = list()
-data_regions = lapply(selected_regions, function(region) {
+selected_params = list("Standard" = list(delta = 1/162,
+                                         n_dormant = 11),
+                       "Extended" = list(delta = 1/240,
+                                         n_dormant = 11),
+                       "Precise" = list(delta = 1/162,
+                                        n_dormant = 22),
+                       "Precise extended" = list(delta = 1/240,
+                                                 n_dormant = 22))
+selected_params = selected_params
+data_experiments = lapply(selected_params, function(params) {
+  region = "Guantang"
   ts_region = china_data %>%
     filter(Region == region)
   first_year = min(year(ts_region$Date))
   ts_region = ts_region %>%
     mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
-  data_region = list(
+  data = list(
     t0 = -30*years,
     n_times = nrow(ts_region),
     ts = ts_region$ts,
@@ -91,7 +94,7 @@ data_regions = lapply(selected_regions, function(region) {
     gamma_d = 1/434.,
     gamma_l = 1/223,
     # delta = 1/162,
-    delta = 1/220,
+    delta = params$delta,
     phi = 0,
     f = 1/72,
     r = 1/60,
@@ -99,28 +102,31 @@ data_regions = lapply(selected_regions, function(region) {
     p_silent = 0.34, # includes a proportion of delayed primary infections
     N = 10000,
     population_size = 10000,
-    n_dormant = 11,
+    n_dormant = params$n_dormant,
     eps = 0,
     kappa = 2,
     phase = 130
   )
-  data_region$y0 = my_state_init(data_region, I0=0.01)
-  return(data_region)
+  data$y0 = my_state_init(data, I0=0.01)
+  return(data)
 })
+```
 
-for (selected_region in selected_regions) {
-  data_region = data_regions[[selected_region]]
+```{r}
+samp_results_sens = list()
+for (data_name in names(data_experiments)) {
+  data = data_experiments[[data_name]]
   
   tictoc::tic()
   samp = sampling(model,
-                  data = data_region,
+                  data = data,
                   iter = n_iter,
                   chains = n_chains,
                   cores = n_chains,
-                  pars = c("y", "y_extended"),
+                  pars = c("y_extended"),
                   include = F)
   tictoc::toc()
-  samp_results_plausible[[selected_region]] = samp
+  samp_results_sens[[data_name]] = samp
 }
 ```
 
@@ -128,15 +134,15 @@ for (selected_region in selected_regions) {
 # inspect parameter posteriors
 parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "relapse_clinical_immunity", "p_long", "p_silent")
 
-posterior_seasonal = lapply(samp_results_plausible, function(samp) {
+posterior_seasonal = lapply(samp_results_sens, function(samp) {
   posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
     as_tibble() %>%
     pivot_longer(everything(), names_to = "parameter", values_to = "value")
 }) %>%
-  bind_rows(.id = "Region")
+  bind_rows(.id = "Dormancy")
 
 var_plot = posterior_seasonal %>%
-  ggplot(aes(x = value, fill=Region, color=Region)) +
+  ggplot(aes(x = value, fill=Dormancy, color=Dormancy)) +
   geom_density(alpha=0.5) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
@@ -149,7 +155,7 @@ var_plot = posterior_seasonal %>%
 # ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results_plausible, function(samp) {
+traces = lapply(samp_results_sens, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -164,7 +170,7 @@ traces = lapply(samp_results_plausible, function(samp) {
             .id = "metric") %>%
     mutate(metric = fct_inorder(metric)) %>%
     group_by(j, metric) %>%
-    summarise(ts = data_region$ts[j],
+    summarise(ts = data_experiments[[1]]$ts[j],
               lower = quantile(value, 0.025, na.rm=T),
               upper = quantile(value, 0.975, na.rm=T),
               legend = "95% prediction interval") %>%
@@ -172,7 +178,7 @@ traces = lapply(samp_results_plausible, function(samp) {
 }) %>%
   bind_rows(.id = "Region")
 
-plot_original_data = lapply(data_regions, function(x) {
+plot_original_data = lapply(data_experiments, function(x) {
   tibble(ts = x$ts,
          cases = x$cases)
 }) %>%
@@ -200,7 +206,7 @@ epi_plot = ggplot(mapping = aes(x=ts/years)) +
 # ggsave(filename, width=8, height=4)
 
 epi_plot / var_plot + plot_annotation(tag_levels="A")
-filename = paste0("../plots/china_posterior_plausible.png")
+filename = paste0("../plots/china_posterior_sensitivity.png")
 ggsave(filename, width=8, height=8)
 ```
 
@@ -210,7 +216,7 @@ Save workspace
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_plausible_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_sensitivity_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 beepr::beep()
 ```

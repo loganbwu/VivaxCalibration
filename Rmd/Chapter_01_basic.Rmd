@@ -33,9 +33,9 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 1000 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 1
-n_repetitions = 1 # how many times to duplicate each scenario
+n_repetitions = 3 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 48*hr
@@ -270,14 +270,14 @@ Create scenarios
 
 ```{r}
 # Define the scenarios
-range_lambda = seq(0.010, 0.012, length.out=3)
+range_lambda = seq(0.010, 0.011, length.out=3)
 range_eps = seq(1e-12, 1-1e-12, length.out=3)
 scenarios = expand_grid(
   lambda = range_lambda,
   phi_inv = 0.1,
   eps = range_eps,
   kappa = 1,
-  phase = 130,
+  phase = years/2,
   rep = seq_len(n_repetitions)
 ) %>%
   mutate(ID = row_number(), .before=0)
@@ -393,7 +393,12 @@ Define a function to perform the model fit, then apply it to each scenario
 ```{r}
 # Define function that takes simulated data
 .my_sampling = function(method, ts, cases, true_lambda=NULL) {
-  data = data_init(data_consts, n_times = length(ts), ts = ts, cases = cases)
+  data = data_init(data_consts,
+                   n_times = length(ts),
+                   ts = ts,
+                   cases = cases,
+                   lambda_lower = 0.009,
+                   lambda_upper = 0.013)
   if (method %>% str_detect("seasonal")) {
     result = sampling(stan_model(method),
                       data = data,
@@ -453,7 +458,7 @@ for (i in seq_along(ix_nonseasonal)) {
 for (i in seq_along(fits_scenarios)) {
   fit = fits_scenarios[[i]]
   if (is.null(fit) | "try-error" %in% class(fit)) {
-    fits_scenarios[[j]] = new("Nullsim", mode=2)
+    fits_scenarios[[i]] = new("Nullsim", mode=2)
   }
 }
 tictoc::toc()
@@ -474,6 +479,13 @@ if (length(ix_redo) == 1) {
   fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
 }
 
+# Add null sims instead of nulls or errors
+for (i in seq_along(fits_scenarios)) {
+  fit = fits_scenarios[[i]]
+  if (is.null(fit) | "try-error" %in% class(fit)) {
+    fits_scenarios[[i]] = new("Nullsim", mode=2)
+  }
+}
 ```
 
 ```{r}
@@ -564,28 +576,15 @@ true_values = scenarios_long %>%
   dplyr::rename(lambda = lambda2,
                 eps = eps2)
 
-my_labeller <- function(variable, value){
-  var = make_greek(variable)
-  if (is.numeric(value)) {
-    value = round(value, 6)
-  }
-  if (variable == "name") {
-    return(make_greek(value))
-  } else {
-    return(paste(var, "=", value))
-  }
-}
-
-ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = lambda, group = interaction(as.factor(lambda), as.factor(rep)))) +
-  geom_density_ridges(alpha = 0.25) +
-  # geom_boxplot(outliers = FALSE) +
-  # geom_violin(alpha = 0.25) +
-  # geom_density() +
+plot_seasonal_posterior = ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = as.factor(rep), fill = as.factor(rep))) +
+  geom_density_ridges(alpha = 0.5) +
   geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
-  # facet_wrap(vars(name), scales="free_y")
   facet_grid(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
                                                                                      eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
                                                                                      .multi_line=F)) +
+  
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette="Set2") +
   labs(title = "Posterior parameter densities of the seasonal model",
        subtitle ="True values denoted by circles",
        x = "Value",
@@ -593,6 +592,7 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = l
        color = paste("Scenario", make_greek("lambda")),
        fill = paste("Scenario", make_greek("lambda"))) +
   theme(legend.position = "none")
+plot_seasonal_posterior
 
 ggsave("../plots/basic_seasonal_posterior.png", width=8, height=4)
 ```
@@ -608,7 +608,7 @@ plot_data = scenarios_long %>%
   drop_na(value) %>%
   mutate(name = name %>% str_remove("^est_"),
          method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal")) %>%
-  group_by(ID, name) %>%
+  group_by(name) %>%
   mutate(lq = quantile(value, 0.01),
          uq = quantile(value, 0.99)) %>%
   filter(value < uq) %>%
@@ -623,28 +623,15 @@ true_values = scenarios_long %>%
                 eps = eps2) %>%
   filter(name %in% plot_data$name)
 
-my_labeller <- function(variable, value){
-  var = make_greek(variable)
-  if (is.numeric(value)) {
-    value = round(value, 6)
-  }
-  if (variable == "name") {
-    return(make_greek(value))
-  } else {
-    return(paste(var, "=", value))
-  }
-}
-
-ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = lambda, group = interaction(as.factor(lambda), as.factor(rep)))) +
-  geom_density_ridges(alpha = 0.25) +
-  # geom_boxplot(outliers = FALSE) +
-  # geom_violin(alpha = 0.25) +
-  # geom_density() +
+plot_nonseasonal_posterior = ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = as.factor(rep), fill = as.factor(rep))) +
+  geom_density_ridges(alpha = 0.5) +
   geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
-  # facet_wrap(vars(name), scales="free_y")
-  facet_grid(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
+  ggh4x::facet_grid2(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
                                                                                      eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
-                                                                                     .multi_line=F)) +
+                                                                                     .multi_line=F),
+                     independent=TRUE) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette="Set2") +
   labs(title = "Posterior parameter densities of the nonseasonal model",
        subtitle ="True values denoted by circles",
        x = "Value",
@@ -652,8 +639,12 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = lambda, fill = l
        color = paste("Scenario", make_greek("lambda")),
        fill = paste("Scenario", make_greek("lambda"))) +
   theme(legend.position = "none")
+plot_nonseasonal_posterior
 
 ggsave("../plots/basic_nonseasonal_posterior.png", width=8, height=4)
+
+(plot_seasonal_posterior + labs(title=NULL, subtitle="Seasonal model")) / (plot_nonseasonal_posterior + labs(title=NULL, subtitle="Nonseasonal model")) + plot_annotation(title = "Posterior parameter densities colored by repetition", tag_levels="A")
+ggsave("../plots/basic_posterior.png", width=8, height=8)
 ```
 
 Then compare some parameters between seasonal and nonseasonal models
@@ -697,18 +688,6 @@ plot_data = plot_data %>%
   inner_join(posterior_ranges, by="name") %>%
   filter(value >= min, value <= max)
 
-my_labeller <- function(variable, value){
-  var = make_greek(variable)
-  if (is.numeric(value)) {
-    value = round(value, 6)
-  }
-  if (variable == "name") {
-    return(make_greek(value))
-  } else {
-    return(paste(var, "=", value))
-  }
-}
-
 ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = method, fill = method, group = interaction(lambda, rep, method))) +
   geom_density_ridges(alpha = 0.25) +
   geom_point(data = posterior_ranges_data, aes(y = as.factor(0.01), color = NULL, fill = NULL, group = NULL), alpha=0) +
@@ -721,7 +700,7 @@ ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = method, fill = m
 ggsave("../plots/basic_posterior_comparison.png", width=8, height=4)
 ```
 
-Lambda only
+Common parameters only
 
 ```{r}
 plot_data_2 = plot_data %>%
@@ -778,16 +757,6 @@ ggsave("../plots/basic_method_comparison.png", width=8, height=4)
 ```
 
 Plot incidence fits
-
-Single trace
-
-```{r}
-scenarios_long$est_incidence[[10]] %>%
-  ggplot(aes(x=ts/years, y=incidence, color=as.factor(rep), group=interaction(trace, rep))) +
-  geom_line(alpha = 0.01) +
-  coord_cartesian(ylim = c(0, NA))
-
-```
 
 ```{r}
 incidence_join = lapply(seq_len(nrow(scenarios_long)), function(i) {
@@ -857,7 +826,7 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
       return(NULL)
     }
     lambda = sample(valid_scenarios_long$est_lambda[[i]], 1)
-    phi_inv = valid_scenarios_long$phi_inv[i]
+    phi_inv = 1e-10 # valid_scenarios_long$phi_inv[i] # Doesn't matter
     eps = valid_scenarios_long$eps[i]
     kappa = valid_scenarios_long$kappa[i]
     phase = valid_scenarios_long$phase[i]
@@ -867,7 +836,7 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
         mutate(lambda = valid_scenarios_long$lambda[i],
                eps = eps,
                method = valid_scenarios_long$method[i],
-               trace = j)
+               trace = as.character(j))
       return(result)
     } else {
       return(NULL)
@@ -878,7 +847,9 @@ resimulated = lapply(seq_len(nrow(valid_scenarios_long)), function(i) {
 })
 resimulated_2 = resimulated %>%
   bind_rows() %>%
-  mutate(method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal"))
+  mutate(method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal"),
+         trace = as.character(trace))# %>%
+  # filter(method == "Nonseasonal")
 
 ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = interaction(method, trace))) +
   geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
@@ -886,13 +857,40 @@ ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = int
   facet_grid(rows = vars(eps), cols = vars(lambda), labeller = plot_labeller) +
   scale_x_continuous(breaks = 0:n_years) +
   scale_y_log10(labels = label_auto2, limits=c(1, NA)) +
-  labs(title = "Re-simulated incidence rates for the first scenario repetition",
-       subtitle = "Incidence of very near zero (elimination) not plotted on log scale",
+  labs(title = "Re-simulated incidence with true seasonality for the first scenario repetition",
        x = "Year",
        y = "Incidence", color = "Method") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
 
 ggsave("../plots/basic_resimulation.png", width=8, height=4)
+```
+
+Compare the nonseasonal resimulation against the seasonal fit
+
+```{r}
+incidence_comparison = incidence_join %>%
+  mutate(method = paste(method, "model")) %>%
+  bind_rows(resimulated_2 %>%
+              filter(method == "Nonseasonal") %>%
+              mutate(method = "Nonseasonal resimulation"))
+
+scenarios_overlay_2 = scenarios_overlay %>%
+  mutate(ts = ts %% years + years)
+
+ggplot(incidence_comparison, aes(x = ts/years*annual_subdivisions, y = incidence, color=method, group = interaction(method, trace))) +
+  geom_line(alpha = 0.2) +
+  geom_point(data=scenarios_overlay_2, aes(y=cases, color=NULL, group=NULL), alpha=0.2, show.legend=F, size=0.5) +
+  ggh4x::facet_grid2(rows=vars(eps), cols=vars(lambda), labeller=plot_labeller, scales="free_y", independent="y") +
+  scale_x_continuous(breaks = annual_subdivisions + seq_len(annual_subdivisions), labels=sapply(month.abb, function(x) {substr(x,0,1)})) +
+  coord_cartesian(xlim = c(annual_subdivisions+1, annual_subdivisions*2)) +
+  # scale_y_log10(labels = label_auto2, limits=c(NA, NA)) +
+  labs(title = "Prediction comparison for the first repetition",
+       subtitle = "Calibration data condensed by month",
+       x = "Year",
+       y = "Incidence", color = "Method") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+ggsave("../plots/basic_resimulation_comparison.png", width=8, height=4)
 ```
 
 ```{r}

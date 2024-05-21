@@ -53,6 +53,8 @@ data {
   real<lower=0, upper=1> alpha;
   real<lower=0, upper=1> beta;
   real<lower=0> delta;
+  real<lower=0> lambda_lower;
+  real<lower=0> lambda_upper;
 }
 
 transformed data {
@@ -76,7 +78,7 @@ transformed data {
 }
 
 parameters {
-  real<lower=0, upper=0.9> lambda;
+  real<lower=lambda_lower, upper=lambda_upper> lambda;
   real<lower=0> phi_inv;
   real<lower=0, upper=1> eps;
   real<lower=0> kappa;

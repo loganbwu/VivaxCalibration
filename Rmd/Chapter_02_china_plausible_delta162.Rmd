@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 1000 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -91,7 +91,7 @@ data_regions = lapply(selected_regions, function(region) {
     gamma_d = 1/434.,
     gamma_l = 1/223,
     # delta = 1/162,
-    delta = 1/220,
+    delta = 1/162,
     phi = 0,
     f = 1/72,
     r = 1/60,
@@ -142,7 +142,8 @@ var_plot = posterior_seasonal %>%
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates")
+  labs(subtitle = "Parameter estimates") +
+  theme(legend.position = "none")
 # var_plot
 # 
 # filename = paste0("../plots/china_variables_plausible.png")
@@ -200,7 +201,7 @@ epi_plot = ggplot(mapping = aes(x=ts/years)) +
 # ggsave(filename, width=8, height=4)
 
 epi_plot / var_plot + plot_annotation(tag_levels="A")
-filename = paste0("../plots/china_posterior_plausible.png")
+filename = paste0("../plots/china_posterior_plausible_delta162.png")
 ggsave(filename, width=8, height=8)
 ```
 
@@ -210,7 +211,7 @@ Save workspace
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_plausible_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_plausible_delta162_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 beepr::beep()
 ```

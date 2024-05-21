@@ -262,7 +262,7 @@ parameters {
   real<lower=0, upper=1> p_silent;
   // real<lower=0, upper=1> eps;
   real<lower=0, upper=10> kappa;
-  real<lower=0, upper=365.25> phase;
+  real<lower=-91.3125, upper=273.9375> phase; // Approx boundary adjustment as peak timing is 365.25/4 + phase
 }
 
 transformed parameters {
