@@ -255,7 +255,7 @@ simulate_cases = function(data_consts, lambda, phi_inv, eps, kappa, phase) {
   data = data_init(data_consts,
                    cases = rep(1, n_times),
                    ts = seq_len(n_times) * years / annual_subdivisions,
-                   n_times = n_times,,
+                   n_times = n_times,
                    lambda_lower = 0.009,
                    lambda_upper = 0.013)
   params = list(lambda=lambda, phi_inv=phi_inv, eps=eps, kappa=kappa, phase=phase)
