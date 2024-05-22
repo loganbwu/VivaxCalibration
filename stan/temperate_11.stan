@@ -210,19 +210,16 @@ data {
   int cases[n_times];
   
   real<lower=0> N;
-  // real<lower=0, upper=1> alpha;
-  // real<lower=0, upper=1> beta;
   real<lower=0> gamma_d;
   real<lower=0> gamma_l;
   real<lower=0> delta;
   real<lower=0> f;
   real<lower=0> r;
-  // real<lower=0, upper=1> p_long;
-  // real<lower=0, upper=1> p_silent;
-  // real<lower=0, upper=1> relapse_clinical_immunity;
   real<lower=0, upper=1> eps;
-  // real<lower=0> kappa;
-  // real phase;
+  real<lower=0, upper=1> relapse_clinical_immunity_shape1;
+  real<lower=0, upper=1> relapse_clinical_immunity_shape2;
+  real<lower=0, upper=1> p_silent_shape1;
+  real<lower=0, upper=1> p_silent_shape2;
   
   int<lower=1> n_dormant;
   
@@ -305,7 +302,9 @@ model {
   alpha ~ beta(10, 90);
   beta ~ beta(90, 10);
   kappa ~ exponential(0.1);
+  relapse_clinical_immunity ~ beta(relapse_clinical_immunity_shape1, relapse_clinical_immunity_shape2); // very little clinical immunity
   p_long ~ beta(100, 1); // almost complete long relapse
+  p_silent ~ beta(p_silent_shape1, p_silent_shape2);
   
   cases ~ neg_binomial_2(incidence, phi);
   

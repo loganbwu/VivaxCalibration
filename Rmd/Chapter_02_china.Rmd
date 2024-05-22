@@ -145,7 +145,13 @@ data_regions = lapply(selected_regions, function(region) {
     N = 10000,
     population_size = 10000,
     n_dormant = 100,
-    eps = 0.01
+    eps = 0,
+    # Prior shapes
+    ## Beta(1, 1) is uniform
+    relapse_clinical_immunity_shape1 = 1,
+    relapse_clinical_immunity_shape2 = 1,
+    p_silent_shape1 = 1,
+    p_silent_shape2 = 1
   )
   if (region == "Guantang") {
     data_region$population_size = 40000 # Yang (2020), 'From [...] Guantang'

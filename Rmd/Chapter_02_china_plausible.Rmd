@@ -30,7 +30,7 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
 # Compile model before we reach any sampling
-model = stan_model("../stan/temperate_11_2_plausible.stan")
+model = stan_model("../stan/temperate_11.stan")
 my_state_init = state_init_3
 my_extract_summary = extract_summary_2
 start_time = Sys.time()
@@ -101,8 +101,12 @@ data_regions = lapply(selected_regions, function(region) {
     population_size = 10000,
     n_dormant = 11,
     eps = 0,
-    kappa = 2,
-    phase = 130
+    # Prior shapes
+    ## Beta(1, 1) is uniform
+    relapse_clinical_immunity_shape1 = 1,
+    relapse_clinical_immunity_shape2 = 50,
+    p_silent_shape1 = 15,
+    p_silent_shape2 = 30
   )
   data_region$y0 = my_state_init(data_region, I0=0.01)
   return(data_region)
