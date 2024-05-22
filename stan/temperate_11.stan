@@ -216,10 +216,10 @@ data {
   real<lower=0> f;
   real<lower=0> r;
   real<lower=0, upper=1> eps;
-  real<lower=0, upper=1> relapse_clinical_immunity_shape1;
-  real<lower=0, upper=1> relapse_clinical_immunity_shape2;
-  real<lower=0, upper=1> p_silent_shape1;
-  real<lower=0, upper=1> p_silent_shape2;
+  real<lower=0> relapse_clinical_immunity_shape1;
+  real<lower=0> relapse_clinical_immunity_shape2;
+  real<lower=0> p_silent_shape1;
+  real<lower=0> p_silent_shape2;
   
   int<lower=1> n_dormant;
   
