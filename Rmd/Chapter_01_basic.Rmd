@@ -76,7 +76,9 @@ n_times = annual_subdivisions * n_years
 data = data_init(data_consts,
                  ts = seq_len(n_times)*years/annual_subdivisions,
                  cases = rep(1, n_times),
-                 n_times = n_times)
+                 n_times = n_times,
+                 lambda_lower = 0.04,
+                 lambda_upper = 0.06)
 # params = list(lambda=0.01, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 params = list(lambda=0.05, phi_inv=0.1, eps=1e-16, kappa=1, phase=130)
 
@@ -163,33 +165,33 @@ lambda_domain = seq(params$lambda*0.8, params$lambda*1.1, length.out=n_samples_1
 lambda_prior = dexp(lambda_domain, 1) # effectively uniform, but consistent with rate in stan code
 
 pv_champ_function <- function(t, state, parameters) { # with optional birth death
-    with(as.list(c(state, parameters)), {
-      FOI = 1*lambda*(Il+I0)
-      
-      rate.S0_Il = FOI * (1-alpha) # infection without treatment
-      rate.S0_Sl = FOI * alpha*(1-beta) # infection with blood stage treatment only
-      
-      rate.Sl_S0 = gamma + (FOI+f)*alpha*beta # liver clearance + prompt treatment of reinfection/relapse
-      rate.Sl_Il = (FOI+f)*(1-alpha) # relapse or infection and no treatment
-      
-      rate.I0_S0 = FOI*alpha*beta + r # reinfection and full treatment or blood stage recovery
-      rate.I0_Il = FOI # reinfection, no treatment
-      
-      rate.Il_I0 = gamma # liver clearance
-      rate.Il_Sl = r # blood stage recovery
-      
-      dS0 = -rate.S0_Il*S0 - rate.S0_Sl*S0 + rate.Sl_S0*Sl + rate.I0_S0*I0
-      dSl = rate.S0_Sl*S0 - rate.Sl_S0*Sl - rate.Sl_Il*Sl + rate.Il_Sl*Il
-      dI0 = -rate.I0_S0*I0 + rate.Il_I0*Il - rate.I0_Il*I0
-      dIl = rate.S0_Il*S0 + rate.Sl_Il*Sl + rate.I0_Il*I0 - rate.Il_I0*Il - rate.Il_Sl*Il
-      
-      dCases = (
-        FOI * (S0 + Sl) + # force of infection for new blood infections, assume no immunity
-          f * Sl # relapses
-      ) * alpha * N # detected in the population
-      
-      list(c(dIl, dI0, dSl, dS0, dCases))
-    }) # end with(as.list ...
+  with(as.list(c(state, parameters)), {
+    FOI = 1*lambda*(Il+I0)
+    
+    rate.S0_Il = FOI * (1-alpha) # infection without treatment
+    rate.S0_Sl = FOI * alpha*(1-beta) # infection with blood stage treatment only
+    
+    rate.Sl_S0 = gamma + (FOI+f)*alpha*beta # liver clearance + prompt treatment of reinfection/relapse
+    rate.Sl_Il = (FOI+f)*(1-alpha) # relapse or infection and no treatment
+    
+    rate.I0_S0 = FOI*alpha*beta + r # reinfection and full treatment or blood stage recovery
+    rate.I0_Il = FOI # reinfection, no treatment
+    
+    rate.Il_I0 = gamma # liver clearance
+    rate.Il_Sl = r # blood stage recovery
+    
+    dS0 = -rate.S0_Il*S0 - rate.S0_Sl*S0 + rate.Sl_S0*Sl + rate.I0_S0*I0
+    dSl = rate.S0_Sl*S0 - rate.Sl_S0*Sl - rate.Sl_Il*Sl + rate.Il_Sl*Il
+    dI0 = -rate.I0_S0*I0 + rate.Il_I0*Il - rate.I0_Il*I0
+    dIl = rate.S0_Il*S0 + rate.Sl_Il*Sl + rate.I0_Il*I0 - rate.Il_I0*Il - rate.Il_Sl*Il
+    
+    dCases = (
+      FOI * (S0 + Sl) + # force of infection for new blood infections, assume no immunity
+        f * Sl # relapses
+    ) * alpha * N # detected in the population
+    
+    list(c(dIl, dI0, dSl, dS0, dCases))
+  }) # end with(as.list ...
 }
 
 .calculate_likelihood = function(lambda, annual_pop_incidence) {
@@ -300,7 +302,7 @@ scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
 scenarios_long = scenarios %>%
   cross_join(tibble(method = c("../stan/champagne2022_seasonal_ext_2.stan",
                                "../stan/champagne2022.stan")))
-                               # "../stan/champagne2022_poisson.stan")))
+# "../stan/champagne2022_poisson.stan")))
 # Replace data with aggregate data depending on the method
 for (i in seq_len(nrow(scenarios_long))) {
   if (!scenarios_long$method[i] %>% str_detect("seasonal")) {
@@ -627,8 +629,8 @@ plot_nonseasonal_posterior = ggplot(plot_data, aes(x = value, y = as.factor(lamb
   geom_density_ridges(alpha = 0.5) +
   geom_point(data = true_values, aes(color=NULL, fill = NULL, group=NULL), shape=1) +
   ggh4x::facet_grid2(rows = vars(eps), cols = vars(name), scales="free", labeller = labeller(name = ~ make_greek(as.character(.)),
-                                                                                     eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
-                                                                                     .multi_line=F),
+                                                                                             eps = ~ paste(make_greek("eps"), "=", round(as.numeric(.), 5)),
+                                                                                             .multi_line=F),
                      independent=TRUE) +
   scale_color_brewer(palette="Set2") +
   scale_fill_brewer(palette="Set2") +
@@ -849,7 +851,7 @@ resimulated_2 = resimulated %>%
   bind_rows() %>%
   mutate(method = ifelse(method %>% str_detect("seasonal"), "Seasonal", "Nonseasonal"),
          trace = as.character(trace))# %>%
-  # filter(method == "Nonseasonal")
+# filter(method == "Nonseasonal")
 
 ggplot(resimulated_2, aes(x = ts/years, y = incidence, color=method, group = interaction(method, trace))) +
   geom_point(data=scenarios_overlay, aes(y=cases, color=NULL, group=NULL), alpha=0.25, show.legend=F, size=1) +
