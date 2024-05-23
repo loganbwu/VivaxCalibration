@@ -267,3 +267,23 @@ workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData"
 save.image(workspace_filename)
 beepr::beep()
 ```
+
+Plot traces
+
+```{r}
+region_summaries = lapply(names(samp_results) %>% setNames({.}), function(region) {
+  my_sample = samp_results[[region]]
+  my_data = data_regions[[region]]
+  my_summary = my_extract_summary(my_data, my_sample)
+}) %>%
+  bind_rows(.id = "Region") %>%
+  pivot_longer(c(Infectious, Dormant, Latent, Susceptible)) %>%
+  select(Region, time, name, value)
+
+region_summaries %>%
+  ggplot(aes(x = time / years, y = value, color = name)) +
+  geom_line() +
+  facet_grid(cols = vars(Region)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Year", y = "Proportion", color = "Compartment")
+```

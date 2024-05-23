@@ -75,7 +75,7 @@ What if we fit it with no clinical immunity?
 
 ```{r}
 selected_regions = c("Dengzhou", "Guantang") %>% setNames({.})
-samp_results_plausible = list()
+samp_results = list()
 data_regions = lapply(selected_regions, function(region) {
   ts_region = china_data %>%
     filter(Region == region)
@@ -124,7 +124,7 @@ for (selected_region in selected_regions) {
                   pars = c("y", "y_extended"),
                   include = F)
   tictoc::toc()
-  samp_results_plausible[[selected_region]] = samp
+  samp_results[[selected_region]] = samp
 }
 ```
 
@@ -132,7 +132,7 @@ for (selected_region in selected_regions) {
 # inspect parameter posteriors
 parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "relapse_clinical_immunity", "p_long", "p_silent")
 
-posterior_seasonal = lapply(samp_results_plausible, function(samp) {
+posterior_seasonal = lapply(samp_results, function(samp) {
   posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
     as_tibble() %>%
     pivot_longer(everything(), names_to = "parameter", values_to = "value")
@@ -153,7 +153,7 @@ var_plot = posterior_seasonal %>%
 # ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results_plausible, function(samp) {
+traces = lapply(samp_results, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -219,3 +219,22 @@ save.image(workspace_filename)
 beepr::beep()
 ```
 
+Plot traces
+
+```{r}
+region_summaries = lapply(names(samp_results) %>% setNames({.}), function(region) {
+  my_sample = samp_results[[region]]
+  my_data = data_regions[[region]]
+  my_summary = my_extract_summary(my_data, my_sample)
+}) %>%
+  bind_rows(.id = "Region") %>%
+  pivot_longer(c(Infectious, Dormant, Latent, Susceptible)) %>%
+  select(Region, time, name, value)
+
+region_summaries %>%
+  ggplot(aes(x = time / years, y = value, color = name)) +
+  geom_line() +
+  facet_grid(cols = vars(Region)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Year", y = "Proportion", color = "Compartment")
+```
