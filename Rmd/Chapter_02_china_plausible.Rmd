@@ -121,7 +121,7 @@ for (selected_region in selected_regions) {
                   iter = n_iter,
                   chains = n_chains,
                   cores = n_chains,
-                  pars = c("y", "y_extended"),
+                  pars = c("y_extended"),
                   include = F)
   tictoc::toc()
   samp_results[[selected_region]] = samp
