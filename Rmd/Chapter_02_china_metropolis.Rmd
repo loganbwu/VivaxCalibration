@@ -1,0 +1,262 @@
+---
+title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
+subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
+output:
+html_notebook:
+number_sections: true
+---
+
+```{r setup}
+library(R.utils)
+library(tidyverse)
+library(rstan)
+library(parallel)
+library(patchwork)
+library(pbmcapply)
+library(pbapply)
+library(memoise)
+library(RColorBrewer)
+source("../R/constants.R")
+source("../R/load_functions.R")
+
+rstan_options(auto_write = TRUE)
+
+n_cores = 8
+options(mc.cores = n_cores)
+message("Running on ", n_cores, " cores")
+
+# Load model and metropolis algorithm (copied from VivaxODE project folder)
+source(file = "../R/models/temperate_v11.R")
+source(file = "../R/functions/adaptive_metropolis.R")
+# Load priors for each scenario
+source(file = "../R/priors.R")
+my_state_init = state_init_3
+start_time = Sys.time()
+```
+## Parameter recovery on real data
+
+We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
+
+Data:
+
+- Hainan data (tropical China) but this has been difficult to acquire.
+We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
+- Brazilian 'integrated data set', available per county or municipality and very detailed.
+
+```{r}
+china_selections = tribble(
+  ~Region, ~min, ~max,
+  "Dengzhou", "2004-01-01", "2009-01-01",
+  "Guantang", "1977-01-01", "1982-01-01",
+  "Huangchuan", NA, NA,
+  "Xiayi", NA, NA
+) %>%
+  mutate(min = as.Date(min),
+         max = as.Date(max))
+
+library(MalariaData)
+regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
+china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
+  bind_rows(.id = "Region") %>%
+  select(Region, Date, Cases) %>%
+  left_join(china_selections, by="Region") %>%
+  mutate(Date = as.Date(paste(year(Date), month(Date), "01", sep="-")) + months(1) - days(1)) %>% # Align to last day of the month
+  mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
+         include = replace_na(include, "grey"))
+
+china_data = china_data_all %>%
+  filter(include == "grey20") %>%
+  select(-include)
+
+ggplot(china_data_all) +
+  geom_rect(data=china_selections, aes(xmin=min, xmax=max, ymin=1, ymax=Inf, x=NULL, y=NULL), alpha=0.4, fill="tomato") +
+  geom_col(aes(x=Date, y=Cases, fill=include)) +
+  facet_wrap(vars(Region), ncol=1, scales="free_y") +
+  scale_x_date(breaks = seq(as.Date("1900-01-01"), as.Date("2025-01-01"), by="2 years"), date_labels = "%Y", limits=c(NA_Date_, as.Date("2009-12-31"))) +
+  scale_y_log10() +
+  scale_fill_identity() +
+  labs(title = "Selected monthly P. vivax cases infected in central China",
+       x = "Notification date",
+       y = "Cases")
+
+ggsave("../plots/china_selected.png", width=8, height=4)
+```
+
+Now we fit the model for scenarios
+
+```{r}
+data_baseline = list(
+  t0 = -30*years,
+  gamma_d = 1/434.,
+  gamma_l = 1/223,
+  f = 1/72,
+  r = 1/60,
+  eps = 0
+)
+# Add each scenario's data on
+data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+  data_scenario = data_baseline
+  scenario_specific = scenarios[i,]
+  for (name in names(scenario_specific)) {
+    if (!is.character(scenario_specific[[name]])) {
+      data_scenario[[name]] = scenario_specific[[name]]
+    }
+  }
+  data_scenario$y0 = my_state_init(data_scenario, I0=0.01)
+  
+  # Add case data
+  region_name = scenario_specific$region
+  ts_region = china_data %>%
+    filter(Region == region_name)
+  first_year = min(year(ts_region$Date))
+  ts_region = ts_region %>%
+    mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
+  data_scenario$ts = ts_region$ts
+  data_scenario$cases = ts_region$Cases
+  return(data_scenario)
+})
+```
+
+Run
+
+```{r}
+# Define inits
+init = c(
+  alpha = 0.7,
+  beta = 0.9,
+  lambda = 0.05,
+  phi = 1,
+  kappa = 5,
+  phase = 120,
+  p_long = 0.9,
+  p_silent = 0.3,
+  p_RCI = 0.3
+)
+
+init_sd = c(alpha = 0.01,
+            beta = 0.01,
+            lambda = 0.01,
+            phi = 0.1,
+            kappa = 0.5,
+            phase = 1,
+            p_long = 0.01,
+            p_silent = 0.01,
+            p_RCI = 0.01)
+
+samp_results = rep(list(NULL), length(data_scenarios)) %>%
+  setNames(seq_along(data_scenarios))
+for (i in seq_len(length(data_scenarios))) {
+  print(paste("Scenario", i))
+  data = data_scenarios[[i]]
+  model = make_model(data)
+  
+  tictoc::tic()
+  samp = metropolis_sampling(model,
+                             init = init,
+                             init_sd = init_sd,
+                             data = data,
+                             n_iter = 500,
+                             n_burnin = 400,
+                             n_adapt = 100,
+                             n_chains = 8,
+                             time_limit = 2)
+  tictoc::toc()
+  samp_results[[i]] = samp
+}
+```
+
+```{r}
+# inspect parameter posteriors
+posterior_seasonal = lapply(samp_results, function(samp) {
+  bind_cols(
+    bind_rows(samp$sim),
+    bind_rows(samp$sim_diagnostics, .id = "chain")
+  ) %>%
+    pivot_longer(-c(iteration, accept, lpp, chain), names_to = "parameter", values_to = "value")
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = fct_inorder(Scenario))
+
+trace_plot = posterior_seasonal %>%
+  ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
+  geom_step(alpha=0.25) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(subtitle = "Parameter traces")
+
+var_plot = posterior_seasonal %>%
+  ggplot(aes(x = value, fill=Scenario, color=Scenario)) +
+  geom_density(alpha=0.5) +
+  coord_cartesian(xlim = c(0, NA)) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(subtitle = "Parameter estimates")
+var_plot
+
+lpp_plot = posterior_seasonal %>%
+  ggplot(aes(x = lpp, y = Scenario, color=Scenario, fill=Scenario, group=interaction(Scenario, chain))) +
+  ggridges::geom_density_ridges(alpha=0.5) +
+  labs(subtitle = "Log posterior probability")
+
+filename = paste0("../plots/china_variables.png")
+# ggsave(filename, width=8, height=4)
+
+# Plot credible intervals
+resim = lapply(samp_results, function(samp) {
+  resim = extract(samp, "incidence", n_samples=50)
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = fct_inorder(Scenario)) %>%
+  pivot_longer(matches("^clinical"), names_to="metric")
+
+plot_original_data = lapply(data_scenarios, function(x) {
+  tibble(time = x$ts,
+         cases = x$cases)
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = fct_inorder(Scenario))
+
+epi_plot = ggplot(mapping = aes(x=time/years)) +
+  geom_line(data = resim,
+              aes(y=value, color=metric, group=interaction(metric, ix)),
+              alpha = 0.1) +
+  geom_point(data = plot_original_data,
+             aes(y = cases, group = NULL, color=NULL),
+             size = 0.5, alpha = 0.5) +
+  scale_y_log10() +
+  # coord_cartesian(ylim = c(0, NA)) +
+  facet_wrap(vars(Scenario), scales="free_y") +
+  labs(x = "Year",
+       y = "Monthly incidence") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1)))
+epi_plot
+
+filename = paste0("../plots/china_incidence.png")
+# ggsave(filename, width=8, height=4)
+
+epi_plot / var_plot + plot_annotation(tag_levels="A")
+filename = paste0("../plots/china_posterior.png")
+ggsave(filename, width=8, height=8)
+```
+
+Check acceptance
+
+```{r}
+accept = lapply(samp_results, function(x) {
+  mean(unlist(x$accept))
+})
+
+ess = lapply(samp_results, function(x) {
+  mean(unlist(x$ESS))
+})
+```
+
+Save workspace
+
+```{r}
+end_time = Sys.time()
+print(end_time)
+print(end_time - start_time)
+workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData")
+save.image(workspace_filename)
+beepr::beep()
+```

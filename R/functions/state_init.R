@@ -42,6 +42,7 @@ state_init_v4 = function(parameters, ...) {
 }
 
 #' Adapted for new clinical incidence model. For use with version 5-7
+#' # Includes both primaries and relapses
 state_init_2 = function(parameters, ...) {
   listargs = list(...)
   if (length(listargs) > 0 & is.list(listargs[[1]])) {

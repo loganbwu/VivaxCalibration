@@ -22,7 +22,7 @@ source("../R/load_functions.R")
 # n_cores = parallelly::availableCores()
 rstan_options(auto_write = TRUE)
 
-n_iter = 100 # should be at least 500
+n_iter = 200 # should be at least 500
 n_chains = 4
 n_cores = n_chains
 n_traces = 200 # limit for plotting sample trajectories
@@ -69,15 +69,35 @@ china_data = china_data_all %>%
 Set up runs
 
 ```{r}
-selected_params = list("Standard" = list(delta = 1/162,
-                                         n_dormant = 11),
-                       "Extended" = list(delta = 1/240,
-                                         n_dormant = 11),
-                       "Precise" = list(delta = 1/162,
-                                        n_dormant = 22),
-                       "Precise extended" = list(delta = 1/240,
-                                                 n_dormant = 22))
-selected_params = selected_params
+# selected_params = list("Standard" = list(delta = 1/162,
+#                                          n_dormant = 11),
+#                        "Extended" = list(delta = 1/240,
+#                                          n_dormant = 11),
+#                        "Precise" = list(delta = 1/162,
+#                                         n_dormant = 22),
+#                        "Precise extended" = list(delta = 1/240,
+#                                                  n_dormant = 22))
+selected_params = list("Standard, low asc." = list(delta = 1/162,
+                                                   n_dormant = 11,
+                                                   alpha_shape1 = 10,
+                                                   alpha_shape2 = 90),
+                       "Precise extended, low asc." = list(delta = 1/240,
+                                                           n_dormant = 22,
+                                                           alpha_shape1 = 10,
+                                                           alpha_shape2 = 90),
+                       "Precise extended, high asc." = list(delta = 1/240,
+                                                           n_dormant = 22,
+                                                           alpha_shape1 = 90,
+                                                           alpha_shape2 = 10),
+                       "Precise extended, unif asc." = list(delta = 1/240,
+                                                           n_dormant = 22,
+                                                           alpha_shape1 = 10,
+                                                           alpha_shape2 = 90),
+                       "Precise extended, unk asc." = list(delta = 1/240,
+                                                           n_dormant = 22,
+                                                           alpha_shape1 = 2,
+                                                           alpha_shape2 = 2))
+selected_params = selected_params[3]
 data_experiments = lapply(selected_params, function(params) {
   region = "Guantang"
   ts_region = china_data %>%
@@ -93,16 +113,15 @@ data_experiments = lapply(selected_params, function(params) {
     relapse_clinical_immunity = 0,
     gamma_d = 1/434.,
     gamma_l = 1/223,
-    # delta = 1/162,
-    delta = params$delta,
+    delta = 1/162,
     phi = 0,
     f = 1/72,
     r = 1/60,
     p_long = 1,
-    p_silent = 0.34, # includes a proportion of delayed primary infections
+    # p_silent = 0.34, # includes a proportion of delayed primary infections
     N = 10000,
     population_size = 10000,
-    n_dormant = params$n_dormant,
+    n_dormant = 11,
     eps = 0,
     # Prior shapes
     ## Beta(1, 1) is uniform
@@ -111,13 +130,17 @@ data_experiments = lapply(selected_params, function(params) {
     p_silent_shape1 = 15,
     p_silent_shape2 = 30
   )
+  # Overwrite data
+  for (x in names(params)) {
+    data[[x]] = params[[x]]
+  }
   data$y0 = my_state_init(data, I0=0.01)
   return(data)
 })
 ```
 
 ```{r}
-samp_results_sens = list()
+samp_results = list()
 for (data_name in names(data_experiments)) {
   data = data_experiments[[data_name]]
   
@@ -127,10 +150,10 @@ for (data_name in names(data_experiments)) {
                   iter = n_iter,
                   chains = n_chains,
                   cores = n_chains,
-                  pars = c("y_extended"),
+                  pars = c("y_extended", "theta"),
                   include = F)
   tictoc::toc()
-  samp_results_sens[[data_name]] = samp
+  samp_results[[data_name]] = samp
 }
 ```
 
@@ -138,12 +161,13 @@ for (data_name in names(data_experiments)) {
 # inspect parameter posteriors
 parameters = c("lambda", "phi", "alpha", "beta", "eps", "kappa", "phase", "relapse_clinical_immunity", "p_long", "p_silent")
 
-posterior_seasonal = lapply(samp_results_sens, function(samp) {
+posterior_seasonal = lapply(samp_results, function(samp) {
   posterior_seasonal = rstan::extract(samp, parameters[parameters %in% names(samp)]) %>%
     as_tibble() %>%
     pivot_longer(everything(), names_to = "parameter", values_to = "value")
 }) %>%
-  bind_rows(.id = "Dormancy")
+  bind_rows(.id = "Dormancy") %>%
+  mutate(Dormancy = fct_inorder(Dormancy))
 
 var_plot = posterior_seasonal %>%
   ggplot(aes(x = value, fill=Dormancy, color=Dormancy)) +
@@ -159,7 +183,7 @@ var_plot = posterior_seasonal %>%
 # ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
-traces = lapply(samp_results_sens, function(samp) {
+traces = lapply(samp_results, function(samp) {
   incidence = rstan::extract(samp, "incidence")[[1]]
   cases = rstan::extract(samp, "sim_cases")[[1]]
   incidence_sample_temperate = as_tibble(t(incidence)) %>%
@@ -174,19 +198,22 @@ traces = lapply(samp_results_sens, function(samp) {
             .id = "metric") %>%
     mutate(metric = fct_inorder(metric)) %>%
     group_by(j, metric) %>%
-    summarise(ts = data_experiments[[1]]$ts[j],
+    summarise(mean = mean(value, na.rm=T),
               lower = quantile(value, 0.025, na.rm=T),
               upper = quantile(value, 0.975, na.rm=T),
-              legend = "95% prediction interval") %>%
-    ungroup()
+              legend = "95% prediction interval",
+              .groups = "drop") %>%
+    mutate(ts = data_experiments[[1]]$ts[j])
 }) %>%
-  bind_rows(.id = "Region")
+  bind_rows(.id = "Dormancy") %>%
+  mutate(Dormancy = fct_inorder(Dormancy))
 
 plot_original_data = lapply(data_experiments, function(x) {
   tibble(ts = x$ts,
          cases = x$cases)
 }) %>%
-  bind_rows(.id = "Region")
+  bind_rows(.id = "Dormancy") %>%
+  mutate(Dormancy = fct_inorder(Dormancy))
 
 epi_plot = ggplot(mapping = aes(x=ts/years)) +
   geom_ribbon(data = traces,
@@ -194,14 +221,15 @@ epi_plot = ggplot(mapping = aes(x=ts/years)) +
               alpha = 0.5) +
   geom_point(data = plot_original_data,
              aes(y = cases, group = NULL, color="Case observations")) +
-  coord_cartesian(ylim = c(0, NA)) +
+  # coord_cartesian(ylim = c(0, NA)) +
+  scale_y_log10() +
   scale_fill_manual("", 
                     breaks = c("Post. pred. cases", "Mean incidence", "Incidence data"),
                     values = c("steelblue", "tomato", "black")) +
   scale_colour_manual("", 
                       breaks = c("Post. pred. cases", "Mean incidence", "Case observations"),
                       values = c("steelblue", "tomato", "black")) +
-  facet_wrap(vars(Region), scales="free_y") +
+  facet_wrap(vars(Dormancy), scales="free_y") +
   labs(x = "Year",
        y = "Monthly incidence")
 # epi_plot
@@ -214,6 +242,92 @@ filename = paste0("../plots/china_posterior_sensitivity.png")
 ggsave(filename, width=8, height=8)
 ```
 
+Compare primaries and relapses
+
+```{r}
+case_names = c("incidence", "incidence_primary", "incidence_relapse") %>%
+  setNames({.})
+
+# Plot credible intervals
+traces = lapply(samp_results, function(samp) {
+  incidence_all = lapply(case_names, function(x) {
+    incidence = rstan::extract(samp, x)[[1]]
+    incidence_sample_temperate = as_tibble(t(incidence)) %>%
+      mutate(j = row_number()) %>%
+      pivot_longer(-j, names_to = "trace", values_to = "value")
+  }) %>%
+    bind_rows(.id = "metric") %>%
+    mutate(metric = fct_inorder(metric)) %>%
+    group_by(j, metric) %>%
+    summarise(mean = mean(value),
+              .groups = "drop") %>%
+    mutate(ts = data_experiments[[1]]$ts[j])
+}) %>%
+  bind_rows(.id = "Dormancy") %>%
+  mutate(Dormancy = fct_inorder(Dormancy))
+
+plot_original_data = lapply(data_experiments, function(x) {
+  tibble(ts = x$ts,
+         cases = x$cases)
+}) %>%
+  bind_rows(.id = "Dormancy") %>%
+  mutate(Dormancy = fct_inorder(Dormancy))
+
+epi_plot = ggplot(mapping = aes(x=ts/years)) +
+  geom_line(data = traces, aes(y=mean, color=metric),
+              alpha = 1) +
+  geom_point(data = plot_original_data,
+             aes(y = cases)) +
+  # coord_cartesian(ylim = c(0, NA)) +
+  # scale_y_log10() +
+  facet_wrap(vars(Dormancy), scales="free_y") +
+  labs(x = "Year",
+       y = "Monthly incidence",
+       subtitle = "Standard: delta = 1/162, n_compartments = 11\nPrecise: n_compartments -> 22\nExtended: delta -> 1/240")
+# epi_plot
+# 
+# filename = paste0("../plots/china_incidence_plausible.png")
+# ggsave(filename, width=8, height=4)
+
+epi_plot / var_plot + plot_annotation(tag_levels="A")
+filename = paste0("../plots/china_posterior_sensitivity.png")
+ggsave(filename, width=8, height=8)
+```
+
+View compartments
+
+```{r}
+dormancy_summaries = lapply(names(samp_results) %>% setNames({.}), function(x) {
+  my_sample = samp_results[[x]]
+  my_data = data_experiments[[x]]
+  my_summary = my_extract_summary(my_data, my_sample)
+}) %>%
+  bind_rows(.id = "Dormancy") %>%
+  pivot_longer(c(Infectious, Dormant, Latent, Susceptible)) %>%
+  select(Dormancy, time, name, value)
+
+dormancy_summaries %>%
+  ggplot(aes(x = time / years, y = value, color = name)) +
+  geom_line() +
+  facet_grid(cols = vars(Dormancy)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Year", y = "Proportion", color = "Compartment")
+```
+
+```{r}
+x = lapply(samp_results, function(x) {
+  extract(x)$lp__
+}) %>%
+  bind_rows(.id = "Dormancy") %>%
+  pivot_longer(everything())
+ggplot(x, aes(x = value, fill = name, color = name)) +
+  geom_density(alpha=0.5) +
+  labs(x = "lp__",
+       color = "Dormancy",
+       fill = "Dormancy",
+       subtitle = "Samples of log probability")
+```
+
 Save workspace
 
 ```{r}
@@ -222,6 +336,6 @@ print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_sensitivity_", Sys.Date(), ".RData")
 save.image(workspace_filename)
-beepr::beep()
+if (hour(Sys.time()) >= 9) beepr::beep()
 ```
 

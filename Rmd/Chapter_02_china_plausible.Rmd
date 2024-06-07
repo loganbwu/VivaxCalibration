@@ -102,12 +102,17 @@ data_regions = lapply(selected_regions, function(region) {
     n_dormant = 11,
     eps = 0,
     # Prior shapes
-    ## Beta(1, 1) is uniform
+    ## Note: Beta(1, 1) is uniform
     relapse_clinical_immunity_shape1 = 1,
     relapse_clinical_immunity_shape2 = 50,
     p_silent_shape1 = 15,
     p_silent_shape2 = 30
   )
+  if (region == "Guantang") {
+    data_region$population_size = 40000 # Yang (2020), 'From [...] Guantang'
+  } else if (region == "Dengzhou") {
+    data_region$population_size = 300000 # UN World Population Prospects, via macrotrends.net
+  }
   data_region$y0 = my_state_init(data_region, I0=0.01)
   return(data_region)
 })
@@ -216,7 +221,7 @@ print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_plausible_", Sys.Date(), ".RData")
 save.image(workspace_filename)
-beepr::beep()
+if(hour(Sys.time()) >= 9) beepr::beep()
 ```
 
 Plot traces
