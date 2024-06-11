@@ -182,7 +182,7 @@ functions {
   }
 }
 "
-rstan::expose_stan_functions(stanc("",model_code = stancode))
+rstan::expose_stan_functions(stanc(model_code = stancode))
 
 make_log_prior = function(.data) {
   log_prior_func = function(x) {
