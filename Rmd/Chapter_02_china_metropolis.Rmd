@@ -21,7 +21,7 @@ source("../R/load_functions.R")
 
 rstan_options(auto_write = TRUE)
 
-n_cores = 8
+n_cores = parallelly::availableCores()
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
@@ -154,10 +154,10 @@ for (i in seq_len(length(data_scenarios))) {
                              init = init,
                              init_sd = init_sd,
                              data = data,
-                             n_iter = 500*5/4,
-                             n_burnin = 400*5/4,
-                             n_adapt = 100*5/4,
-                             n_chains = 6,
+                             n_iter = 500,
+                             n_burnin = 400,
+                             n_adapt = 100,
+                             n_chains = n_cores,
                              time_limit = 5)
   tictoc::toc()
   samp_results[[i]] = samp
