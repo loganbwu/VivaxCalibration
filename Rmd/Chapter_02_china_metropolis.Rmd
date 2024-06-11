@@ -53,33 +53,28 @@ china_selections = tribble(
 ) %>%
   mutate(min = as.Date(min),
          max = as.Date(max))
+```
 
-library(MalariaData)
-regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
-china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
-  bind_rows(.id = "Region") %>%
-  select(Region, Date, Cases) %>%
-  left_join(china_selections, by="Region") %>%
-  mutate(Date = as.Date(paste(year(Date), month(Date), "01", sep="-")) + months(1) - days(1)) %>% # Align to last day of the month
-  mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
-         include = replace_na(include, "grey"))
-
-china_data = china_data_all %>%
-  filter(include == "grey20") %>%
-  select(-include)
-
-ggplot(china_data_all) +
-  geom_rect(data=china_selections, aes(xmin=min, xmax=max, ymin=1, ymax=Inf, x=NULL, y=NULL), alpha=0.4, fill="tomato") +
-  geom_col(aes(x=Date, y=Cases, fill=include)) +
-  facet_wrap(vars(Region), ncol=1, scales="free_y") +
-  scale_x_date(breaks = seq(as.Date("1900-01-01"), as.Date("2025-01-01"), by="2 years"), date_labels = "%Y", limits=c(NA_Date_, as.Date("2009-12-31"))) +
-  scale_y_log10() +
-  scale_fill_identity() +
-  labs(title = "Selected monthly P. vivax cases infected in central China",
-       x = "Notification date",
-       y = "Cases")
-
-ggsave("../plots/china_selected.png", width=8, height=4)
+```{r}
+if (!require(MalariaData)) {
+  china_data = read_rds("china_data.rds")
+} else {
+  library(MalariaData)
+  regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
+  china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
+    bind_rows(.id = "Region") %>%
+    select(Region, Date, Cases) %>%
+    left_join(china_selections, by="Region") %>%
+    mutate(Date = as.Date(paste(year(Date), month(Date), "01", sep="-")) + months(1) - days(1)) %>% # Align to last day of the month
+    mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
+           include = replace_na(include, "grey"))
+  
+  china_data = china_data_all %>%
+    filter(include == "grey20") %>%
+    select(-include)
+  
+  write_rds(china_data, "china_data.rds")
+}
 ```
 
 Now we fit the model for scenarios
@@ -114,7 +109,8 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   data_scenario$ts = ts_region$ts
   data_scenario$cases = ts_region$Cases
   return(data_scenario)
-})
+}) %>%
+  setNames(scenarios$name)
 ```
 
 Run
@@ -144,7 +140,10 @@ init_sd = c(alpha = 0.01,
             p_RCI = 0.01)
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
-  setNames(seq_along(data_scenarios))
+  setNames(names(data_scenarios))
+```
+
+```{r}
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
   data = data_scenarios[[i]]
@@ -155,11 +154,11 @@ for (i in seq_len(length(data_scenarios))) {
                              init = init,
                              init_sd = init_sd,
                              data = data,
-                             n_iter = 500,
-                             n_burnin = 400,
-                             n_adapt = 100,
-                             n_chains = 8,
-                             time_limit = 2)
+                             n_iter = 500*5/4,
+                             n_burnin = 400*5/4,
+                             n_adapt = 100*5/4,
+                             n_chains = 6,
+                             time_limit = 5)
   tictoc::toc()
   samp_results[[i]] = samp
 }
@@ -217,8 +216,8 @@ plot_original_data = lapply(data_scenarios, function(x) {
 
 epi_plot = ggplot(mapping = aes(x=time/years)) +
   geom_line(data = resim,
-              aes(y=value, color=metric, group=interaction(metric, ix)),
-              alpha = 0.1) +
+            aes(y=value, color=metric, group=interaction(metric, ix)),
+            alpha = 0.1) +
   geom_point(data = plot_original_data,
              aes(y = cases, group = NULL, color=NULL),
              size = 0.5, alpha = 0.5) +
@@ -246,7 +245,7 @@ accept = lapply(samp_results, function(x) {
 })
 
 ess = lapply(samp_results, function(x) {
-  mean(unlist(x$ESS))
+  x$ESS %>% unlist %>% matrix(ncol=9, byrow=T) %>% colSums() %>% setNames(names(x$current_x[[1]]))
 })
 ```
 
@@ -256,7 +255,7 @@ Save workspace
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 beepr::beep()
 ```
