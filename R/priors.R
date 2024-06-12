@@ -37,4 +37,5 @@ scenarios = expand_grid(
   mutate(n_changes = ((duration!="baseline") + (ascertainment!="baseline") + (phenotype!="baseline")),
          scenario = row_number(), .before = 0) %>%
   filter(n_changes <= 1) %>%
-  mutate(name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype,", region))
+  mutate(parameter_name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype"),
+         name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype,", region))

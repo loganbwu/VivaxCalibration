@@ -64,7 +64,7 @@ metropolis_sampling = function(model, init, init_sd, data, n_iter, n_burnin=NULL
   # Run adaptation
   if (n_adapt > 0) {
     # Run chains
-    message("Running burnin iterations...")
+    message("Running adaptation iterations...")
     adapt_output = lapply_func(init_list, function(init) {
       run_one_chain(model, init, proposal_covar, n_iter=n_adapt, thin=min(1, 1000 / n_adapt))
     })
