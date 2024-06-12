@@ -117,8 +117,9 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
   current_x = init
   current_sample_row = 1
   samples = matrix(nrow=n_samples, ncol=length(init), dimnames=list(NULL, names(init)))
-  samples_diagnostics = matrix(nrow=n_samples, ncol=3, dimnames=list(NULL, c("iteration", "accept", "lpp")))
-  current_log_posterior = model$log_prior(current_x) + model$log_likelihood(current_x)
+  samples_diagnostics = matrix(nrow=n_samples, ncol=4, dimnames=list(NULL, c("iteration", "accept", "ll", "lpp")))
+  current_log_likelihood = model$log_likelihood(current_x)
+  current_log_posterior = model$log_prior(current_x) + current_log_likelihood
   
   # Determine indices of iterations to sample
   samples_ix = round(seq(0, n_iter, length.out=n_samples+1))[-1]
@@ -127,20 +128,22 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
   for (i in seq_len(n_iter)) {
     # Make proposal
     proposal_x = MASS::mvrnorm(n=1, mu=current_x, Sigma=covar)
-    proposal_log_posterior = model$log_prior(proposal_x) + model$log_likelihood(proposal_x)
+    proposal_log_likelihood = model$log_likelihood(proposal_x)
+    proposal_log_posterior = model$log_prior(proposal_x) + proposal_log_likelihood
     
     # Evaluate transition probability
     accept = exp(proposal_log_posterior - current_log_posterior) > runif(1)
     
     if (accept) {
       current_x = proposal_x
+      current_log_likelihood = proposal_log_likelihood
       current_log_posterior = proposal_log_posterior
     }
     
     # Store result
     if (i == samples_ix[current_sample_row]) {
       samples[current_sample_row,] = current_x
-      samples_diagnostics[current_sample_row,] = c(i, 1*accept, current_log_posterior)
+      samples_diagnostics[current_sample_row,] = c(i, 1*accept, current_log_likelihood, current_log_posterior)
       current_sample_row = current_sample_row + 1
     }
     pb$tick()
@@ -163,7 +166,7 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
 }
 
 
-extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05) {
+extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05, threading=TRUE) {
   if (type == "incidence") {
     all_sims = bind_rows(fit$sim)
     sample_ix = sample(1:nrow(all_sims), min(n_samples, nrow(all_sims)))
@@ -175,7 +178,13 @@ extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05) {
       return(list(my_ode(t, state, parms, x_r, x_i)))
     }
     
-    incidence = pblapply(sample_ix, function(ix) {
+    if (threading) {
+      lapply_func = pbmclapply
+    } else {
+      lapply_func = pblapply
+    }
+    
+    incidence = lapply_func(sample_ix, function(ix) {
       x = unlist(all_sims[ix,])
       mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x)
       clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
