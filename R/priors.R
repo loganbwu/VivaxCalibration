@@ -36,6 +36,12 @@ scenarios = expand_grid(
   left_join(region, by=c("region"="name")) %>%
   mutate(n_changes = ((duration!="baseline") + (ascertainment!="baseline") + (phenotype!="baseline")),
          scenario = row_number(), .before = 0) %>%
-  filter(n_changes <= 1) %>%
-  mutate(parameter_name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype"),
-         name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype,", region))
+  # filter(n_changes <= 1) %>%
+  mutate(name = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype,", region),
+         name_short = paste(duration, "duration,", ascertainment, "ascertainment,", phenotype, "phenotype"),
+         name_shortest = case_when(duration == "extended" ~ "Extended dormancy",
+                                   ascertainment == "high" ~ "High ascertainment",
+                                   phenotype == "no_immunity" ~ "No relapse immunity",
+                                   TRUE ~ "Baseline")) %>%
+  mutate(name_short = name,
+         name_shortest = name)

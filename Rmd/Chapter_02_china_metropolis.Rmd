@@ -144,6 +144,7 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 ```
 
 ```{r}
+max_hours = 3
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
   data = data_scenarios[[i]]
@@ -157,8 +158,8 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = 6,
-                             time_limit = 16/8)
+                             n_chains = 7,
+                             time_limit = max_hours / length(data_scenarios))
   tictoc::toc()
   samp_results[[i]] = samp
 }
@@ -176,32 +177,76 @@ posterior_seasonal = lapply(samp_results, function(samp) {
   bind_rows(.id = "Scenario") %>%
   mutate(Scenario = fct_inorder(Scenario)) %>%
   left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(parameter_name = parameter_name %>% str_replace_all(", ", ",\n"))
+  mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
 
 trace_plot = posterior_seasonal %>%
   ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
   geom_step(alpha=0.25) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter traces")
+  labs(subtitle = "Parameter traces") +
+  theme(legend.position = "none")
+trace_plot
+filename = paste0("../plots/china_trace.png")
+ggsave(filename, width=8, height=8)
 
 var_plot = posterior_seasonal %>%
   ggplot(aes(x = value, fill=Scenario, color=Scenario)) +
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates")
+  labs(subtitle = "Parameter estimates") +
+  theme(legend.position = "none")
 var_plot
+filename = paste0("../plots/china_variables.png")
+ggsave(filename, width=8, height=8)
 
 ll_plot = posterior_seasonal %>%
-  ggplot(aes(x = ll, y = parameter_name, color=parameter_name, fill=parameter_name, group=interaction(parameter_name, chain))) +
+  ggplot(aes(x = ll, y = name_shortest, color=name_shortest, fill=name_shortest, group=interaction(name_shortest))) +
   ggridges::geom_density_ridges(alpha=0.25) +
   facet_grid(cols=vars(region), scales="free_x") +
-  labs(subtitle = "Log posterior probability") +
+  labs(subtitle = "Log likelihood (higher is better)") +
   theme(legend.position = "none")
 ll_plot
+filename = paste0("../plots/china_loglikelihood.png")
+ggsave(filename, width=8, height=8)
 
-filename = paste0("../plots/china_variables.png")
+lpp_plot = posterior_seasonal %>%
+  ggplot(aes(x = lpp, y = name_shortest, color=name_shortest, fill=name_shortest, group=interaction(name_shortest))) +
+  ggridges::geom_density_ridges(alpha=0.25) +
+  facet_grid(cols=vars(region), scales="free_x") +
+  labs(subtitle = "Log posterior probability (higher is better)") +
+  theme(legend.position = "none")
+lpp_plot
+filename = paste0("../plots/china_logposteriorprobability.png")
+ggsave(filename, width=8, height=8)
+
+bf_data = posterior_seasonal %>%
+  group_by(Scenario, name_short, name_shortest, region) %>%
+  summarise(# lpp = log(sum(exp(lpp))) - log(n()),
+            lpp = matrixStats::logSumExp(lpp) - log(n()),
+            # ll = mean(ll),
+            ll = matrixStats::logSumExp(ll) - log(n()),
+            .groups = "drop") %>%
+  group_by(region) %>%
+  mutate(baseline_lpp = lpp[name_shortest == "Baseline"],
+         baseline_ll = ll[name_shortest == "Baseline"],
+         bayes_factor = exp(lpp - baseline_lpp)) %>%
+  ungroup() %>%
+  filter(name_shortest != "Baseline")
+
+bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
+  geom_col(alpha = 0.8) +
+  geom_vline(xintercept = 1, linetype="dashed") +
+  scale_x_log10(labels = label_auto3, breaks = c(10 ^ c(-14, -7, seq(-2, 3, by=1)))) +
+  facet_grid(cols = vars(region)) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle=-90, hjust=0)) +
+  labs(subtitle = "Bayes factor relative to the baseline model")
+bf_plot
+filename = paste0("../plots/china_bayesfactor.png")
+ggsave(filename, width=8, height=8)
+
 # ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
@@ -211,7 +256,7 @@ resim = lapply(samp_results, function(samp) {
   bind_rows(.id = "Scenario") %>%
   mutate(Scenario = fct_inorder(Scenario)) %>%
   left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(parameter_name = parameter_name %>% str_replace_all(", ", ",\n")) %>%
+  mutate(name_short = name_short %>% str_replace_all(", ", ",\n")) %>%
   pivot_longer(matches("^clinical"), names_to="metric")
 
 plot_original_data = lapply(data_scenarios, function(x) {
@@ -228,16 +273,16 @@ epi_plot = ggplot(mapping = aes(x=time/years)) +
   geom_point(data = plot_original_data,
              aes(y = cases, group = NULL, color=NULL),
              size = 0.5, alpha = 0.5) +
-  scale_y_log10() +
+  scale_y_log10(labels = label_auto2) +
   # coord_cartesian(ylim = c(0, NA)) +
   # facet_wrap(vars(Scenario), scales="free_y") +
-  facet_grid(rows=vars(parameter_name))
+  facet_grid(rows=vars(name_shortest), cols=vars(region)) +
   labs(x = "Year",
        y = "Monthly incidence") +
   guides(colour = guide_legend(override.aes = list(alpha = 1)))
 epi_plot
-
 filename = paste0("../plots/china_incidence.png")
+ggsave(filename, width=8, height=8)
 # ggsave(filename, width=8, height=4)
 
 epi_plot / var_plot + theme(legend.position="none") + plot_annotation(tag_levels="A")
