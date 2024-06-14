@@ -16,6 +16,7 @@ library(pbmcapply)
 library(pbapply)
 library(memoise)
 library(RColorBrewer)
+library(ggtext)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
@@ -144,7 +145,7 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 ```
 
 ```{r}
-max_hours = 3
+max_hours = 16
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
   data = data_scenarios[[i]]
@@ -195,8 +196,7 @@ var_plot = posterior_seasonal %>%
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates") +
-  theme(legend.position = "none")
+  labs(subtitle = "Parameter estimates")
 var_plot
 filename = paste0("../plots/china_variables.png")
 ggsave(filename, width=8, height=8)
@@ -204,6 +204,7 @@ ggsave(filename, width=8, height=8)
 ll_plot = posterior_seasonal %>%
   ggplot(aes(x = ll, y = name_shortest, color=name_shortest, fill=name_shortest, group=interaction(name_shortest))) +
   ggridges::geom_density_ridges(alpha=0.25) +
+  scale_y_discrete(limits = rev) +
   facet_grid(cols=vars(region), scales="free_x") +
   labs(subtitle = "Log likelihood (higher is better)") +
   theme(legend.position = "none")
@@ -214,6 +215,7 @@ ggsave(filename, width=8, height=8)
 lpp_plot = posterior_seasonal %>%
   ggplot(aes(x = lpp, y = name_shortest, color=name_shortest, fill=name_shortest, group=interaction(name_shortest))) +
   ggridges::geom_density_ridges(alpha=0.25) +
+  scale_y_discrete(limits = rev) +
   facet_grid(cols=vars(region), scales="free_x") +
   labs(subtitle = "Log posterior probability (higher is better)") +
   theme(legend.position = "none")
@@ -222,13 +224,12 @@ filename = paste0("../plots/china_logposteriorprobability.png")
 ggsave(filename, width=8, height=8)
 
 bf_data = posterior_seasonal %>%
-  group_by(Scenario, name_short, name_shortest, region) %>%
+  group_by(name_short, name_shortest, n_changes) %>%
   summarise(# lpp = log(sum(exp(lpp))) - log(n()),
-            lpp = matrixStats::logSumExp(lpp) - log(n()),
-            # ll = mean(ll),
-            ll = matrixStats::logSumExp(ll) - log(n()),
-            .groups = "drop") %>%
-  group_by(region) %>%
+    lpp = matrixStats::logSumExp(lpp) - log(n()),
+    # ll = mean(ll),
+    ll = matrixStats::logSumExp(ll) - log(n()),
+    .groups = "drop") %>%
   mutate(baseline_lpp = lpp[name_shortest == "Baseline"],
          baseline_ll = ll[name_shortest == "Baseline"],
          bayes_factor = exp(lpp - baseline_lpp)) %>%
@@ -239,10 +240,17 @@ bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_s
   geom_col(alpha = 0.8) +
   geom_vline(xintercept = 1, linetype="dashed") +
   scale_x_log10(labels = label_auto3, breaks = c(10 ^ c(-14, -7, seq(-2, 3, by=1)))) +
-  facet_grid(cols = vars(region)) +
+  scale_y_discrete(limits = rev) +
+  ggforce::facet_col(vars(n_changes), scales="free_y", space="free") +
   theme(legend.position = "none",
-        axis.text.x = element_text(angle=-90, hjust=0)) +
-  labs(subtitle = "Bayes factor relative to the baseline model")
+        axis.text.x = element_markdown(angle=-90, hjust=0),
+        axis.title.x = element_markdown(),
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        strip.text.y = element_blank()) +
+  labs(subtitle = "Bayes factor relative to the baseline model",
+       x = "*K*",
+       y = NULL)
 bf_plot
 filename = paste0("../plots/china_bayesfactor.png")
 ggsave(filename, width=8, height=8)

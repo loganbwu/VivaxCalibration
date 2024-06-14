@@ -43,5 +43,19 @@ scenarios = expand_grid(
                                    ascertainment == "high" ~ "High ascertainment",
                                    phenotype == "no_immunity" ~ "No relapse immunity",
                                    TRUE ~ "Baseline")) %>%
-  mutate(name_short = name,
-         name_shortest = name)
+  mutate(name_short = name %>%
+           str_replace_all("baseline [a-z]+", ".") %>%
+           str_remove_all(", [A-Za-z]+$") %>%
+           str_replace("\\., \\., \\.", "baseline") %>%
+           str_remove(" phenotype") %>%
+           str_replace("duration", "dormancy") %>%
+           str_to_sentence(),
+         name_shortest = name_short %>%
+           str_remove_all("\\., ") %>%
+           str_remove_all("\\.") %>%
+           str_remove_all(", $") %>%
+           str_replace("_", " ") %>%
+           str_replace_all(", ", ",\n")
+         ) %>%
+  arrange(n_changes) %>%
+  mutate_at(vars(matches("^name")), fct_inorder)

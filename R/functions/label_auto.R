@@ -19,9 +19,10 @@ label_auto2 = function(x) {
 
 #' Label with abbreviations but choose suffix per label
 #' Allow fractions
+require(ggtext)
 label_auto3 = function(x) {
   case_when(x >= 1e6 ~ paste(x/1e6, "M"),
             x >= 1e3 ~ paste(x/1e3, "k"),
-            x < 0.5 ~ paste0("1/", format(round(1/x, 0), scientific=F, nsmall=0, trim=TRUE)),
+            x < 0.5 ~ paste0("<sup>1</sup>/<sub>", format(round(1/x, 0), scientific=F, nsmall=0, trim=TRUE), "</sub>"),
             TRUE ~ as.character(x))
 }
