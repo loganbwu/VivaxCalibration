@@ -4,6 +4,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=8G
 #SBATCH --ntasks=1
+#SBATCH --mail-user=wu.l@wehi.edu.au
+#SBATCH --mail-type=END
+#SBATCH --mail-type=FAIL
 
 module load R/4.3.2
 
