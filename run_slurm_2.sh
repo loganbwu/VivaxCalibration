@@ -8,6 +8,6 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
-module load R/4.3.2
+module load R/4.4
 
 Rscript --no-save R/Chapter_02_standalone.R
