@@ -186,7 +186,7 @@ extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05, threading
     
     incidence = lapply_func(sample_ix, function(ix) {
       x = unlist(all_sims[ix,])
-      mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x)
+      mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x, maxsteps=1e6)
       clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
       clinical_relapse = (mean_ode[,"ClinicalRelapse"] - lag(mean_ode[,"ClinicalRelapse"]))[-c(1,2)]
       clinical_incidence = clinical_primary + clinical_relapse

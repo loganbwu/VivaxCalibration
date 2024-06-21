@@ -1,12 +1,3 @@
----
-title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
-subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
-output:
-html_notebook:
-number_sections: true
----
-
-```{r setup}
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -33,18 +24,7 @@ source(file = "../R/functions/adaptive_metropolis.R")
 source(file = "../R/priors.R")
 my_state_init = state_init_3
 start_time = Sys.time()
-```
-## Parameter recovery on real data
 
-We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
-
-Data:
-
-- Hainan data (tropical China) but this has been difficult to acquire.
-We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
-- Brazilian 'integrated data set', available per county or municipality and very detailed.
-
-```{r}
 china_selections = tribble(
   ~Region, ~min, ~max,
   "Dengzhou", "2004-01-01", "2009-01-01",
@@ -54,9 +34,7 @@ china_selections = tribble(
 ) %>%
   mutate(min = as.Date(min),
          max = as.Date(max))
-```
 
-```{r}
 if (!require(MalariaData)) {
   china_data = read_rds("china_data.rds")
 } else {
@@ -76,11 +54,7 @@ if (!require(MalariaData)) {
   
   write_rds(china_data, "china_data.rds")
 }
-```
 
-Now we fit the model for scenarios
-
-```{r}
 data_baseline = list(
   t0 = -30*years,
   gamma_d = 1/434.,
@@ -112,11 +86,7 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
   return(data_scenario)
 }) %>%
   setNames(scenarios$name)
-```
 
-Run
-
-```{r}
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
 init = c(
   alpha = 0.173,
@@ -142,10 +112,8 @@ init_sd = c(alpha = 0.0293,
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
-```
 
-```{r}
-max_hours = 36
+max_hours = 4
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
@@ -158,14 +126,12 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = 7,
+                             n_chains = n_cores,
                              time_limit = max_hours / length(data_scenarios))
   tictoc::toc()
   samp_results[[i]] = samp
 }
-```
 
-```{r}
 # inspect parameter posteriors
 posterior_seasonal = lapply(samp_results, function(samp) {
   bind_cols(
@@ -340,11 +306,7 @@ rm(var_plot)
 rm(ll_plot)
 rm(lpp_plot)
 rm(resim_seasonality_plot)
-```
 
-Parameter estimates
-
-```{r}
 lapply(samp_results[1:2], function(x) {
   bind_rows(x$sim)
 }) %>%
@@ -360,11 +322,7 @@ lapply(samp_results[1:2], function(x) {
             .groups = "drop") %>%
   mutate(summary = paste0(signif(mean, 3), " (", signif(lower, 3), ", ", signif(upper, 3), ")")) %>%
   select(region, name, summary)
-```
 
-Plot baseline
-
-```{r}
 # Get ranges
 var_ranges = posterior_seasonal %>%
   filter(scenario <= 2) %>%
@@ -438,11 +396,7 @@ ggsave(filename, width=8, height=8)
 
 rm(baseline_var_plot)
 rm(baseline_epi_plot)
-```
 
-Check acceptance
-
-```{r}
 accept = lapply(samp_results, function(x) {
   mean(unlist(x$accept))
 })
@@ -450,22 +404,13 @@ accept = lapply(samp_results, function(x) {
 ess = lapply(samp_results, function(x) {
   x$ESS %>% unlist %>% matrix(ncol=9, byrow=T) %>% colSums() %>% setNames(names(x$current_x[[1]]))
 })
-```
 
-Save workspace
-
-```{r}
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-save.image(workspace_filename)
-beepr::beep()
-```
+# save.image(workspace_filename)
 
-Misc - improve guess by starting at the mean
-
-```{r}
 mean_posterior_seasonal = posterior_seasonal %>%
   group_by(parameter) %>%
   summarise(median = median(value)) %>%
@@ -478,4 +423,3 @@ sd_posterior_seasonal = posterior_seasonal %>%
   summarise(med_sd = median(sd)) %>%
   mutate(parameter = fct_relevel(parameter, names(init))) %>%
   arrange(parameter)
-```
