@@ -8,6 +8,7 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
+setwd("Rmd")
 source("../R/constants.R")
 source("../R/load_functions.R")
 
