@@ -145,7 +145,7 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 ```
 
 ```{r}
-max_hours = 36
+max_hours = 56
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
@@ -158,7 +158,7 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = 7,
+                             n_chains = 6,
                              time_limit = max_hours / length(data_scenarios))
   tictoc::toc()
   samp_results[[i]] = samp
