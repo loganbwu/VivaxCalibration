@@ -114,7 +114,7 @@ init_sd = c(alpha = 0.0293,
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 
-max_hours = 4
+max_hours = 24*5
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
