@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=mcore_job
-#SBATCH --time=7-00
+#SBATCH --time=2-00
 #SBATCH --cpus-per-task=48
 #SBATCH --mem=32G
 #SBATCH --ntasks=1
