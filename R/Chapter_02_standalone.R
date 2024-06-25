@@ -114,10 +114,10 @@ init_sd = c(alpha = 0.0293,
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 
-max_hours = 24*1.5
+max_hours = 36
 models = lapply(data_scenarios, make_model)
 
-chains_per_scenario = floor(n_cores / length(data_scenarios))
+chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
 do_scenario = function(i) {
   samp = metropolis_sampling(models[[i]],
                              init = init,
@@ -139,5 +139,5 @@ end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
 workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-# save.image(workspace_filename)
+save.image(workspace_filename)
 
