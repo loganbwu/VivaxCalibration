@@ -116,10 +116,9 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 
 max_hours = 24*1.5
 models = lapply(data_scenarios, make_model)
-for (i in seq_len(length(data_scenarios))) {
-  print(paste("Scenario", i))
-  
-  tictoc::tic()
+
+chains_per_scenario = floor(n_cores / length(data_scenarios))
+do_scenario = function(i) {
   samp = metropolis_sampling(models[[i]],
                              init = init,
                              init_sd = init_sd,
@@ -127,10 +126,13 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = n_cores,
-                             time_limit = max_hours / length(data_scenarios))
-  tictoc::toc()
-  samp_results[[i]] = samp
+                             n_chains = chains_per_scenario,
+                             time_limit = max_hours)
+}
+samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario)
+
+for (i in seq_len(length(data_scenarios))) {
+  samp_results[[i]] = samp_results_lapply[[i]]
 }
 
 end_time = Sys.time()
