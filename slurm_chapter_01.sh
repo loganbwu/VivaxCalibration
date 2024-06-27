@@ -6,4 +6,4 @@
 #SBATCH --mem=16GB
 module load R/4.3.2
 
-Rscript --no-save chapter_01_samplingonly.R
+Rscript --no-save R/chapter_01_samplingonly.R

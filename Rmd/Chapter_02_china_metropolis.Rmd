@@ -145,7 +145,7 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 ```
 
 ```{r}
-max_hours = 56
+max_hours = 24
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
@@ -158,7 +158,7 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = 6,
+                             n_chains = 8,
                              time_limit = max_hours / length(data_scenarios))
   tictoc::toc()
   samp_results[[i]] = samp
@@ -258,7 +258,7 @@ ggsave(filename, width=8, height=4)
 
 # Plot credible intervals
 resim = lapply(samp_results, function(samp) {
-  resim = extract(samp, "incidence", n_samples=50, threading=T)
+  resim = extract(samp, "incidence", n_samples=100, threading=T)
 }) %>%
   bind_rows(.id = "Scenario") %>%
   mutate(Scenario = fct_inorder(Scenario)) %>%
@@ -406,11 +406,6 @@ ggsave(filename, width=8, height=8)
 
 baseline_epi_plot = resim %>%
   filter(scenario <= 2) %>%
-  mutate(metric = metric %>% case_match(
-    "clinical_incidence" ~ "Total",
-    "clinical_relapse" ~ "Relapse",
-    "clinical_primary" ~ "Primary"
-  )) %>%
   ggplot(aes(x=time/years)) +
   geom_line(aes(y=value, color=metric, group=interaction(metric, ix)),
             alpha = 0.1) +
