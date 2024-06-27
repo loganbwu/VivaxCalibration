@@ -2,7 +2,7 @@
 #SBATCH --job-name=mcore_job
 #SBATCH --time=2-00
 #SBATCH --cpus-per-task=128
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
 #SBATCH --mail-type=END
