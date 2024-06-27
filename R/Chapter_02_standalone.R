@@ -114,10 +114,11 @@ init_sd = c(alpha = 0.0293,
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 
-max_hours = 2
+max_hours = 1
 models = lapply(data_scenarios, make_model)
 
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
+max_hours_per_scenario = max_hours# / length(data_scenarios)
 do_scenario = function(i) {
   samp = metropolis_sampling(models[[i]],
                              init = init,
@@ -127,7 +128,7 @@ do_scenario = function(i) {
                              n_burnin = 400,
                              n_adapt = 100,
                              n_chains = chains_per_scenario,
-                             time_limit = max_hours)
+                             time_limit = max_hours_per_scenario)
 }
 samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario)
 
