@@ -114,7 +114,7 @@ init_sd = c(alpha = 0.0293,
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 
-max_hours = 1
+max_hours = 24
 models = lapply(data_scenarios, make_model)
 
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
