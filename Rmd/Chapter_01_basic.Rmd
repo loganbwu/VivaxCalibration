@@ -33,9 +33,9 @@ rstan_options(auto_write = TRUE)
 
 cd = cachem::cache_disk("memoise")
 
-n_iter = 500 # should be at least 500
+n_iter = 2000 # should be at least 500
 n_chains = 1
-n_repetitions = 3 # how many times to duplicate each scenario
+n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
 timelimit_per_run = 48*hr
@@ -476,12 +476,18 @@ sapply(fits_scenarios, function(x) {x@mode})
 
 # Redo any that didn't work
 ix_redo = which(sapply(fits_scenarios, is.null) | sapply(fits_scenarios, function(x) {x@mode == 2}))
-# fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
-if (length(ix_redo) == 1) {
-  fits_scenarios[[ix_redo]] = lapply(list(ix_redo), fit_ix)
-} else if (length(ix_redo) > 1) {
-  fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
+print("Redoing", length(ix_redo))
+redos = pbmclapply(ix_redo, fit_ix)
+for (ix in seq_along(ix_redo)) {
+  ix2 = ix_redo[ix]
+  fits_scenarios[[ix2]] = redos[[ix]]
 }
+# fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
+# if (length(ix_redo) == 1) {
+#   fits_scenarios[[ix_redo]] = lapply(list(ix_redo), fit_ix)
+# } else if (length(ix_redo) > 1) {
+#   fits_scenarios[[ix_redo]] = pbmclapply(ix_redo, fit_ix)
+# }
 
 # Add null sims instead of nulls or errors
 for (i in seq_along(fits_scenarios)) {

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=mcore_job
 #SBATCH --time=2-00
-#SBATCH --cpus-per-task=128
-#SBATCH --mem=100G
+#SBATCH --cpus-per-task=400
+#SBATCH --mem=150G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
 #SBATCH --mail-type=END

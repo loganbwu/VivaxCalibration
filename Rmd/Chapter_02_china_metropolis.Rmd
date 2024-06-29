@@ -166,6 +166,10 @@ for (i in seq_len(length(data_scenarios))) {
 ```
 
 ```{r}
+saveRDS(samp_results, "samp_results.rds")
+```
+
+```{r}
 # inspect parameter posteriors
 posterior_seasonal = lapply(samp_results, function(samp) {
   bind_cols(
