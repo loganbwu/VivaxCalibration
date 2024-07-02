@@ -163,11 +163,53 @@ for (i in seq_len(length(data_scenarios))) {
   tictoc::toc()
   samp_results[[i]] = samp
 }
+samp_filename = paste0("samp_results_", Sys.Date(), ".rds")
+saveRDS(samp_results, samp_filename)
 ```
 
 ```{r}
 saveRDS(samp_results, "samp_results.rds")
 # samp_results = readRDS("samp_results.rds")
+```
+
+
+Transform output parameters
+
+```{r}
+for (i in seq_along(samp_results)) {
+  if ("transformed" %in% names(samp_results[[i]])) {
+    next
+  }
+  sim = samp_results[[i]]$sim
+  new_sim = lapply(sim, function(x) {
+    x %>%
+      mutate(s = 1 - p_long,
+             p = 1 - p_silent,
+             p_long = NULL,
+             p_silent = NULL)
+  })
+  samp_results[[i]]$sim = new_sim
+  
+  ess = samp_results[[i]]$ESS
+  new_ess = lapply(ess, function(x) {
+    names_ess = names(x)
+    names_ess[names_ess=="p_long"] = "s"
+    names_ess[names_ess=="p_silent"] = "p"
+    x %>% setNames(names_ess)
+  })
+  samp_results[[i]]$ESS = new_ess
+  
+  current_x = samp_results[[i]]$current_x
+  new_current_x = lapply(current_x, function(x) {
+    names_current_x = names(x)
+    names_current_x[names_current_x=="p_long"] = "s"
+    names_current_x[names_current_x=="p_silent"] = "p"
+    x %>% setNames(names_current_x)
+  })
+  samp_results[[i]]$current_x = new_current_x
+  
+  samp_results[[i]]$transformed = TRUE
+}
 ```
 
 ```{r}
@@ -191,12 +233,12 @@ posterior_seasonal = posterior_seasonal_2 %>%
   mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
 
 trace_plot = posterior_seasonal %>%
+  filter(name_shortest == "Baseline") %>%
   ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
   geom_step(alpha=0.25) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter traces") +
-  theme(legend.position = "none")
+  labs(subtitle = "Parameter traces")
 trace_plot
 filename = paste0("../plots/china_trace.png")
 ggsave(filename, width=8, height=8)
@@ -378,7 +420,7 @@ Plot baseline
 ```{r}
 # Get ranges
 var_ranges = posterior_seasonal %>%
-  filter(scenario <= 2) %>%
+  filter(name_shortest == "Baseline") %>%
   group_by(parameter) %>%
   summarise(min = min(value),
             max = max(value))
@@ -391,8 +433,15 @@ for (i in seq_len(nrow(var_ranges))) {
   parameter_range = parameter_max - parameter_min
   parameter_seq = seq(parameter_min, parameter_max, length.out = 100)
   prior = sapply(parameter_seq, function(x) {
+  # insert range to evaluate prior over
     x_dummy = init
-    x_dummy[parameter_name] = x
+    if (parameter_name == "s") {
+      x_dummy["p_long"] = 1-x
+    } else if (parameter_name == "p") {
+      x_dummy["p_silent"] = 1-x
+    } else {
+      x_dummy[parameter_name] = x
+    }
     exp(baseline_model$log_prior(x_dummy))
   })
   d_prior = prior / mean(prior) / parameter_range
@@ -410,7 +459,8 @@ baseline_var_plot = posterior_seasonal %>%
        x = NULL,
        y = "Scaled density",
        color = "Region",
-       fill = "Region")
+       fill = "Region") +
+  theme(strip.text = element_markdown())
 baseline_var_plot
 filename = paste0("../plots/china_baseline_variables.png")
 # ggsave(filename, width=8, height=8)
@@ -454,7 +504,7 @@ accept = lapply(samp_results, function(x) {
 })
 
 ess = lapply(samp_results, function(x) {
-  x$ESS %>% unlist %>% matrix(ncol=9, byrow=T) %>% colSums() %>% setNames(names(x$current_x[[1]]))
+  x$ESS %>% unlist %>% matrix(ncol=9, byrow=T) %>% colSums() %>% setNames(names(x$ESS[[1]]))
 })
 ess_df = bind_rows(ess, .id = "scenario") %>%
   pivot_longer(-scenario, names_to="parameter", values_to="ess") %>%
@@ -463,14 +513,16 @@ ess_df = bind_rows(ess, .id = "scenario") %>%
 ess_plot = ggplot(ess_df, aes(x = ess, y = parameter, fill = region)) +
   geom_vline(xintercept=100, linetype="dashed") +
   geom_col(alpha = 0.8, position="dodge2") +
-  coord_cartesian(xlim=c(0, 500)) +
+  # coord_cartesian(xlim=c(0, 500)) +
+  scale_x_log10() +
   scale_y_discrete(limits=rev, breaks = sort(unique(ess_df$parameter)), labels = make_greek(sort(unique(ess_df$parameter)))) +
   facet_wrap(vars(name_shortest)) +
   # theme(legend.position = "none") +
   labs(subtitle = "Effective sample size (higher is better)",
        x = "ESS",
        y = "Parameter",
-       fill = NULL)
+       fill = NULL) +
+  theme(axis.text.y = element_markdown())
 
 rhat = pblapply(samp_results, rhat.metropolisfit)
 rhat_df = bind_rows(rhat, .id = "scenario") %>%
@@ -495,9 +547,6 @@ filename = paste0("../plots/china_mcmc_diagnostics.png")
 ggsave(filename, width=8, height=10)
 ```
 
-```{r}
-ggplot(rhat_df, aes)
-```
 
 Save workspace
 
