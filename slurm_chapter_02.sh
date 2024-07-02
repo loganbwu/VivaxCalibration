@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=mcore_job
 #SBATCH --partition=regular
-#SBATCH --time=4-00
+#SBATCH --time=2-00
 #SBATCH --cpus-per-task=128
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
