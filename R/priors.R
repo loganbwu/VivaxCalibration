@@ -14,7 +14,7 @@ ascertainment = tribble(
 phenotype = tribble(
   ~name, ~p_silent_shape1, ~p_silent_shape2, ~p_long_shape1, ~p_long_shape2, ~p_RCI_shape1, ~p_RCI_shape2,
   "baseline", 15, 30, 22, 5, 1, 1,
-  "no_immunity", 15, 30, 22, 5, 1, 50
+  "no_immunity", 15, 30, 22, 5, 1, 99
 )
 
 region = tribble(

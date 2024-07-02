@@ -127,25 +127,25 @@ init = c(
   phase = 119,
   p_long = 0.775,
   p_silent = 0.245,
-  p_RCI = 0.123
+  p_RCI = 0.300
 )
 
-init_sd = c(alpha = 0.0293,
-            beta = 0.0281,
-            lambda = 0.0162,
-            phi = 0.277,
-            kappa = 0.510,
-            phase = 6.21,
-            p_long = 0.0841,
-            p_silent = 0.0599,
-            p_RCI = 0.0411)
+init_sd = c(alpha = 0.0296,
+            beta = 0.0293,
+            lambda = 0.0125,
+            phi = 0.260,
+            kappa = 0.395,
+            phase = 5.20,
+            p_long = 0.0836,
+            p_silent = 0.0577,
+            p_RCI = 0.0218)
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 ```
 
 ```{r}
-max_hours = 24
+max_hours = 72
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
@@ -167,11 +167,12 @@ for (i in seq_len(length(data_scenarios))) {
 
 ```{r}
 saveRDS(samp_results, "samp_results.rds")
+# samp_results = readRDS("samp_results.rds")
 ```
 
 ```{r}
 # inspect parameter posteriors
-posterior_seasonal = lapply(samp_results, function(samp) {
+posterior_seasonal_1 = pblapply(samp_results, function(samp) {
   bind_cols(
     bind_rows(samp$sim),
     bind_rows(samp$sim_diagnostics, .id = "chain")
@@ -179,7 +180,13 @@ posterior_seasonal = lapply(samp_results, function(samp) {
     pivot_longer(-c(iteration, accept, lpp, ll, chain), names_to = "parameter", values_to = "value")
 }) %>%
   bind_rows(.id = "Scenario") %>%
-  mutate(Scenario = fct_inorder(Scenario)) %>%
+  mutate(Scenario = fct_inorder(Scenario))#
+posterior_seasonal_2 = posterior_seasonal_1 %>%
+  group_by(Scenario, parameter) %>%
+  sample_n(1000)
+x1 = scenarios %>%
+  select(name, name_short, region)
+posterior_seasonal = posterior_seasonal_2 %>%
   left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
 
@@ -202,7 +209,7 @@ var_plot = posterior_seasonal %>%
   labs(subtitle = "Parameter estimates")
 var_plot
 filename = paste0("../plots/china_variables.png")
-ggsave(filename, width=8, height=8)
+# ggsave(filename, width=8, height=8)
 
 ll_plot = posterior_seasonal %>%
   ggplot(aes(x = ll, y = name_shortest, color=name_shortest, fill=name_shortest, group=interaction(name_shortest))) +
@@ -389,24 +396,24 @@ for (i in seq_len(nrow(var_ranges))) {
     exp(baseline_model$log_prior(x_dummy))
   })
   d_prior = prior / mean(prior) / parameter_range
-  var_priors[[parameter_name]] = tibble(value = parameter_seq, prior = d_prior)
+  var_priors[[parameter_name]] = tibble(value = parameter_seq, prior = d_prior / max(d_prior))
 }
 var_priors = bind_rows(var_priors, .id="parameter")
 baseline_var_plot = posterior_seasonal %>%
   filter(scenario <= 2) %>%
   ggplot(aes(x = value, fill=region, color=region)) +
-  geom_density(alpha=0.5) +
+  geom_density(aes(y=..scaled..), alpha=0.5) +
   geom_line(data=var_priors, aes(y=prior, fill=NULL, color=NULL), linetype="dashed") +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Posterior parameter estimates",
        x = NULL,
-       y = NULL,
+       y = "Scaled density",
        color = "Region",
        fill = "Region")
 baseline_var_plot
 filename = paste0("../plots/china_baseline_variables.png")
-ggsave(filename, width=8, height=8)
+# ggsave(filename, width=8, height=8)
 
 baseline_epi_plot = resim %>%
   filter(scenario <= 2) %>%
@@ -427,7 +434,7 @@ baseline_epi_plot = resim %>%
   guides(colour = guide_legend(override.aes = list(alpha = 1)))
 baseline_epi_plot
 filename = paste0("../plots/china_baseline_epi.png")
-ggsave(filename, width=8, height=8)
+# ggsave(filename, width=8, height=8)
 
 baseline_var_plot / baseline_epi_plot +
   plot_layout(heights = c(2, 1)) +
@@ -449,6 +456,47 @@ accept = lapply(samp_results, function(x) {
 ess = lapply(samp_results, function(x) {
   x$ESS %>% unlist %>% matrix(ncol=9, byrow=T) %>% colSums() %>% setNames(names(x$current_x[[1]]))
 })
+ess_df = bind_rows(ess, .id = "scenario") %>%
+  pivot_longer(-scenario, names_to="parameter", values_to="ess") %>%
+  left_join(scenarios, by=c("scenario" = "name"))
+
+ess_plot = ggplot(ess_df, aes(x = ess, y = parameter, fill = region)) +
+  geom_vline(xintercept=100, linetype="dashed") +
+  geom_col(alpha = 0.8, position="dodge2") +
+  coord_cartesian(xlim=c(0, 500)) +
+  scale_y_discrete(limits=rev, breaks = sort(unique(ess_df$parameter)), labels = make_greek(sort(unique(ess_df$parameter)))) +
+  facet_wrap(vars(name_shortest)) +
+  # theme(legend.position = "none") +
+  labs(subtitle = "Effective sample size (higher is better)",
+       x = "ESS",
+       y = "Parameter",
+       fill = NULL)
+
+rhat = pblapply(samp_results, rhat.metropolisfit)
+rhat_df = bind_rows(rhat, .id = "scenario") %>%
+  pivot_longer(-scenario, names_to="parameter", values_to="rhat") %>%
+  left_join(scenarios, by=c("scenario" = "name"))
+
+rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
+  geom_vline(xintercept=1.05, linetype="dashed") +
+  geom_col(alpha = 0.8, position="dodge2") +
+  scale_y_discrete(limits=rev, labels=make_greek) +
+  facet_wrap(vars(name_shortest)) +
+  # theme(legend.position = "none") +
+  labs(subtitle = "Chain convergence criteria (lower is better)",
+       x = latex2exp::TeX("$\\hat{r}$"),
+       y = "Parameter",
+       fill = NULL) +
+  theme(axis.text.y = element_markdown())
+
+ess_plot / rhat_plot +
+  plot_annotation(tag_levels = "A")
+filename = paste0("../plots/china_mcmc_diagnostics.png")
+ggsave(filename, width=8, height=10)
+```
+
+```{r}
+ggplot(rhat_df, aes)
 ```
 
 Save workspace

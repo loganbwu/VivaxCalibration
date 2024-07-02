@@ -476,7 +476,7 @@ sapply(fits_scenarios, function(x) {x@mode})
 
 # Redo any that didn't work
 ix_redo = which(sapply(fits_scenarios, is.null) | sapply(fits_scenarios, function(x) {x@mode == 2}))
-print("Redoing", length(ix_redo))
+# print("Redoing", length(ix_redo))
 redos = pbmclapply(ix_redo, fit_ix)
 for (ix in seq_along(ix_redo)) {
   ix2 = ix_redo[ix]

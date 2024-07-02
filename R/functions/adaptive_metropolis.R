@@ -206,6 +206,20 @@ extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05, threading
 
 extract = function(...) UseMethod("extract")
 
+rhat.metropolisfit = function(fit) {
+  sim_matrices = lapply(names(fit$sim[[1]]) %>% setNames({.}), function(param) {
+    x = lapply(fit$sim, function(s) {
+      s[[param]]
+    }) %>%
+      setNames(seq_along(fit$sim)) %>%
+      bind_cols() %>%
+      as.matrix() %>%
+      Rhat
+  })
+}
+
+rhat = function(...) UseMethod("rhat")
+
 #' @param dt time difference in seconds
 format_time = function(dt) {
   if (dt < 1) {
