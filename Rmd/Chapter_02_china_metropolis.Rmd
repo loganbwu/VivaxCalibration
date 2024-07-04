@@ -7,7 +7,7 @@ number_sections: true
 ---
 
 ```{r setup}
-load("workspaces/Chapter_02_china_metropolis_2024-07-01 - 72hr lng.RData")
+# load("workspaces/Chapter_02_china_metropolis_2024-07-01 - 72hr lng.RData")
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -170,43 +170,6 @@ saveRDS(samp_results, samp_filename)
 ```
 
 Transform output parameters
-
-```{r, eval=F}
-for (i in seq_along(samp_results)) {
-  if ("transformed" %in% names(samp_results[[i]])) {
-    next
-  }
-  sim = samp_results[[i]]$sim
-  new_sim = lapply(sim, function(x) {
-    x %>%
-      mutate(s = 1 - p_long,
-             p = 1 - p_silent,
-             p_long = NULL,
-             p_silent = NULL)
-  })
-  samp_results[[i]]$sim = new_sim
-  
-  ess = samp_results[[i]]$ESS
-  new_ess = lapply(ess, function(x) {
-    names_ess = names(x)
-    names_ess[names_ess=="p_long"] = "s"
-    names_ess[names_ess=="p_silent"] = "p"
-    x %>% setNames(names_ess)
-  })
-  samp_results[[i]]$ESS = new_ess
-  
-  current_x = samp_results[[i]]$current_x
-  new_current_x = lapply(current_x, function(x) {
-    names_current_x = names(x)
-    names_current_x[names_current_x=="p_long"] = "s"
-    names_current_x[names_current_x=="p_silent"] = "p"
-    x %>% setNames(names_current_x)
-  })
-  samp_results[[i]]$current_x = new_current_x
-  
-  samp_results[[i]]$transformed = TRUE
-}
-```
 
 ```{r}
 # inspect parameter posteriors
@@ -445,9 +408,22 @@ for (i in seq_len(nrow(var_ranges))) {
     var_priors[[parameter_name]] = tibble(value = parameter_seq, prior = d_prior / max(d_prior))
   }
 }
+
+# Do transformation to align with s and p variable names
 var_priors = bind_rows(var_priors, .id="parameter")
-baseline_var_plot = posterior_seasonal %>%
-  filter(scenario <= 2) %>%
+var_priors$value[var_priors$parameter == "p_long"] = 1 - var_priors$value[var_priors$parameter == "p_long"]
+var_priors$parameter[var_priors$parameter == "p_long"] = "s"
+var_priors$value[var_priors$parameter == "p_silent"] = 1 - var_priors$value[var_priors$parameter == "p_silent"]
+var_priors$parameter[var_priors$parameter == "p_silent"] = "p"
+
+baseline_var_plot_data = posterior_seasonal %>%
+  filter(name_shortest == "Baseline")
+baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"]
+baseline_var_plot_data$parameter[baseline_var_plot_data$parameter == "p_long"] = "s"
+baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"]
+baseline_var_plot_data$parameter[baseline_var_plot_data$parameter == "p_silent"] = "p"
+
+baseline_var_plot = baseline_var_plot_data %>%
   ggplot(aes(x = value, fill=region, color=region)) +
   geom_density(aes(y=..scaled..), alpha=0.5) +
   geom_line(data=var_priors, aes(y=prior, fill=NULL, color=NULL), linetype="dashed") +
@@ -507,25 +483,30 @@ ess = lapply(samp_results, function(x) {
 ess_df = bind_rows(ess, .id = "scenario") %>%
   pivot_longer(-scenario, names_to="parameter", values_to="ess") %>%
   left_join(scenarios, by=c("scenario" = "name"))
+ess_df$parameter[ess_df$parameter == "p_long"] = "s"
+ess_df$parameter[ess_df$parameter == "p_silent"] = "p"
 
 ess_plot = ggplot(ess_df, aes(x = ess, y = parameter, fill = region)) +
   geom_vline(xintercept=100, linetype="dashed") +
   geom_col(alpha = 0.8, position="dodge2") +
   # coord_cartesian(xlim=c(0, 500)) +
-  scale_x_log10() +
+  scale_x_log10(labels = scales::label_number()) +
   scale_y_discrete(limits=rev, breaks = sort(unique(ess_df$parameter)), labels = make_greek(sort(unique(ess_df$parameter)))) +
   facet_wrap(vars(name_shortest)) +
   # theme(legend.position = "none") +
-  labs(subtitle = "Effective sample size (higher is better)",
+  labs(subtitle = "Effective sample size accounting for autocorrelation (higher is better)",
        x = "ESS",
        y = "Parameter",
        fill = NULL) +
-  theme(axis.text.y = element_markdown())
+  theme(axis.text.y = element_markdown(),
+        legend.position = "none")
 
-rhat = pblapply(samp_results, rhat.metropolisfit)
+rhat = pbmclapply(samp_results, rhat.metropolisfit)
 rhat_df = bind_rows(rhat, .id = "scenario") %>%
   pivot_longer(-scenario, names_to="parameter", values_to="rhat") %>%
   left_join(scenarios, by=c("scenario" = "name"))
+rhat_df$parameter[rhat_df$parameter == "p_long"] = "s"
+rhat_df$parameter[rhat_df$parameter == "p_silent"] = "p"
 
 rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
   geom_vline(xintercept=1.05, linetype="dashed") +
@@ -540,7 +521,7 @@ rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
   theme(axis.text.y = element_markdown())
 
 ess_plot / rhat_plot +
-  plot_annotation(tag_levels = "A")
+  plot_annotation(tag_levels = "A") + plot_layout(guides="collect") & theme(legend.position = "bottom")
 filename = paste0("../plots/china_mcmc_diagnostics.png")
 ggsave(filename, width=8, height=10)
 ```
