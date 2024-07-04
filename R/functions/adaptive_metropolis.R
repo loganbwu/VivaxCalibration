@@ -128,6 +128,9 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
   for (i in seq_len(n_iter)) {
     # Make proposal
     proposal_x = MASS::mvrnorm(n=1, mu=current_x, Sigma=covar)
+    
+    # TESTING - Remove later
+    proposal_x[["phi"]] = 999
     proposal_log_likelihood = model$log_likelihood(proposal_x)
     proposal_log_posterior = model$log_prior(proposal_x) + proposal_log_likelihood
     
@@ -166,9 +169,18 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
 }
 
 
-extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05, threading=TRUE) {
+extract.metropolisfit = function(fit, type="incidence", n_samples=100, alpha=0.05, threading=TRUE) {
   if (type == "incidence") {
     all_sims = bind_rows(fit$sim)
+    # Address transformed variables
+    if ("s" %in% names(all_sims)) {
+      all_sims$p_long = 1 - all_sims$s
+      all_sims$s = NULL
+    }
+    if ("p" %in% names(all_sims)) {
+      all_sims$p_silent = 1 - all_sims$p
+      all_sims$p = NULL
+    }
     sample_ix = sample(1:nrow(all_sims), min(n_samples, nrow(all_sims)))
     
     x_r = with(fit$data, c(N=N, gamma_d=gamma_d, gamma_l=gamma_l, delta=delta, f=f, r=r, eps=eps))
@@ -207,15 +219,16 @@ extract.metropolisfit = function(fit, type, n_samples=100, alpha=0.05, threading
 extract = function(...) UseMethod("extract")
 
 rhat.metropolisfit = function(fit) {
-  sim_matrices = lapply(names(fit$sim[[1]]) %>% setNames({.}), function(param) {
-    x = lapply(fit$sim, function(s) {
-      s[[param]]
-    }) %>%
-      setNames(seq_along(fit$sim)) %>%
-      bind_cols() %>%
-      as.matrix() %>%
-      Rhat
-  })
+  sim_matrices = lapply(names(fit$sim[[1]]) %>% setNames({.}),
+                        function(param) {
+                          x = lapply(fit$sim, function(s) {
+                            s[[param]]
+                          }) %>%
+                            setNames(seq_along(fit$sim)) %>%
+                            bind_cols() %>%
+                            as.matrix() %>%
+                            rstan::Rhat()
+                        })
 }
 
 rhat = function(...) UseMethod("rhat")

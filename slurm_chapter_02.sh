@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=mcore_job
+#SBATCH --job-name=chap_02
 #SBATCH --partition=regular
 #SBATCH --time=2-00
 #SBATCH --cpus-per-task=128
