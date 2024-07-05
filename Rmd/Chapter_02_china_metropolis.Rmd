@@ -434,7 +434,9 @@ baseline_var_plot = baseline_var_plot_data %>%
        y = "Scaled density",
        color = "Region",
        fill = "Region") +
-  theme(strip.text = element_markdown())
+  theme(strip.text = element_markdown(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
 baseline_var_plot
 filename = paste0("../plots/china_baseline_variables.png")
 # ggsave(filename, width=8, height=8)

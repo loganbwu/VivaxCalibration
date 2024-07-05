@@ -139,6 +139,8 @@ for (i in seq_len(length(data_scenarios))) {
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-save.image(workspace_filename)
+# workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
+# save.image(workspace_filename)
+write_rds(samp_results, file=rds_filename)
 
