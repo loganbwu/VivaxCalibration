@@ -15,12 +15,12 @@ message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
 n_years = 5
-n_iter = 500 # should be at least 500
-n_chains = 2
+n_iter = 2000 # should be at least 500
+n_chains = n_cores
 n_repetitions = 5 # how many times to duplicate each scenario
 cores_per_sampler = 1 # set to n_chains if not running lots of scenarios
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
-timelimit_per_run = 60*0.1#60 * 30
+timelimit_per_run = Inf
 
 model_champagne2022 = "Rmd/stan/champagne2022.stan"
 stan_model_champagne2022 = stan_model(model_champagne2022)
