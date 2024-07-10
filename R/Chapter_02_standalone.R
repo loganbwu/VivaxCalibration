@@ -114,7 +114,7 @@ init_sd = c(alpha = 0.0293,
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 
-max_hours = 24
+max_hours = 24*5
 models = lapply(data_scenarios, make_model)
 
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
@@ -124,7 +124,7 @@ do_scenario = function(i) {
                              init = init,
                              init_sd = init_sd,
                              data = data_scenarios[[i]],
-                             n_iter = 500,
+                             n_iter = 1000,
                              n_burnin = 400,
                              n_adapt = 100,
                              n_chains = chains_per_scenario,
@@ -139,8 +139,8 @@ for (i in seq_len(length(data_scenarios))) {
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-# workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
-# save.image(workspace_filename)
-write_rds(samp_results, file=rds_filename,compress="xz")
+workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+# rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
+save.image(workspace_filename)
+# write_rds(samp_results, file=rds_filename,compress="xz")
 

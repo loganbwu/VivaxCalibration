@@ -81,7 +81,7 @@ if (!require(MalariaData)) {
 
 Now we fit the model for scenarios
 
-```{r, eval=F}
+```{r}
 data_baseline = list(
   t0 = -30*years,
   gamma_d = 1/434.,
@@ -171,8 +171,10 @@ saveRDS(samp_results, samp_filename)
 
 Load simulations from HPC
 
-```{r}
-
+```{r, eval=F}
+rds_1 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-07.rds")
+rds_2 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-09.rds")
+samp_results = c(rds_1, rds_2)
 ```
 
 Transform output parameters
