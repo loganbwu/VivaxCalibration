@@ -142,5 +142,5 @@ print(end_time - start_time)
 # workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
 # save.image(workspace_filename)
-write_rds(samp_results, file=rds_filename)
+write_rds(samp_results, file=rds_filename,compress="xz")
 

@@ -169,6 +169,12 @@ samp_filename = paste0("samp_results_", Sys.Date(), ".rds")
 saveRDS(samp_results, samp_filename)
 ```
 
+Load simulations from HPC
+
+```{r}
+
+```
+
 Transform output parameters
 
 ```{r}
