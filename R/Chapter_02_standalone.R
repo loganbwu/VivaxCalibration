@@ -88,6 +88,10 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 }) %>%
   setNames(scenarios$name)
 
+
+# CHANGE THIS
+data_scenarios = head(data_scenarios, length(data_scenarios/2))
+
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
 init = c(
   alpha = 0.173,
@@ -139,8 +143,8 @@ for (i in seq_len(length(data_scenarios))) {
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-# rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
-save.image(workspace_filename)
-# write_rds(samp_results, file=rds_filename,compress="xz")
+# workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
+# save.image(workspace_filename)
+write_rds(samp_results, file=rds_filename,compress="xz")
 

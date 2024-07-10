@@ -118,7 +118,7 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 
 Run
 
-```{r, eval=F}
+```{r}
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
 init = c(
   alpha = 0.173,
@@ -146,8 +146,8 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 ```
 
-```{r, eval=F}
-max_hours = 0.5
+```{r}
+max_hours = 24*5
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
