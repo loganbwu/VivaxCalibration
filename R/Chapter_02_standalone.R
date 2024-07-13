@@ -36,25 +36,7 @@ china_selections = tribble(
   mutate(min = as.Date(min),
          max = as.Date(max))
 
-if (!require(MalariaData)) {
-  china_data = read_rds("china_data.rds")
-} else {
-  library(MalariaData)
-  regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
-  china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
-    bind_rows(.id = "Region") %>%
-    select(Region, Date, Cases) %>%
-    left_join(china_selections, by="Region") %>%
-    mutate(Date = as.Date(paste(year(Date), month(Date), "01", sep="-")) + months(1) - days(1)) %>% # Align to last day of the month
-    mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
-           include = replace_na(include, "grey"))
-  
-  china_data = china_data_all %>%
-    filter(include == "grey20") %>%
-    select(-include)
-  
-  write_rds(china_data, "china_data.rds")
-}
+china_data = read_rds("china_data.rds")
 
 data_baseline = list(
   t0 = -30*years,
