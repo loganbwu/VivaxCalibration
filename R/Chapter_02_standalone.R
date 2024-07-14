@@ -72,7 +72,7 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 
 
 # CHANGE THIS
-data_scenarios = head(data_scenarios, length(data_scenarios/2))
+# data_scenarios = head(data_scenarios, length(data_scenarios/2))
 
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
 init = c(
