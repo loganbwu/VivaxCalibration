@@ -168,22 +168,22 @@ pv_champ_function <- function(t, state, parameters) { # with optional birth deat
   with(as.list(c(state, parameters)), {
     FOI = 1*lambda*(Il+I0)
     
-    rate.S0_Il = FOI * (1-alpha) # infection without treatment
-    rate.S0_Sl = FOI * alpha*(1-beta) # infection with blood stage treatment only
+    # rate.S0_Il = FOI * (1-alpha) # infection without treatment
+    # rate.S0_Sl = FOI * alpha*(1-beta) # infection with blood stage treatment only
     
-    rate.Sl_S0 = gamma + (FOI+f)*alpha*beta # liver clearance + prompt treatment of reinfection/relapse
-    rate.Sl_Il = (FOI+f)*(1-alpha) # relapse or infection and no treatment
+    # rate.Sl_S0 = gamma + (FOI+f)*alpha*beta # liver clearance + prompt treatment of reinfection/relapse
+    # rate.Sl_Il = (FOI+f)*(1-alpha) # relapse or infection and no treatment
     
-    rate.I0_S0 = FOI*alpha*beta + r # reinfection and full treatment or blood stage recovery
-    rate.I0_Il = FOI # reinfection, no treatment
+    # rate.I0_S0 = FOI*alpha*beta + r # reinfection and full treatment or blood stage recovery
+    # rate.I0_Il = FOI # reinfection, no treatment
     
-    rate.Il_I0 = gamma # liver clearance
-    rate.Il_Sl = r # blood stage recovery
+    # rate.Il_I0 = gamma # liver clearance
+    # rate.Il_Sl = r # blood stage recovery
     
-    dS0 = -rate.S0_Il*S0 - rate.S0_Sl*S0 + rate.Sl_S0*Sl + rate.I0_S0*I0
-    dSl = rate.S0_Sl*S0 - rate.Sl_S0*Sl - rate.Sl_Il*Sl + rate.Il_Sl*Il
-    dI0 = -rate.I0_S0*I0 + rate.Il_I0*Il - rate.I0_Il*I0
-    dIl = rate.S0_Il*S0 + rate.Sl_Il*Sl + rate.I0_Il*I0 - rate.Il_I0*Il - rate.Il_Sl*Il
+    dS0 = -FOI * (1-alpha)*S0 - FOI * alpha*(1-beta)*S0 + (gamma + (FOI+f)*alpha*beta)*Sl + (FOI*alpha*beta + r)*I0
+    dSl = FOI * alpha*(1-beta)*S0 - (gamma + (FOI+f)*alpha*beta)*Sl - (FOI+f)*(1-alpha)*Sl + r*Il
+    dI0 = -(FOI*alpha*beta + r)*I0 + gamma*Il - FOI*I0
+    dIl = FOI * (1-alpha)*S0 + (FOI+f)*(1-alpha)*Sl + FOI*I0 - gamma*Il - r*Il
     
     dCases = (
       FOI * (S0 + Sl) + # force of infection for new blood infections, assume no immunity
