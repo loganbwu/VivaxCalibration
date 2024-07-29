@@ -2,7 +2,7 @@
 duration = tribble(
   ~name, ~delta, ~n_dormant,
   "baseline", 1/162, 11,
-  "extended", 1/240, 11
+  "extended", 1/240, 24
 )
 
 ascertainment = tribble(

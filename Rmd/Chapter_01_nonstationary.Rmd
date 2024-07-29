@@ -29,13 +29,13 @@ library(RColorBrewer)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
-n_cores = parallelly::availableCores()
-# n_cores = 9
+# n_cores = parallelly::availableCores()
+n_cores = 9
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 400 # should be at least 500
+n_iter = 500 # should be at least 500
 n_chains = 1
 n_repetitions = 3 # how many times to duplicate each scenario
 limit_runs = Inf # set to a finite number for testing, or Inf to run all
@@ -181,7 +181,7 @@ Create scenarios
 ```{r}
 # Define the scenarios
 range_tstar = c(0.25, 0.5, 0.75) * n_years * years
-range_xi = c(0.25, 0.5, 0.75)
+range_xi = c(0.5, 0.75, 1.5)
 scenarios = expand_grid(
   lambda = 0.01,
   phi_inv = 0.1,
@@ -213,12 +213,25 @@ scenarios$cases = lapply(cases_scenarios, function(x) {x$cases})
 
 What do our synthetic data look like?
 
-```{r}
+```{r, eval=F}
 if (n_repetitions > 1) {
   title = paste(n_repetitions, "repetitions of synthetic scenario data")
 } else {
   title = "Synthetic scenario data"
 }
+
+plot_labeller_years2 = function(labels, multi_line=TRUE) {
+  labels = lapply(names(labels), function(name) {
+    .plot_labeller_years(name, labels[[name]])
+  })
+  # if (multi_line) {
+  #   labels
+  # }
+  # else {
+  #   collapse_labels_lines(labels)
+  # }
+}
+
 scenarios %>%
   # distinct(scenario_ID, .keep_all=T) %>%
   unnest(cols = c("ts", "cases")) %>%
@@ -229,7 +242,7 @@ scenarios %>%
   scale_color_gradient(trans = "log", breaks=10^seq(-5, 5)) +
   facet_grid(rows = vars(xi),
              cols = vars(tstar),
-             labeller = plot_labeller_years) +
+             labeller = plot_labeller_years2) +
   labs(title = title,
        x = "Year",
        y = "Monthly cases")
@@ -374,12 +387,13 @@ max_y = max(scenarios_overlay$cases) * 1.2
 ggplot(incidence_join, aes(x = ts, y = incidence, color=factor(rep), group = rep)) +
   geom_point(data=scenarios_overlay, aes(y=cases), size=1) +
   geom_line(alpha = 0.8) +
+  scale_y_log10() +
   # geom_vline(data=true_values, aes(xintercept = true_value), linetype="dashed") +
   # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller_years) +
+  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
-  coord_cartesian(ylim = c(0, max_y)) +
+  coord_cartesian(ylim = c(NA, max_y)) +
   labs(title = "Estimated incidence") +
   scale_color_brewer(palette = "Set2") +
   theme(legend.position = "none")
@@ -417,7 +431,7 @@ ggplot(traces, aes(x = ts/years, y = lambda, color=factor(rep), group = interact
   geom_vline(data=true_values, aes(xintercept = tstar/years), linetype="dashed") +
   geom_hline(data=true_values, aes(yintercept = xi*lambda), linetype="dashed") +
   # geom_density(alpha = 0.5) +
-  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller_years) +
+  facet_grid(rows = vars(xi), cols = vars(tstar), labeller = plot_labeller) +
   # scale_fill_manual(values = param_colors, drop=F) +
   # scale_color_manual(values = param_colors, drop=F) +
   coord_cartesian(ylim = c(0, NA)) +
