@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=chap_02
-#SBATCH --partition=long
-#SBATCH --time=7-00
-#SBATCH --cpus-per-task=96
+#SBATCH --partition=regular
+#SBATCH --time=1-00
+#SBATCH --cpus-per-task=128
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
