@@ -44,11 +44,10 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 rstan_options(auto_write = TRUE)
 
-n_iter = 300 # should be at least 500
-n_chains = 4
-n_repetitions = 1 # how many times to duplicate each scenario
+n_iter = 2000 # should be at least 500
+n_chains = 6
 cores_per_sampler = n_chains # 1 for mclapply, or n_chains if not running lots of scenarios
-n_traces = 200 # limit for plotting sample trajectories
+n_traces = 500 # limit for plotting sample trajectories
 ```
 
 ## Model implementation
@@ -122,8 +121,8 @@ yearly_counts = rondonia.all %>%
   bind_rows(tail(., 1) %>% mutate(notification.date = notification.date + years(1)))
 
 ggplot(rondonia.all, aes(x = notification.date, y=cases, fill=include)) +
-  annotate("rect", xmin=as.Date(paste0(min_year, "-01-01")), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
-           fill = "blue", alpha = 0.15) +
+  # annotate("rect", xmin=as.Date(paste0(min_year, "-01-01")), xmax=as.Date(paste0(max_year, "-12-31")), ymin=-Inf, ymax=Inf,
+  #          fill = "blue", alpha = 0.15) +
   geom_col() +
   geom_step(data=yearly_counts, aes(fill=NULL), color="tomato") +
   coord_cartesian(ylim = c(0, NA)) +
@@ -225,11 +224,11 @@ tictoc::toc()
 # inspect parameter posteriors
 posterior_seasonal = rstan::extract(samp_ext, c("lambda", "phi_inv", "eps", "kappa", "phase")) %>%
   as_tibble() %>%
-  mutate(phi = 1/phi_inv) %>%
+  mutate(phi = 1/phi_inv,
+         phase = phase + years/4) %>%
   select(-phi_inv)
 
 posterior_seasonal_summary = posterior_seasonal %>%
-  mutate(peak_day = years/4 + phase) %>%
   pivot_longer(everything(), names_to = "parameter") %>%
   group_by(parameter) %>%
   summarise(mean = mean(value),
@@ -395,7 +394,8 @@ omega = function(t, eps, kappa, phase=365.25/2) {
 
 omega_params = rstan::extract(samp_ext, c("eps", "kappa", "phase")) %>%
   as_tibble() %>%
-  mutate(i = row_number())
+  mutate(i = row_number()) %>%
+  sample_n(n_traces)
 
 tt = seq(0, years, length.out=101)
 omega_ts = lapply(seq_len(nrow(omega_params)), function(i) {
@@ -428,7 +428,7 @@ composite_list = pbmclapply(seq_len(n_samples), function(i) {
     phi_inv = 0.1, # This doesn't matter if not sampling cases sample(posterior_seasonal$phi_inv, 1)
     eps = sample(posterior_seasonal$eps, 1),
     kappa = sample(posterior_seasonal$kappa, 1),
-    phase = sample(posterior_seasonal$phase, 1)
+    phase = sample(posterior_seasonal$phase, 1) - years/4
   )
   
   my_simulate_data(
@@ -541,6 +541,7 @@ Perform MCMC sampling for the nonstationary model
 
 ```{r}
 tictoc::tic("Seasonal model elapsed")
+init = rep(list(eps = 0.5), n_chains)
 samp_ns = sampling(stan_model("../stan/champagne2022_nonstationary_2.stan"),
                    data = data_ro_ns,
                    iter = n_iter,
@@ -554,11 +555,11 @@ Inspect the fit:
 posterior_nonstationary = rstan::extract(samp_ns, c("lambda", "phi_inv", "eps", "kappa", "phase", "tstar", "xi")) %>%
   as_tibble() %>%
   mutate(phi = 1 / phi_inv,
-         tstar = tstar / years + 2009) %>%
+         tstar = tstar / years + 2009,
+         phase = phase + years/4) %>%
   select(-phi_inv)
 
 posterior_nonstationary_summary = posterior_nonstationary %>%
-  mutate(peak_day = years/4 + phase) %>%
   pivot_longer(everything(), names_to = "parameter") %>%
   group_by(parameter) %>%
   summarise(mean = mean(value),
@@ -683,7 +684,7 @@ posterior_comparison = bind_rows(Stationary = posterior_seasonal,
                                  .id = "Model") %>%
   pivot_longer(-Model, names_to="parameter") %>%
   mutate(parameter = ifelse(parameter == "lambda", "λ(t>t*)", parameter)) %>%
-  mutate(parameter = fct_relevel(parameter, c("λ(t>t*)", "phi", "xi", "tstar", "eps", "kappa", "phase")))
+  mutate(parameter = fct_relevel(parameter, c("λ(t>t*)", "phi", "eps", "kappa", "phase", "xi", "tstar")))
 
 posterior_ranges_2 = posterior_comparison %>%
   group_by(parameter) %>%
@@ -703,7 +704,7 @@ posterior_ranges_2 = posterior_comparison %>%
 ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
   geom_blank(data = posterior_ranges_2) +
   geom_density(alpha = 0.5) +
-  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar, ncol=5) +
   labs(title = "Posterior comparison between stationary and nonstationary models",
        x = "Value",
        y = "Posterior density") +
@@ -728,5 +729,11 @@ multipliers = list(
 End of script.
 
 ```{r}
+end_time = Sys.time()
+print(end_time)
+# print(end_time - start_time)
+workspace_filename = paste0("workspaces/Chapter_01_rondonia_", Sys.Date(), ".RData")
+save.image(workspace_filename)
+if (hour(Sys.time()) >= 9) {beepr::beep()}
 print("Done.")
 ```

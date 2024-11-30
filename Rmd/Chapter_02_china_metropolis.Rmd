@@ -187,6 +187,7 @@ posterior_seasonal_1 = pblapply(samp_results, function(samp) {
     bind_rows(samp$sim_diagnostics, .id = "chain")
   ) %>%
     slice_sample(n = 1000) %>%
+    mutate(phase = phase + years/4) %>%
     pivot_longer(-c(iteration, accept, lpp, ll, chain), names_to = "parameter", values_to = "value")
 }) %>%
   bind_rows(.id = "Scenario") %>%
@@ -238,7 +239,8 @@ var_plot = posterior_seasonal %>%
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter estimates")
+  labs(subtitle = "Parameter estimates") +
+  theme(strip.text = element_markdown())
 var_plot
 filename = paste0("../plots/china_variables.png")
 # ggsave(filename, width=8, height=8)
@@ -314,7 +316,8 @@ epi_plot = ggplot(mapping = aes(x=time/years)) +
   labs(x = "Year",
        y = "Monthly incidence",
        color = "Infection type") +
-  guides(colour = guide_legend(override.aes = list(alpha = 1)))
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
 epi_plot
 filename = paste0("../plots/china_incidence.png")
 ggsave(filename, width=8, height=10)
@@ -465,7 +468,8 @@ baseline_epi_plot = resim %>%
        y = "Monthly incidence",
        color = "Infection type",
        subtitle = "Modelled mean incidence") +
-  guides(colour = guide_legend(override.aes = list(alpha = 1)))
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
 baseline_epi_plot
 filename = paste0("../plots/china_baseline_epi.png")
 # ggsave(filename, width=8, height=8)

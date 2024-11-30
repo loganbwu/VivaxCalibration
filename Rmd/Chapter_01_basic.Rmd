@@ -42,6 +42,8 @@ timelimit_per_run = 48*hr
 n_traces = min(100, n_iter) # limit for plotting sample trajectories
 set.seed(0)
 
+parameter_order = c("lambda", "phi", "eps", "kappa", "phase")
+
 start_time = Sys.time()
 ```
 
@@ -576,7 +578,8 @@ plot_data = scenarios_long %>%
   mutate(lq = quantile(value, 0.01),
          uq = quantile(value, 0.99)) %>%
   filter(value < uq) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(name = factor(name, levels=parameter_order))
 
 true_values = scenarios_long %>%
   distinct(lambda, phi, eps, kappa, phase) %>%
@@ -584,7 +587,8 @@ true_values = scenarios_long %>%
          eps2 = eps) %>%
   pivot_longer(-c(lambda2, eps2)) %>%
   dplyr::rename(lambda = lambda2,
-                eps = eps2)
+                eps = eps2) %>%
+  mutate(name = factor(name, levels=parameter_order))
 
 plot_seasonal_posterior = ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = as.factor(rep), fill = as.factor(rep))) +
   geom_density_ridges(alpha = 0.5) +
@@ -622,7 +626,8 @@ plot_data = scenarios_long %>%
   mutate(lq = quantile(value, 0.01),
          uq = quantile(value, 0.99)) %>%
   filter(value < uq) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(name = factor(name, levels=parameter_order))
 
 true_values = scenarios_long %>%
   distinct(lambda, phi, eps, kappa, phase) %>%
@@ -631,7 +636,8 @@ true_values = scenarios_long %>%
   pivot_longer(-c(lambda2, eps2)) %>%
   dplyr::rename(lambda = lambda2,
                 eps = eps2) %>%
-  filter(name %in% plot_data$name)
+  filter(name %in% plot_data$name) %>%
+  mutate(name = factor(name, levels=parameter_order))
 
 plot_nonseasonal_posterior = ggplot(plot_data, aes(x = value, y = as.factor(lambda), color = as.factor(rep), fill = as.factor(rep))) +
   geom_density_ridges(alpha = 0.5) +
