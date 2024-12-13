@@ -21,6 +21,8 @@ library(ggtext)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
+plots_dir = "../plots_rrr_sensitivity"
+
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
 n_cores = parallelly::availableCores()
@@ -31,7 +33,7 @@ message("Running on ", n_cores, " cores")
 source(file = "../R/models/temperate_v11.R")
 source(file = "../R/functions/adaptive_metropolis.R")
 # Load priors for each scenario
-source(file = "../R/priors.R")
+source(file = "../R/priors_RRR_sensitivity.R")
 my_state_init = state_init_3
 start_time = Sys.time()
 ```
@@ -232,7 +234,7 @@ trace_plot = posterior_seasonal %>%
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter traces")
 trace_plot
-filename = paste0("../plots/china_trace.png")
+filename = paste0(plots_dir, "/china_trace.png")
 ggsave(filename, width=8, height=8)
 
 var_plot = posterior_seasonal %>%
@@ -243,7 +245,7 @@ var_plot = posterior_seasonal %>%
   labs(subtitle = "Parameter estimates") +
   theme(strip.text = element_markdown())
 var_plot
-filename = paste0("../plots/china_variables.png")
+filename = paste0(plots_dir, "/china_variables.png")
 # ggsave(filename, width=8, height=8)
 
 ll_plot = posterior_seasonal %>%
@@ -254,7 +256,7 @@ ll_plot = posterior_seasonal %>%
   labs(subtitle = "Log likelihood (higher is better)") +
   theme(legend.position = "none")
 ll_plot
-filename = paste0("../plots/china_loglikelihood.png")
+filename = paste0(plots_dir, "/china_loglikelihood.png")
 ggsave(filename, width=8, height=8)
 
 lpp_plot = posterior_seasonal %>%
@@ -265,7 +267,7 @@ lpp_plot = posterior_seasonal %>%
   labs(subtitle = "Log posterior probability (higher is better)") +
   theme(legend.position = "none")
 lpp_plot
-filename = paste0("../plots/china_logposteriorprobability.png")
+filename = paste0(plots_dir, "/china_logposteriorprobability.png")
 ggsave(filename, width=8, height=8)
 
 bf_data = posterior_seasonal %>%
@@ -297,7 +299,7 @@ bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_s
        x = "*K*",
        y = NULL)
 bf_plot
-filename = paste0("../plots/china_bayesfactor.png")
+filename = paste0(plots_dir, "/china_bayesfactor.png")
 ggsave(filename, width=8, height=4)
 
 # ggsave(filename, width=8, height=4)
@@ -320,11 +322,11 @@ epi_plot = ggplot(mapping = aes(x=time/years)) +
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   theme(strip.text = element_markdown())
 epi_plot
-filename = paste0("../plots/china_incidence.png")
+filename = paste0(plots_dir, "/china_incidence.png")
 ggsave(filename, width=8, height=10)
 
 epi_plot / var_plot + theme(legend.position="none") + plot_annotation(tag_levels="A")
-filename = paste0("../plots/china_posterior.png")
+filename = paste0(plots_dir, "/china_posterior.png")
 ggsave(filename, width=8, height=8)
 
 resim_seasonality = pblapply(samp_results[1:2], function(samp) {
@@ -356,7 +358,7 @@ resim_seasonality_plot = resim_seasonality %>%
        color = "Region") +
   guides(colour = guide_legend(override.aes = list(alpha = 1)))
 resim_seasonality_plot
-filename = paste0("../plots/china_resim_seasonality_plot.png")
+filename = paste0(plots_dir, "/china_resim_seasonality_plot.png")
 ggsave(filename, width=8, height=4)
 
 rm(trace_plot)
@@ -450,7 +452,7 @@ baseline_var_plot = baseline_var_plot_data %>%
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank())
 baseline_var_plot
-filename = paste0("../plots/china_baseline_variables.png")
+filename = paste0(plots_dir, "/china_baseline_variables.png")
 # ggsave(filename, width=8, height=8)
 
 baseline_epi_plot = resim %>%
@@ -472,13 +474,13 @@ baseline_epi_plot = resim %>%
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   theme(strip.text = element_markdown())
 baseline_epi_plot
-filename = paste0("../plots/china_baseline_epi.png")
+filename = paste0(plots_dir, "/china_baseline_epi.png")
 # ggsave(filename, width=8, height=8)
 
 baseline_var_plot / baseline_epi_plot +
   plot_layout(heights = c(2, 1)) +
   plot_annotation(tag_levels = "A")
-filename = paste0("../plots/china_baseline.png")
+filename = paste0(plots_dir, "/china_baseline.png")
 ggsave(filename, width=8, height=8)
 
 rm(baseline_var_plot)
@@ -537,7 +539,7 @@ rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
 
 ess_plot / rhat_plot +
   plot_annotation(tag_levels = "A") + plot_layout(guides="collect") & theme(legend.position = "bottom")
-filename = paste0("../plots/china_mcmc_diagnostics.png")
+filename = paste0(plots_dir, "/china_mcmc_diagnostics.png")
 ggsave(filename, width=8, height=10)
 ```
 
@@ -548,7 +550,7 @@ Save workspace
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_RRR_sensitivity_", Sys.Date(), ".RData")
 # save.image(workspace_filename)
 beepr::beep()
 ```

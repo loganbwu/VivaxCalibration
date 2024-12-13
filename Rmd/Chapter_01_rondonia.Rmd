@@ -348,6 +348,7 @@ posterior_comparison = bind_rows(Nonseasonal = posterior_nonseasonal,
   pivot_longer(-Model, names_to="parameter") %>%
   mutate(parameter = fct_relevel(parameter, c("lambda", "phi", "eps", "kappa", "phase")))
 
+tail_size = 0.05
 posterior_ranges_2 = posterior_comparison %>%
   group_by(parameter) %>%
   summarise(mean = mean(value, na.rm=T),
@@ -362,6 +363,28 @@ posterior_ranges_2 = posterior_comparison %>%
                          parameter == "eps" ~ 1,
                          TRUE ~ max)) %>%
   pivot_longer(c(min, max))
+
+posterior_printout = posterior_comparison %>%
+  group_by(parameter, Model) %>%
+  summarise(mean = mean(value, na.rm=T),
+            lq = quantile(value, tail_size/2, na.rm=T),
+            uq = quantile(value, 1-tail_size/2, na.rm=T))
+
+# The seasonal vs nonseasonal lambda estimates are very similar. Do a bootstrapping hypothesis test
+samples_seasonal_lambda = posterior_comparison %>%
+  filter(parameter=="lambda", Model=="Seasonal") %>%
+  pull(value)
+samples_nonseasonal_lambda = posterior_comparison %>%
+  filter(parameter=="lambda", Model=="Nonseasonal") %>%
+  pull(value)
+.diffs = numeric()
+for (i in 1:10000) {
+  .x = sample(samples_seasonal_lambda, 1000, replace=T)
+  .y = sample(samples_nonseasonal_lambda, 1000, replace=T)
+  .diffs[i] = mean(.x) - mean(.y)
+}
+p_diffs_pos = mean(.diffs > 0)
+
 
 ggplot(posterior_comparison, aes(x = value, fill = Model, color=Model)) +
   geom_blank(data = posterior_ranges_2) +
