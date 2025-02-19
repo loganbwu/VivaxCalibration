@@ -122,6 +122,20 @@ for (i in seq_len(length(data_scenarios))) {
   samp_results[[i]] = samp_results_lapply[[i]]
 }
 
+resim = pbmclapply(samp_results, function(samp) {
+  resim = extract(samp, "incidence", n_samples=100, threading=F)
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = fct_inorder(Scenario)) %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(name_short = name_short %>% str_replace_all(", ", ",\n")) %>%
+  pivot_longer(matches("^clinical"), names_to="metric") %>%
+  mutate(metric = metric %>% case_match(
+    "clinical_incidence" ~ "Total",
+    "clinical_relapse" ~ "Relapse",
+    "clinical_primary" ~ "Primary"
+  ))
+
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
