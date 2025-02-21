@@ -139,8 +139,6 @@ resim = pbmclapply(samp_results, function(samp) {
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-rds_filename = paste0("samp_results/Chapter_02_china_metropolis_", Sys.Date(), ".rds")
-write_rds(samp_results, file=rds_filename,compress="xz")
 
 workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 save.image(workspace_filename)
