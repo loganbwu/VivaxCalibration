@@ -7,7 +7,7 @@ number_sections: true
 ---
 
 ```{r setup}
-load("workspaces/Chapter_02_china_metropolis_2025-02-19.RData")
+load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -484,6 +484,62 @@ ggsave(filename, width=8, height=8)
 
 rm(baseline_var_plot)
 rm(baseline_epi_plot)
+```
+
+Plot traces
+
+```{r}
+samp_results_first = samp_results[1:2]
+traces = lapply(samp_results_first, function(x) {
+  lapply(x$sim, function(y) {
+    y %>%
+      mutate(iteration = row_number())
+  }) %>%
+    bind_rows(.id = "chain") %>%
+    pivot_longer(-c(chain, iteration), names_to = "variable") %>%
+    filter(chain <= 400)
+}) %>%
+  bind_rows(.id = "scenario") %>%
+  mutate(scenario = scenario %>% str_remove(".* "))
+
+ggplot(traces, aes(x = iteration, y = value, color = chain)) +
+  geom_line(alpha=0.3) +
+  ggh4x::facet_grid2(cols = vars(scenario), rows = vars(variable), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+  labs(title = "Metropolis sample traces",
+       subtitle = "Baseline scenario",
+       x = "Iteration",
+       y = "Value",
+       color = "Chain") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
+
+filename = paste0("../plots/china_mcmc_traceplot.png")
+ggsave(filename, width=8, height=10)
+```
+
+Check correlations (this is not particularly consequential but might be interesting)
+
+```{r}
+corr_scenario = lapply(unique(traces$scenario) %>% setNames({.}), function(x) {
+  y = traces %>%
+    filter(scenario == x) %>%
+    pivot_wider(names_from = variable) %>%
+    select(-scenario, -chain, -iteration) %>%
+    cor()
+  colnames(y) = sapply(colnames(y), make_greek)
+  rownames(y) = sapply(rownames(y), make_greek)
+  y
+})
+
+corrplots = lapply(corr_scenario, function(M) {
+  ggcorrplot::ggcorrplot(M, type="upper") +
+  theme(axis.text.x = element_markdown(),
+        axis.text.y = element_markdown())
+})
+
+corrplots[[1]] | corrplots[[2]]
+filename = paste0("../plots/china_mcmc_corrplot.png")
+ggsave(filename, width=8, height=4)
 ```
 
 Check acceptance

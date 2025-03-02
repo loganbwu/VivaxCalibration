@@ -173,7 +173,8 @@ china_decomp %>%
   ggplot(aes(x = Date, y = value, color = name)) +
   geom_line() +
   scale_x_date(date_breaks = "years", date_labels = "%Y") +
-  facet_grid(rows=vars(name), cols=vars(Region), scales="free")
+  facet_grid(rows=vars(name), cols=vars(Region), scales="free", switch="y") +
+  labs(x = "Year", y = NULL, color = "Component")
 
 ggsave("../plots/china_decomp.png", width=8, height=4)
 ```
