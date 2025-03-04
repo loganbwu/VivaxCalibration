@@ -13,7 +13,7 @@ ascertainment = tribble(
 
 phenotype = tribble(
   ~name, ~p_silent_shape1, ~p_silent_shape2, ~p_long_shape1, ~p_long_shape2, ~p_RCI_shape1, ~p_RCI_shape2,
-  "baseline", 15, 30, 22, 5, 1, 1,
+  # "baseline", 15, 30, 22, 5, 1, 1,
   "shorter", 15, 30, 22, 5, 5.193, 2.553, # from generate_p_RRR_prior.R
   "longer", 15, 30, 22, 5, 2.045, 2.168,  # from generate_p_RRR_prior.R
 )
