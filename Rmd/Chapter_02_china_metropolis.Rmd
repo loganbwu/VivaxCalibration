@@ -19,7 +19,7 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
-library(deSolve)
+library(deSolve) # reminder because
 library(coda)
 source("../R/constants.R")
 source("../R/load_functions.R")
@@ -127,7 +127,7 @@ init = c(
   alpha = 0.173,
   beta = 0.899,
   lambda = 0.05,
-  phi = 999,#1.42,
+  phi = 3, # For some reason this was previously set to 999 (as in, Poisson) but the trace basically revealed no changes. I don't know why it was 999.
   kappa = 2.45,
   phase = 119,
   p_long = 0.775,
