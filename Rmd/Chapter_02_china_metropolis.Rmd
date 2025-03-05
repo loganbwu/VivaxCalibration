@@ -26,7 +26,8 @@ source("../R/load_functions.R")
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
-n_cores = parallelly::availableCores()
+# If you want to leave one core free for other tasks, subtract one here
+n_cores = parallelly::availableCores() 
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
@@ -164,7 +165,7 @@ for (i in seq_len(length(data_scenarios))) {
                              n_iter = 500,
                              n_burnin = 400,
                              n_adapt = 100,
-                             n_chains = 8,
+                             n_chains = n_cores,
                              time_limit = max_hours / length(data_scenarios))
   tictoc::toc()
   samp_results[[i]] = samp
