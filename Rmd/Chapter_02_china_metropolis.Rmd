@@ -228,8 +228,15 @@ plot_original_data = lapply(data_scenarios, function(x) {
   left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(Scenario = fct_inorder(Scenario))
 
+# If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
+if ("Baseline" %in% posterior_seasonal$name_shortest) {
+  first_name_shortest = "Baseline"
+} else {
+  first_name_shortest = first(posterior_seasonal$name_shortest)
+}
+
 trace_plot = posterior_seasonal %>%
-  filter(name_shortest == "Baseline") %>%
+  filter(name_shortest == first_name_shortest) %>%
   ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
   geom_step(alpha=0.25) +
   coord_cartesian(xlim = c(0, NA)) +
@@ -280,11 +287,11 @@ bf_data = posterior_seasonal %>%
     # ll = mean(ll),
     ll = matrixStats::logSumExp(ll) - log(n()),
     .groups = "drop") %>%
-  mutate(baseline_lpp = lpp[name_shortest == "Baseline"],
-         baseline_ll = ll[name_shortest == "Baseline"],
+  mutate(baseline_lpp = lpp[name_shortest == first_name_shortest],
+         baseline_ll = ll[name_shortest == first_name_shortest],
          bayes_factor = exp(lpp - baseline_lpp)) %>%
   ungroup() %>%
-  filter(name_shortest != "Baseline")
+  filter(name_shortest != first_name_shortest)
 
 bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
   geom_col(alpha = 0.8) +
@@ -397,7 +404,7 @@ Plot baseline
 ```{r}
 # Get ranges
 var_ranges = posterior_seasonal %>%
-  filter(name_shortest == "Baseline") %>%
+  filter(name_shortest == first_name_shortest) %>%
   group_by(parameter) %>%
   summarise(min = min(value),
             max = max(value))
@@ -434,7 +441,7 @@ var_priors$value[var_priors$parameter == "p_silent"] = 1 - var_priors$value[var_
 var_priors$parameter[var_priors$parameter == "p_silent"] = "p"
 
 baseline_var_plot_data = posterior_seasonal %>%
-  filter(name_shortest == "Baseline")
+  filter(name_shortest == first_name_shortest)
 baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"]
 baseline_var_plot_data$parameter[baseline_var_plot_data$parameter == "p_long"] = "s"
 baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"]
