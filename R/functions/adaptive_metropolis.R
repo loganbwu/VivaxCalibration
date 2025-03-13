@@ -130,7 +130,7 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
     proposal_x = MASS::mvrnorm(n=1, mu=current_x, Sigma=covar)
     
     # TESTING - Remove later
-    proposal_x[["phi"]] = 999
+    # proposal_x[["phi"]] = 999 # why tf is this here again
     proposal_log_likelihood = model$log_likelihood(proposal_x)
     proposal_log_posterior = model$log_prior(proposal_x) + proposal_log_likelihood
     

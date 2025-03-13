@@ -24,6 +24,10 @@ library(coda)
 source("../R/constants.R")
 source("../R/load_functions.R")
 
+# Set this to adjust the number of iterations to finish in a target time. Can take approx 0.5x to 2x in reality.
+# max_hours = 24*5
+max_hours = 1
+
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
 # If you want to leave one core free for other tasks, subtract one here
@@ -151,8 +155,6 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 ```
 
 ```{r}
-# max_hours = 24*5
-max_hours = 1
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
