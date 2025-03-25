@@ -7,7 +7,7 @@ number_sections: true
 ---
 
 ```{r setup}
-# load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
+load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
 # load("~/Desktop/Chapter_02_china_metropolis_2025-02-23.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
@@ -282,13 +282,44 @@ lpp_plot
 filename = paste0("../plots/china_logposteriorprobability.png")
 ggsave(filename, width=8, height=8)
 
+bf_data_byregion = posterior_seasonal %>%
+  group_by(name_short, name_shortest, region, n_changes) %>%
+  summarise(lpp = matrixStats::logSumExp(lpp) - log(n()),
+            ll = matrixStats::logSumExp(ll) - log(n()),
+            .groups = "drop") %>%
+  group_by(region) %>%
+  mutate(baseline_lpp = lpp[name_shortest == first_name_shortest],
+         baseline_ll = ll[name_shortest == first_name_shortest],
+         bayes_factor = exp(lpp - baseline_lpp)) %>%
+  ungroup() %>%
+  filter(name_shortest != first_name_shortest)
+
+bf_plot_byregion = ggplot(bf_data_byregion, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
+  geom_col(alpha = 0.8) +
+  geom_vline(xintercept = 1, linetype="dashed") +
+  scale_x_log10(labels = label_auto3, breaks = c(10 ^ c(-14, -7, seq(-2, 3, by=1)))) +
+  scale_y_discrete(limits = rev) +
+  ggforce::facet_row(vars(region)) +
+  # ggforce::facet_col(vars(n_changes), scales="free_y", space="free") +
+  theme(legend.position = "none",
+        axis.text.x = element_markdown(angle=-90, hjust=0),
+        axis.title.x = element_markdown(),
+        # strip.background = element_blank(),
+        # strip.text.x = element_blank(),
+        strip.text.y = element_blank()) +
+  labs((title = "Bayes factor relative to the baseline model"),
+       x = "*K*",
+       y = NULL)
+
+bf_plot_byregion
+filename = paste0("../plots/china_bayesfactor_byregion.png")
+ggsave(filename, width=8, height=4)
+
 bf_data = posterior_seasonal %>%
   group_by(name_short, name_shortest, n_changes) %>%
-  summarise(# lpp = log(sum(exp(lpp))) - log(n()),
-    lpp = matrixStats::logSumExp(lpp) - log(n()),
-    # ll = mean(ll),
-    ll = matrixStats::logSumExp(ll) - log(n()),
-    .groups = "drop") %>%
+  summarise(lpp = matrixStats::logSumExp(lpp) - log(n()),
+            ll = matrixStats::logSumExp(ll) - log(n()),
+            .groups = "drop") %>%
   mutate(baseline_lpp = lpp[name_shortest == first_name_shortest],
          baseline_ll = ll[name_shortest == first_name_shortest],
          bayes_factor = exp(lpp - baseline_lpp)) %>%
@@ -544,13 +575,17 @@ corr_scenario = lapply(unique(traces$scenario) %>% setNames({.}), function(x) {
   y
 })
 
-corrplots = lapply(corr_scenario, function(M) {
+corrplots = lapply(names(corr_scenario), function(m) {
+  M = corr_scenario[[m]]
+  rownames(M) = sapply(rownames(M), make_greek)
+  colnames(M) = sapply(colnames(M), make_greek)
   ggcorrplot::ggcorrplot(M, type="upper") +
-  theme(axis.text.x = element_markdown(),
-        axis.text.y = element_markdown())
+    theme(axis.text.x = element_markdown(),
+          axis.text.y = element_markdown()) +
+    labs(subtitle = m)
 })
 
-corrplots[[1]] | corrplots[[2]]
+(corrplots[[1]] | corrplots[[2]]) + plot_annotation(title = "Correlation plots for the baseline scenarios")
 filename = paste0("../plots/china_mcmc_corrplot.png")
 ggsave(filename, width=8, height=4)
 ```
