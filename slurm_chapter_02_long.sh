@@ -3,7 +3,7 @@
 #SBATCH --partition=long
 #SBATCH --time=14-00
 #SBATCH --cpus-per-task=96
-#SBATCH --mem=64G
+#SBATCH --mem=256G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
 #SBATCH --mail-type=END
