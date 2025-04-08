@@ -1,3 +1,12 @@
+args <- commandArgs(trailingOnly = TRUE)
+# Check that there is exactly one argument. If not, provide a script usage statement.
+if (length(args)==0) {
+  stop("At least one argument must be supplied (input file).n", call.=FALSE)
+} else if (length(args)>1) {
+  stop("More than one argument specified.n", call.=FALSE)
+}
+max_hours = as.numeric(args[1])
+
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -96,6 +105,8 @@ init_sd = c(alpha = 0.0293,
             p_long = 0.0841,
             p_silent = 0.0599,
             p_RCI = 0.0411)
+
+# Now, can we define a function that provides the inits based on the scenario?
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
