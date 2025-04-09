@@ -2,7 +2,7 @@
 #SBATCH --job-name=chap_02
 #SBATCH --partition=regular
 #SBATCH --time=1-00
-#SBATCH --cpus-per-task=256
+#SBATCH --cpus-per-task=128
 #SBATCH --mem=128G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
