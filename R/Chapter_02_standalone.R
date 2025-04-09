@@ -105,8 +105,19 @@ init_sd = c(alpha = 0.0293,
             p_long = 0.0841,
             p_silent = 0.0599,
             p_RCI = 0.0411)
+init_covar = diag(length(init_sd)) * init_sd^2
 
 # Now, can we define a function that provides the inits based on the scenario?
+stored_model_stats_file = "model_stats.rds"
+scenario_init = function(name, init, init_sd) {
+  if (file.exists(stored_model_stats_file)) {
+    stored_model_stats = read_rds(stored_model_stats_file)
+    if (name %in% names(stored_model_stats)) {
+      return(stored_model_stats[[name]])
+    }
+  }
+  return(list(init = init, init_covar = init_covar, use_defaults=TRUE))
+}
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
@@ -117,13 +128,23 @@ models = lapply(data_scenarios, make_model)
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
 max_hours_per_scenario = max_hours# / length(data_scenarios)
 do_scenario = function(i) {
+  model_name = names(models)[i]
+  model_stats = scenario_init(model_name, init, init_sd)
+  if ("use_defaults" %in% names(model_stats)) {
+    n_burnin = 400
+    n_adapt = 100
+  } else {
+    # Assume we've already burned in and adapted by using the initial values
+    n_burnin = 100
+    n_adapt = 0
+  }
   samp = metropolis_sampling(models[[i]],
-                             init = init,
-                             init_sd = init_sd,
+                             init = model_stats$init,
+                             init_covar = model_stats$init_covar,
                              data = data_scenarios[[i]],
                              n_iter = 1000,
-                             n_burnin = 400,
-                             n_adapt = 100,
+                             n_burnin = n_burnin,
+                             n_adapt = n_adapt,
                              n_chains = chains_per_scenario,
                              time_limit = max_hours_per_scenario)
 }
@@ -132,7 +153,20 @@ samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario)
 for (i in seq_len(length(data_scenarios))) {
   samp_results[[i]] = samp_results_lapply[[i]]
 }
+rm(samp_results_lapply)
 
+# Now use samp_results to calculate the optimal inits
+get_inits = function(results) {
+  new_init = bind_rows(results$current_x) %>%
+    colMeans()
+  new_covar = 2.38^2 * cov(bind_rows(results$sim)) / length(results$current_x[[1]])
+  return(list(init=init, init_covar=new_covar))
+}
+new_inits = lapply(samp_results, get_inits)
+write_rds(new_inits, stored_model_stats_file)
+
+
+# Resimulate trajectories
 resim = pbmclapply(samp_results, function(samp) {
   resim = extract(samp, "incidence", n_samples=100, threading=F)
 }) %>%

@@ -3,6 +3,7 @@
 #' @param model list containing a prior and likelihood function
 #' @param init vector of initial parameter values
 #' @param init_sd vector of initial parameter standard deviations before adaptation
+#' @param init_covar initial covariance matrix of initial parameter proposals before adaptation
 #' @param data for the model
 #' @param n_iter number of sampling iterations to run
 #' @param n_burnin
@@ -12,7 +13,7 @@
 #' @param time_limit if provided in hours, estimates the number of iterations that can be performed, and the sampling stages will be scaled to fit
 #' @param pars does nothing, for compatibility
 #' @param include does nothing, for compatibility
-metropolis_sampling = function(model, init, init_sd, data, n_iter, n_burnin=NULL, n_adapt=NULL, n_chains=1, thin=1, time_limit=NULL, previous_samples=NULL, pars=NULL, include=F) {
+metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=NULL, n_adapt=NULL, n_chains=1, thin=1, time_limit=NULL, previous_samples=NULL, pars=NULL, include=F) {
   
   n_samples = round(n_iter * thin)
   message("Generating ", n_samples * n_chains, " samples across ", n_chains, " chains")
@@ -24,11 +25,12 @@ metropolis_sampling = function(model, init, init_sd, data, n_iter, n_burnin=NULL
   }
   
   # Estimate required time
+  n_time_estimate = 10
   start_eval = Sys.time()
-  for (i in seq_len(10)) {
+  for (i in seq_len(n_time_estimate)) {
     .UNUSED = model$log_prior(init) + model$log_likelihood(init)
   }
-  duration_eval = as.numeric(Sys.time() - start_eval) / 10
+  duration_eval = as.numeric(Sys.time() - start_eval) / n_time_estimate
   if (!is.null(time_limit)) {
     total_specified_iterations = n_burnin + n_adapt + n_iter
     available_iterations = time_limit * 3600 / duration_eval
@@ -46,7 +48,8 @@ metropolis_sampling = function(model, init, init_sd, data, n_iter, n_burnin=NULL
   message("One evaluation took ", format_time(duration_eval), ". ", n_burnin + n_adapt + n_iter, " iterations per chain will take up to ", format_time(duration_eval*(n_burnin+n_adapt+n_iter)))
   
   # Perform burnin
-  proposal_covar = diag(length(init_sd)) * init_sd^2
+  # proposal_covar = diag(length(init_sd)) * init_sd^2
+  proposal_covar = init_covar
   init_list = rep(list(init), n_chains)
   if (n_burnin > 0) {
     # Run chains
@@ -77,18 +80,14 @@ metropolis_sampling = function(model, init, init_sd, data, n_iter, n_burnin=NULL
     
     # Update proposal covariance
     # proposal_covar = 2.38^2 * cov(adapt_samples) / length(init)
-    proposal_covar_list = lapply(adapt_output, function(x) {
-      2.38^2 * cov(x$sim) / length(init)
-    })
-    proposal_covar = proposal_covar_list[[1]]
-    if (n_chains > 1) {
-      for (i in 2:n_chains) {
-        proposal_covar = proposal_covar + proposal_covar_list[[i]]
-      }
-      proposal_covar = proposal_covar / n_chains
-    }
+    samples_covar = lapply(adapt_output, function(x) {
+      x$sim
+    }) %>%
+      bind_rows() %>%
+      cov()
+    proposal_covar = 2.38^2 * samples_covar / length(init)
     
-    # Update initial values
+    # Update initial values for each chain
     init_list = lapply(adapt_output, function(x) {
       x$current_x
     })

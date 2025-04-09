@@ -9,6 +9,8 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
+max_hours=240
+
 module load R/4.4
 
-Rscript --no-save R/Chapter_02_standalone.R
+Rscript --no-save R/Chapter_02_standalone.R "$max_hours"
