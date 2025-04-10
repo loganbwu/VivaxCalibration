@@ -125,7 +125,8 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 models = lapply(data_scenarios, make_model)
 
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
-max_hours_per_scenario = max_hours / length(data_scenarios)
+# max_hours_per_scenario = max_hours / length(data_scenarios)
+max_hours_per_scenario = max_hours # run all scenarios concurrently
 do_scenario = function(i) {
   model_name = names(models)[i]
   model_stats = scenario_init(model_name, init, init_sd)
