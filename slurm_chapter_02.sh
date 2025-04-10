@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=chap_02
+#SBATCH --job-name=chapter_02
 #SBATCH --partition=regular
 #SBATCH --time=1-00
 #SBATCH --cpus-per-task=128
