@@ -188,3 +188,50 @@ print(end_time - start_time)
 workspace_filename = paste0("Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 
+# Do some diagnostic plots
+posterior_seasonal_1 = pblapply(samp_results, function(samp) {
+  bind_cols(
+    bind_rows(samp$sim),
+    bind_rows(samp$sim_diagnostics, .id = "chain")
+  ) %>%
+    slice_sample(n = 1000) %>%
+    mutate(phase = phase + years/4) %>%
+    pivot_longer(-c(iteration, accept, lpp, ll, chain), names_to = "parameter", values_to = "value")
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = fct_inorder(Scenario))#
+posterior_seasonal_2 = posterior_seasonal_1 %>%
+  group_by(Scenario, parameter)
+x1 = scenarios %>%
+  select(name, name_short, region)
+posterior_seasonal = posterior_seasonal_2 %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
+
+plot_original_data = lapply(data_scenarios, function(x) {
+  tibble(time = x$ts,
+         cases = x$cases)
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(Scenario = fct_inorder(Scenario))
+
+# If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
+if ("Baseline" %in% posterior_seasonal$name_shortest) {
+  first_name_shortest = "Baseline"
+} else {
+  first_name_shortest = first(posterior_seasonal$name_shortest)
+}
+
+trace_plot = posterior_seasonal %>%
+  filter(name_shortest == first_name_shortest) %>%
+  ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
+  geom_step(alpha=0.25) +
+  coord_cartesian(xlim = c(0, NA)) +
+  scale_y_log10() +
+  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+  labs(subtitle = "Parameter traces")
+trace_plot
+filename = paste0("../plots/china_trace.png")
+ggsave(filename, width=8, height=8)
+
