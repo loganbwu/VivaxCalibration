@@ -1,9 +1,10 @@
 args <- commandArgs(trailingOnly = TRUE)
+start_time = Sys.time()
 # Check that there is exactly one argument. If not, provide a script usage statement.
 if (length(args)==0) {
-  stop("At least one argument must be supplied (input file).n", call.=FALSE)
+  stop("At least one argument must be supplied (input file).", call.=FALSE)
 } else if (length(args)>1) {
-  stop("More than one argument specified.n", call.=FALSE)
+  stop("More than one argument specified.", call.=FALSE)
 }
 max_hours = as.numeric(args[1])
 
@@ -235,3 +236,5 @@ trace_plot
 filename = paste0("../plots/china_trace.png")
 ggsave(filename, width=8, height=8)
 
+end_time = Sys.time()
+print(paste("Time elapsed:", end_time - start_time))
