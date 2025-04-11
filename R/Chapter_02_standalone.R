@@ -91,10 +91,10 @@ init = c(
   lambda = 0.0304,
   phi = 1.42,
   kappa = 2.45,
-  phase = 119,
+  phase = 214,
   p_long = 0.775,
   p_silent = 0.245,
-  p_RCI = 0.123
+  p_RCI = 0.635
 )
 
 init_sd = c(alpha = 0.0293,
@@ -161,7 +161,7 @@ get_inits = function(results) {
   new_init = bind_rows(results$current_x) %>%
     colMeans()
   new_covar = 2.38^2 * cov(bind_rows(results$sim)) / length(results$current_x[[1]])
-  return(list(init=init, init_covar=new_covar))
+  return(list(init=new_init, init_covar=new_covar))
 }
 new_inits = lapply(samp_results, get_inits)
 write_rds(new_inits, stored_model_stats_file)

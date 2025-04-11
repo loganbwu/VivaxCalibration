@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=chapter_02
 #SBATCH --partition=regular
-#SBATCH --time=1-00
+#SBATCH --time=2-00
 #SBATCH --cpus-per-task=128
 #SBATCH --mem=128G
 #SBATCH --ntasks=1
@@ -9,7 +9,7 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
-max_hours=0.1
+max_hours=6
 
 module load R/4.4
 
