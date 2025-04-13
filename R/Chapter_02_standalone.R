@@ -217,24 +217,42 @@ plot_original_data = lapply(data_scenarios, function(x) {
   left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(Scenario = fct_inorder(Scenario))
 
-# If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
-if ("Baseline" %in% posterior_seasonal$name_shortest) {
-  first_name_shortest = "Baseline"
-} else {
-  first_name_shortest = first(posterior_seasonal$name_shortest)
-}
+resim_seasonality = pblapply(samp_results[1:2], function(samp) {
+  t = seq(0, years, length.out=500)
+  samp_sim = bind_rows(samp$sim)
+  samp_rand = sample.int(nrow(samp_sim), 500)
+  suitability_traces = lapply(samp_rand, function(ix) {
+    samp_suitability = tibble(
+      time = t,
+      suitability = sapply(t, function(tt) {
+        omega = suitability(tt, samp$data$eps, samp_sim[[ix, "kappa"]], samp_sim[[ix, "phase"]])
+      })
+    )
+  }) %>%
+    bind_rows(.id = "trace")
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(Scenario = fct_inorder(Scenario))
 
-trace_plot = posterior_seasonal %>%
-  filter(name_shortest == first_name_shortest) %>%
-  ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
-  geom_step(alpha=0.25) +
-  coord_cartesian(xlim = c(0, NA)) +
-  scale_y_log10() +
-  facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
-  labs(subtitle = "Parameter traces")
-trace_plot
-filename = paste0("../plots/china_trace.png")
-ggsave(filename, width=8, height=8)
+# If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
+# if ("Baseline" %in% posterior_seasonal$name_shortest) {
+#   first_name_shortest = "Baseline"
+# } else {
+#   first_name_shortest = first(posterior_seasonal$name_shortest)
+# }
+# 
+# trace_plot = posterior_seasonal %>%
+#   filter(name_shortest == first_name_shortest) %>%
+#   ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
+#   geom_step(alpha=0.25) +
+#   coord_cartesian(xlim = c(0, NA)) +
+#   scale_y_log10() +
+#   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
+#   labs(subtitle = "Parameter traces")
+# trace_plot
+# filename = paste0("../plots/china_trace.png")
+# ggsave(filename, width=8, height=8)
 
 end_time = Sys.time()
 print(paste("Time elapsed:", end_time - start_time))

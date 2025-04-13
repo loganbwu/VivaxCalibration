@@ -23,7 +23,9 @@ library(deSolve) # reminder because
 library(coda)
 source("../R/constants.R")
 source("../R/load_functions.R")
+```
 
+```{r}
 # Set this to adjust the number of iterations to finish in a target time. Can take approx 0.5x to 2x in reality.
 # max_hours = 24*5
 max_hours = 1
@@ -187,17 +189,31 @@ resim = pbmclapply(samp_results, function(samp) {
     "clinical_primary" ~ "Primary"
   ))
 
+resim_seasonality = pblapply(samp_results[1:2], function(samp) {
+  t = seq(0, years, length.out=500)
+  samp_sim = bind_rows(samp$sim)
+  samp_rand = sample.int(nrow(samp_sim), 500)
+  suitability_traces = lapply(samp_rand, function(ix) {
+    samp_suitability = tibble(
+      time = t,
+      suitability = sapply(t, function(tt) {
+        omega = suitability(tt, samp$data$eps, samp_sim[[ix, "kappa"]], samp_sim[[ix, "phase"]])
+      })
+    )
+  }) %>%
+    bind_rows(.id = "trace")
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(Scenario = fct_inorder(Scenario))
+
 samp_filename = paste0("samp_results_", Sys.Date(), ".rds")
 saveRDS(samp_results, samp_filename)
 ```
 
-Load simulations from HPC
+# Load simulations from HPC
 
-```{r, eval=F}
-# rds_1 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-07.rds")
-# rds_2 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-09.rds")
-# samp_results = c(rds_1, rds_2)
-```
+After loading the .RData workspace from the HPC, run the setup chunk and then continue running below here.
 
 Transform output parameters
 
@@ -372,23 +388,7 @@ epi_plot / var_plot + theme(legend.position="none") + plot_annotation(tag_levels
 filename = paste0("../plots/china_posterior.png")
 ggsave(filename, width=8, height=8)
 
-resim_seasonality = pblapply(samp_results[1:2], function(samp) {
-  t = seq(0, years, length.out=500)
-  samp_sim = bind_rows(samp$sim)
-  samp_rand = sample.int(nrow(samp_sim), 500)
-  suitability_traces = lapply(samp_rand, function(ix) {
-    samp_suitability = tibble(
-      time = t,
-      suitability = sapply(t, function(tt) {
-        omega = suitability(tt, samp$data$eps, samp_sim[[ix, "kappa"]], samp_sim[[ix, "phase"]])
-      })
-    )
-  }) %>%
-    bind_rows(.id = "trace")
-}) %>%
-  bind_rows(.id = "Scenario") %>%
-  left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(Scenario = fct_inorder(Scenario))
+# Note: moved the generation of resim_seasonality into above where we load the workspace, and the standalone file
 
 resim_seasonality_plot = resim_seasonality %>%
   filter(scenario <= 2) %>%
