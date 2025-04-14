@@ -61,6 +61,10 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
     init_2 = init %>%
       sample_n(n_chains, replace=T)
     init_list = split(init_2, seq(n_chains))
+    init_names = names(init)
+    init_list = lapply(init_list, function(x) {
+      as.numeric(x) %>% setNames(init_names)
+    })
   } else {
     init_list = rep(list(init), n_chains)
   }

@@ -134,8 +134,12 @@ do_scenario = function(i) {
   if ("use_defaults" %in% names(model_stats)) {
     n_burnin = 400
     n_adapt = 100
+  } else if (is.data.frame(model_stats$init)) {
+    # We've provided a range of initial values so burnin is not required
+    n_burnin = 0
+    n_adapt = 0
   } else {
-    # Assume we've already burned in and adapted by using the initial values
+    # We've provided a mean initial value so we need to burnin to get some variation
     n_burnin = 100
     n_adapt = 0
   }

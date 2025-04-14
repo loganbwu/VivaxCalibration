@@ -15,3 +15,5 @@ Rmd/mendeley.bib
 **/*.svg
 **/*.jpg
 Rmd/core.*
+
+Rmd/model_stats.rds
