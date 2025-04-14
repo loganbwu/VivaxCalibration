@@ -1,7 +1,7 @@
 #' Run the adaptive Metropolis algorithm
 #'
 #' @param model list containing a prior and likelihood function
-#' @param init vector of initial parameter values
+#' @param init vector of initial parameter values OR data frame
 #' @param init_sd vector of initial parameter standard deviations before adaptation
 #' @param init_covar initial covariance matrix of initial parameter proposals before adaptation
 #' @param data for the model
@@ -27,8 +27,14 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   # Estimate required time
   n_time_estimate = 10
   start_eval = Sys.time()
+  if (is.data.frame(init)) {
+    # Just use the first one if we've given a dataframe of potential initial values
+    time_estimate_init = head(init, 1)
+  } else {
+    time_estimate_init = init
+  }
   for (i in seq_len(n_time_estimate)) {
-    .UNUSED = model$log_prior(init) + model$log_likelihood(init)
+    .UNUSED = model$log_prior(time_estimate_init) + model$log_likelihood(time_estimate_init)
   }
   duration_eval = as.numeric(Sys.time() - start_eval) / n_time_estimate
   if (!is.null(time_limit)) {
@@ -50,7 +56,15 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   # Perform burnin
   # proposal_covar = diag(length(init_sd)) * init_sd^2
   proposal_covar = init_covar
-  init_list = rep(list(init), n_chains)
+  if (is.data.frame(init)) {
+    # If we've provided a dataframe of potential initial values, resample it for the number of chains then format as a list
+    init_2 = init %>%
+      sample_n(n_chains, replace=T)
+    init_list = split(init_2, seq(n_chains))
+  } else {
+    init_list = rep(list(init), n_chains)
+  }
+  
   if (n_burnin > 0) {
     # Run chains
     message("Running burnin iterations...")

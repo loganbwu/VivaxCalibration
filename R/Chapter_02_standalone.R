@@ -158,16 +158,17 @@ rm(samp_results_lapply)
 
 # Now use samp_results to calculate the optimal inits
 get_inits = function(results) {
-  new_init = bind_rows(results$current_x) %>%
-    colMeans()
+  random_sample = results$sim %>%
+    bind_rows() %>%
+    sample_n(100) # Just get 100 to make the data size smaller.
   new_covar = 2.38^2 * cov(bind_rows(results$sim)) / length(results$current_x[[1]])
-  return(list(init=new_init, init_covar=new_covar))
+  return(list(init=random_sample, init_covar=new_covar))
 }
 new_inits = lapply(samp_results, get_inits)
 write_rds(new_inits, stored_model_stats_file)
 
 
-# Resimulate trajectories
+# Resimulate trajectories for use in plotting (so we don't need to compile the model later)
 resim = pbmclapply(samp_results, function(samp) {
   resim = extract(samp, "incidence", n_samples=100, threading=F)
 }) %>%
