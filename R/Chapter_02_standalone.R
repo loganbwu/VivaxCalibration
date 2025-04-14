@@ -114,6 +114,12 @@ scenario_init = function(name, init, init_sd) {
   if (file.exists(stored_model_stats_file)) {
     stored_model_stats = read_rds(stored_model_stats_file)
     if (name %in% names(stored_model_stats)) {
+      if (is.data.frame(stored_model_stats[[name]]$init)) {
+        init_df = stored_model_stats[[name]]$init
+        init_row = head(init_df, 1)
+        init_vec = as.numeric(init_row) %>% setNames(names(init_row))
+        stored_model_stats[[name]]$init = init_vec
+      }
       return(stored_model_stats[[name]])
     }
   }
