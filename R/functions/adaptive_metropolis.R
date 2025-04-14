@@ -58,12 +58,11 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   proposal_covar = init_covar
   if (is.data.frame(init)) {
     # If we've provided a dataframe of potential initial values, resample it for the number of chains then format as a list
-    init_2 = init %>%
-      sample_n(n_chains, replace=T)
-    init_list = split(init_2, seq(n_chains))
-    init_names = names(init)
-    init_list = lapply(init_list, function(x) {
-      as.numeric(x) %>% setNames(init_names)
+    init_list = lapply(seq_len(n_chains), function(i) {
+      init %>%
+        slice_sample(n=1) %>%
+        as.numeric() %>%
+        setNames(names(init))
     })
   } else {
     init_list = rep(list(init), n_chains)
