@@ -631,9 +631,9 @@ rhat_df$parameter[rhat_df$parameter == "p_silent"] = "p"
 rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
   geom_vline(xintercept=1.05, linetype="dashed") +
   geom_col(alpha = 0.8, position="dodge2") +
+  coord_cartesian(xlim=c(1, NA)) +
   scale_y_discrete(limits=rev, labels=make_greek) +
   facet_wrap(vars(name_shortest)) +
-  # theme(legend.position = "none") +
   labs(subtitle = "Chain convergence criteria (lower is better)",
        x = latex2exp::TeX("$\\hat{r}$"),
        y = "Parameter",
@@ -646,6 +646,21 @@ filename = paste0("../plots/china_mcmc_diagnostics.png")
 ggsave(filename, width=8, height=10)
 ```
 
+Plot p_RRR specifically
+
+```{r}
+posterior_seasonal %>%
+  mutate(name_wo_phenotype = paste(duration, "duration,", ascertainment, "ascertainment")) %>%
+  filter(parameter == "p_RCI") %>%
+  ggplot(aes(x = value, color=region, fill=region)) +
+  geom_density(alpha=0.5) +
+  facet_grid(rows=vars(name_wo_phenotype), cols=vars(phenotype)) +
+  labs(title = "p_RRR",
+       subtitle = "Faceted by p_RRR prior (cols)")
+  
+filename = paste0("../plots/china_p_RRR.png")
+ggsave(filename, width=8, height=10)
+```
 
 Save workspace
 
@@ -660,7 +675,7 @@ beepr::beep()
 
 Misc - improve guess by starting at the mean
 
-```{r}
+```{r, eval=F}
 mean_posterior_seasonal = posterior_seasonal %>%
   group_by(parameter) %>%
   summarise(median = median(value)) %>%
