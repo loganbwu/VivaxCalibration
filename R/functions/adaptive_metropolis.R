@@ -168,6 +168,12 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
     pb$tick()
   }
   samples = as_tibble(samples)
+  
+  # Restrict length of each chain
+  if (nrow(samples) > 10000) {
+    samples = samples %>%
+      sample_n(10000)
+  }
   samples_diagnostics = as_tibble(samples_diagnostics)
   if (n_samples > 1) {
     ESS = sapply(samples,
