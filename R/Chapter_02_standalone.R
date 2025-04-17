@@ -193,13 +193,6 @@ resim = pbmclapply(samp_results, function(samp) {
     "clinical_primary" ~ "Primary"
   ))
 
-end_time = Sys.time()
-print(end_time)
-print(end_time - start_time)
-
-workspace_filename = paste0("Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-save.image(workspace_filename)
-
 # Do some diagnostic plots
 posterior_seasonal_1 = pblapply(samp_results, function(samp) {
   bind_cols(
@@ -266,4 +259,9 @@ resim_seasonality = pblapply(samp_results[1:2], function(samp) {
 # ggsave(filename, width=8, height=8)
 
 end_time = Sys.time()
+print(end_time - start_time)
 print(paste("Time elapsed:", end_time - start_time))
+
+workspace_filename = paste0("Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+save.image(workspace_filename)
+
