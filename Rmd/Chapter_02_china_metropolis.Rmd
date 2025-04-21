@@ -21,6 +21,7 @@ library(RColorBrewer)
 library(ggtext)
 library(deSolve) # reminder because
 library(coda)
+library(cowplot)
 source("../R/constants.R")
 source("../R/load_functions.R")
 ```
@@ -643,6 +644,50 @@ rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
 ess_plot / rhat_plot +
   plot_annotation(tag_levels = "A") + plot_layout(guides="collect") & theme(legend.position = "bottom")
 filename = paste0("../plots/china_mcmc_diagnostics.png")
+ggsave(filename, width=8, height=10)
+```
+
+Based on the plots, do we have any issues?
+
+```{r}
+ess_issues = ess_df %>%
+  filter(ess < 100)
+
+rhat_issues = rhat_df %>%
+  filter(rhat > 1.05)
+
+issues_df = bind_rows(ess_issues %>% select(scenario, parameter),
+                      rhat_issues %>% select(scenario, parameter)) %>%
+  distinct()
+
+scenario_issues = unique(c(ess_issues$scenario, rhat_issues$scenario))
+
+samp_results_issues = samp_results[scenario_issues]
+traces_issues = lapply(samp_results_issues, function(x) {
+  lapply(x$sim, function(y) {
+    y %>%
+      mutate(iteration = row_number())
+  }) %>%
+    bind_rows(.id = "chain") %>%
+    pivot_longer(-c(chain, iteration), names_to = "parameter") %>%
+    filter(chain <= 400)
+}) %>%
+  bind_rows(.id = "scenario") %>%
+  mutate(scenario = scenario %>% str_remove(".* ")) %>%
+  filter(parameter %in% issues_df$parameter)
+
+ggplot(traces_issues, aes(x = iteration, y = value, color = chain)) +
+  geom_line(alpha=0.3) +
+  ggh4x::facet_grid2(cols = vars(scenario), rows = vars(parameter), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+  labs(title = "Metropolis sample traces",
+       subtitle = "Baseline scenario",
+       x = "Iteration",
+       y = "Value",
+       color = "Chain") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
+
+filename = paste0("../plots/china_mcmc_traceplot.png")
 ggsave(filename, width=8, height=10)
 ```
 

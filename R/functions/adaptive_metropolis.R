@@ -175,6 +175,10 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
       sample_n(10000)
   }
   samples_diagnostics = as_tibble(samples_diagnostics)
+  if (nrow(samples_diagnostics) > 10000) {
+    samples_diagnostics = samples_diagnostics %>%
+      sample_n(10000)
+  }
   if (n_samples > 1) {
     ESS = sapply(samples,
                  function(x) {
