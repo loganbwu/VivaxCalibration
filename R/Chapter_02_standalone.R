@@ -138,6 +138,7 @@ do_scenario = function(i) {
   model_name = names(models)[i]
   model_stats = scenario_init(model_name, init, init_sd)
   if ("use_defaults" %in% names(model_stats)) {
+    # We're using the default initial values and covariance so need to perform adaptation
     n_burnin = 400
     n_adapt = 100
   } else if (is.data.frame(model_stats$init)) {

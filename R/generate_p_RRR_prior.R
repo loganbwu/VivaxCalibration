@@ -36,6 +36,7 @@ loss_fn = function(x) {
 
 result = optim(c(2, 2), loss_fn)
 shape_optim = result$par
+shape_optim = shape_optim*100
 
 # Calculate mean
 mean_optim = shape_optim[1] / (shape_optim[1] + shape_optim[2])
