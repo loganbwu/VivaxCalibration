@@ -9,7 +9,7 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
-max_hours=44
+max_hours=36
 
 module load R/4.4
 
