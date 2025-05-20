@@ -8,7 +8,7 @@ number_sections: true
 
 ```{r setup}
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
-load("~/Desktop/Chapter_02_china_metropolis_2025-04-16.RData") # From the HPC with updated model priors
+load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
 library(rstan)
