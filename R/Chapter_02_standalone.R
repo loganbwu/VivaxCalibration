@@ -54,7 +54,8 @@ data_baseline = list(
   gamma_l = 1/223,
   f = 1/72,
   r = 1/60,
-  eps = 0
+  eps = 0,
+  p_RCI = 0.51
 )
 # Add each scenario's data on
 data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
@@ -93,8 +94,7 @@ init = c(
   kappa = 2.45,
   phase = 214,
   p_long = 0.775,
-  p_silent = 0.245,
-  p_RCI = 0.635
+  p_silent = 0.245
 )
 
 init_sd = c(alpha = 0.0293,
@@ -104,8 +104,7 @@ init_sd = c(alpha = 0.0293,
             kappa = 0.510,
             phase = 6.21,
             p_long = 0.0841,
-            p_silent = 0.0599,
-            p_RCI = 0.0411)
+            p_silent = 0.0599)
 init_covar = diag(length(init_sd)) * init_sd^2
 
 # Now, can we define a function that provides the inits based on the scenario?

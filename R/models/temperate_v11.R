@@ -19,7 +19,6 @@ functions {
     real phase = theta[6];
     real p_long = theta[7];
     real p_silent = theta[8];
-    real p_RCI = theta[9];
     
     // Unpack x_r
     real N = x_r[1];
@@ -29,6 +28,7 @@ functions {
     real f = x_r[5];
     real r = x_r[6];
     real eps = x_r[7];
+    real p_RCI = x_r[8];
     
     // Unpack x_i
     int n_dormant = x_i[1];
@@ -194,14 +194,13 @@ make_log_prior = function(.data) {
     # prior_phase = 0
     prior_p_long = dbeta(x[["p_long"]], .data$p_long_shape1, .data$p_long_shape2, log=T)
     prior_p_silent = dbeta(x[["p_silent"]], .data$p_silent_shape1, .data$p_silent_shape2, log=T)
-    prior_p_RCI = dbeta(x[["p_RCI"]], .data$p_RCI_shape1, .data$p_RCI_shape2, log=T)
-    return(prior_alpha + prior_beta + prior_lambda + prior_phi + prior_kappa + prior_p_long + prior_p_silent + prior_p_RCI)
+    return(prior_alpha + prior_beta + prior_lambda + prior_phi + prior_kappa + prior_p_long + prior_p_silent)
   }
   return(log_prior_func)
 }
 
 make_log_likelihood = function(.data) {
-  x_r = with(.data, c(N=N, gamma_d=gamma_d, gamma_l=gamma_l, delta=delta, f=f, r=r, eps=eps))
+  x_r = with(.data, c(N=N, gamma_d=gamma_d, gamma_l=gamma_l, delta=delta, f=f, r=r, eps=eps, p_RCI=p_RCI))
   x_i = with(.data, c(n_dormant=n_dormant))
   
   #' Stan version of ODE
@@ -211,8 +210,8 @@ make_log_likelihood = function(.data) {
   
   # Define parameter bounds
   bounds = list(
-    lower = c(alpha=0, beta=0, lambda=0, phi=0, kappa=0, phase=0, p_long=0, p_silent=0, p_RCI=0), 
-    upper = c(alpha=1, beta=1, lambda=Inf, phi=Inf, kappa=Inf, phase=365.25, p_long=1, p_silent=1, p_RCI=1))
+    lower = c(alpha=0, beta=0, lambda=0, phi=0, kappa=0, phase=0, p_long=0, p_silent=0), 
+    upper = c(alpha=1, beta=1, lambda=Inf, phi=Inf, kappa=Inf, phase=365.25, p_long=1, p_silent=1))
   
   log_likelihood_func = function(x) {
     if (any(x < bounds$lower) | any(x > bounds$upper)) {
