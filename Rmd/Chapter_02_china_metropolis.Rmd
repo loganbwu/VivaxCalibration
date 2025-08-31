@@ -2,13 +2,13 @@
 title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
-html_notebook:
-number_sections: true
+  html_notebook:
+  number_sections: true
 ---
 
 ```{r setup}
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
-load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
+# load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -29,7 +29,7 @@ source("../R/load_functions.R")
 ```{r}
 # Set this to adjust the number of iterations to finish in a target time. Can take approx 0.5x to 2x in reality.
 # max_hours = 24*5
-max_hours = 1
+max_hours = 0.001
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 

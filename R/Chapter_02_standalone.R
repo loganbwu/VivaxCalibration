@@ -2,7 +2,8 @@ args <- commandArgs(trailingOnly = TRUE)
 start_time = Sys.time()
 # Check that there is exactly one argument. If not, provide a script usage statement.
 if (length(args)==0) {
-  stop("At least one argument must be supplied (input file).", call.=FALSE)
+  # stop("At least one argument must be supplied (input file).", call.=FALSE)
+  args = 0.1 # just set a default of 1 hour in case we want to run the script without args
 } else if (length(args)>1) {
   stop("More than one argument specified.", call.=FALSE)
 }
@@ -18,13 +19,14 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
-setwd("Rmd")
+# setwd("Rmd")
 source("../R/constants.R")
 source("../R/load_functions.R")
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
-n_cores = parallelly::availableCores()
+# n_cores = parallelly::availableCores()
+n_cores = 1
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
@@ -170,7 +172,7 @@ rm(samp_results_lapply)
 get_inits = function(results) {
   random_sample = results$sim %>%
     bind_rows() %>%
-    sample_n(100) # Just get 100 to make the data size smaller.
+    sample_n(min(100, nrow(.))) # Just get (up to) 100 to make the data size smaller.
   new_covar = 2.38^2 * cov(bind_rows(results$sim)) / length(results$current_x[[1]])
   return(list(init=random_sample, init_covar=new_covar))
 }
