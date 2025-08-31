@@ -29,7 +29,7 @@ source("../R/load_functions.R")
 ```{r}
 # Set this to adjust the number of iterations to finish in a target time. Can take approx 0.5x to 2x in reality.
 # max_hours = 24*5
-max_hours = 1
+max_hours = 0.001
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
