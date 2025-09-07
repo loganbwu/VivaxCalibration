@@ -2,13 +2,14 @@
 title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
-html_notebook:
-number_sections: true
+  html_notebook:
+    number_sections: true
 ---
 
 ```{r setup}
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
-load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
+load("workspaces/Chapter_02_china_metropolis_2025-09-07.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
+# load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -26,10 +27,12 @@ source("../R/constants.R")
 source("../R/load_functions.R")
 ```
 
-```{r}
+If using a saved workspace file (e.g. from the HPC), don't run the below chunks. Skip to the section 'Load simulations from HPC'.
+
+```{r, eval=F}
 # Set this to adjust the number of iterations to finish in a target time. Can take approx 0.5x to 2x in reality.
 # max_hours = 24*5
-max_hours = 0.001
+max_hours = 1
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
@@ -56,7 +59,7 @@ Data:
 We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
 - Brazilian 'integrated data set', available per county or municipality and very detailed.
 
-```{r}
+```{r, eval=F}
 china_selections = tribble(
   ~Region, ~min, ~max,
   "Dengzhou", "2004-01-01", "2009-01-01",
@@ -68,7 +71,7 @@ china_selections = tribble(
          max = as.Date(max))
 ```
 
-```{r}
+```{r, eval=F}
 if (!require(MalariaData)) {
   china_data = read_rds("china_data.rds")
 } else {
@@ -92,7 +95,7 @@ if (!require(MalariaData)) {
 
 Now we fit the model for scenarios
 
-```{r}
+```{r, eval=F}
 data_baseline = list(
   t0 = -30*years,
   gamma_d = 1/434.,
@@ -129,7 +132,7 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 
 Run
 
-```{r}
+```{r, eval=F}
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
 init = c(
   alpha = 0.173,
@@ -157,21 +160,36 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
 ```
 
-```{r}
+```{r, eval=F}
 models = lapply(data_scenarios, make_model)
 for (i in seq_len(length(data_scenarios))) {
   print(paste("Scenario", i))
   
   tictoc::tic()
+  model_name = names(models)[i]
+  model_stats = scenario_init(model_name, init, init_sd)
+  if ("use_defaults" %in% names(model_stats)) {
+    # We're using the default initial values and covariance so need to perform adaptation
+    n_burnin = 400
+    n_adapt = 100
+  } else if (is.data.frame(model_stats$init)) {
+    # We've provided a range of initial values so burnin is not required
+    n_burnin = 0
+    n_adapt = 0
+  } else {
+    # We've provided a mean initial value so we need to burnin to get some variation
+    n_burnin = 100
+    n_adapt = 0
+  }
   samp = metropolis_sampling(models[[i]],
-                             init = init,
-                             init_sd = init_sd,
+                             init = model_stats$init,
+                             init_covar = model_stats$init_covar,
                              data = data_scenarios[[i]],
-                             n_iter = 500,
-                             n_burnin = 400,
-                             n_adapt = 100,
-                             n_chains = n_cores,
-                             time_limit = max_hours / length(data_scenarios))
+                             n_iter = 1000,
+                             n_burnin = n_burnin,
+                             n_adapt = n_adapt,
+                             n_chains = chains_per_scenario,
+                             time_limit = max_hours_per_scenario)
   tictoc::toc()
   samp_results[[i]] = samp
 }
@@ -193,7 +211,7 @@ resim = pbmclapply(samp_results, function(samp) {
 resim_seasonality = pblapply(samp_results[1:2], function(samp) {
   t = seq(0, years, length.out=500)
   samp_sim = bind_rows(samp$sim)
-  samp_rand = sample.int(nrow(samp_sim), 500)
+  samp_rand = sample.int(nrow(samp_sim), min(nrow(samp_sim), 500))
   suitability_traces = lapply(samp_rand, function(ix) {
     samp_suitability = tibble(
       time = t,
@@ -663,32 +681,34 @@ issues_df = bind_rows(ess_issues %>% select(scenario, parameter),
 scenario_issues = unique(c(ess_issues$scenario, rhat_issues$scenario))
 
 samp_results_issues = samp_results[scenario_issues]
-traces_issues = lapply(samp_results_issues, function(x) {
-  lapply(x$sim, function(y) {
-    y %>%
-      mutate(iteration = row_number())
+if (length(samp_results_issues) > 0) {
+  traces_issues = lapply(samp_results_issues, function(x) {
+    lapply(x$sim, function(y) {
+      y %>%
+        mutate(iteration = row_number())
+    }) %>%
+      bind_rows(.id = "chain") %>%
+      pivot_longer(-c(chain, iteration), names_to = "parameter") %>%
+      filter(chain <= 400)
   }) %>%
-    bind_rows(.id = "chain") %>%
-    pivot_longer(-c(chain, iteration), names_to = "parameter") %>%
-    filter(chain <= 400)
-}) %>%
-  bind_rows(.id = "scenario") %>%
-  mutate(scenario = scenario %>% str_remove(".* ")) %>%
-  filter(parameter %in% issues_df$parameter)
-
-ggplot(traces_issues, aes(x = iteration, y = value, color = chain)) +
-  geom_line(alpha=0.3) +
-  ggh4x::facet_grid2(cols = vars(scenario), rows = vars(parameter), scales="free_y", independent="y", labeller=plot_labeller_novar) +
-  labs(title = "Metropolis sample traces",
-       subtitle = "Baseline scenario",
-       x = "Iteration",
-       y = "Value",
-       color = "Chain") +
-  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
-  theme(strip.text = element_markdown())
-
-filename = paste0("../plots/china_mcmc_traceplot.png")
-ggsave(filename, width=8, height=10)
+    bind_rows(.id = "scenario") %>%
+    mutate(scenario = scenario %>% str_remove(".* ")) %>%
+    filter(parameter %in% issues_df$parameter)
+  
+  ggplot(traces_issues, aes(x = iteration, y = value, color = chain)) +
+    geom_line(alpha=0.3) +
+    ggh4x::facet_grid2(cols = vars(scenario), rows = vars(parameter), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+    labs(title = "Metropolis sample traces",
+         subtitle = "Baseline scenario",
+         x = "Iteration",
+         y = "Value",
+         color = "Chain") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+    theme(strip.text = element_markdown())
+  
+  filename = paste0("../plots/china_mcmc_traceplot.png")
+  ggsave(filename, width=8, height=10)
+}
 ```
 
 Plot p_RRR specifically
@@ -702,7 +722,7 @@ posterior_seasonal %>%
   facet_grid(rows=vars(name_wo_phenotype), cols=vars(phenotype)) +
   labs(title = "p_RRR",
        subtitle = "Faceted by p_RRR prior (cols)")
-  
+
 filename = paste0("../plots/china_p_RRR.png")
 ggsave(filename, width=8, height=10)
 ```

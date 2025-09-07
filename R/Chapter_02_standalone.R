@@ -3,7 +3,7 @@ start_time = Sys.time()
 # Check that there is exactly one argument. If not, provide a script usage statement.
 if (length(args)==0) {
   # stop("At least one argument must be supplied (input file).", call.=FALSE)
-  args = 0.001
+  args = 9
 } else if (length(args)>1) {
   stop("More than one argument specified.", call.=FALSE)
 }
@@ -19,13 +19,13 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
-# setwd("Rmd")
+# 2
 source("../R/constants.R")
 source("../R/load_functions.R")
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
-n_cores = parallelly::availableCores()
+n_cores = parallelly::availableCores() - 1
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
@@ -133,8 +133,9 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 models = lapply(data_scenarios, make_model)
 
 chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
-# max_hours_per_scenario = max_hours / length(data_scenarios)
-max_hours_per_scenario = max_hours # run all scenarios concurrently
+total_chains = chains_per_scenario * length(data_scenarios)
+max_chains_per_core = ceiling(total_chains / n_cores)
+max_hours_per_chain = max_hours / max_chains_per_core
 do_scenario = function(i) {
   model_name = names(models)[i]
   model_stats = scenario_init(model_name, init, init_sd)
@@ -159,14 +160,21 @@ do_scenario = function(i) {
                              n_burnin = n_burnin,
                              n_adapt = n_adapt,
                              n_chains = chains_per_scenario,
-                             time_limit = max_hours_per_scenario)
+                             time_limit = max_hours_per_chain)
 }
-samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario)
+samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario, mc.preschedule=FALSE)
 
 for (i in seq_len(length(data_scenarios))) {
   samp_results[[i]] = samp_results_lapply[[i]]
 }
 rm(samp_results_lapply)
+
+# Assess goodness of convergence
+lpps = sapply(samp_results, function(x) {
+  bind_rows(x$sim_diagnostics) %>%
+    pull(lpp) %>%
+    mean()
+})
 
 # Now use samp_results to calculate the optimal inits
 get_inits = function(results) {
@@ -177,6 +185,42 @@ get_inits = function(results) {
   return(list(init=random_sample, init_covar=new_covar))
 }
 new_inits = lapply(samp_results, get_inits)
+
+# If a scenario's log posterior probability seems extremely bad, it indicates a failure to converge and we don't want to write those inits. Instead, we will generate inits from the other scenarios.
+
+# Calculate which scenarios are extremely bad
+lpps_mean = mean(lpps)
+lpps_sd = sd(lpps)
+lpps_pnorm = pnorm(lpps, mean=lpps_mean, sd=lpps_sd)
+extremely_bad_scenarios = names(lpps_pnorm[lpps_pnorm > 0.95])
+okay_scenarios = names(lpps_pnorm[lpps_pnorm <= 0.95])
+
+# Create some inits to use
+okay_init = lapply(new_inits[okay_scenarios], function(x) {
+  x$init
+}) %>%
+  bind_rows() %>%
+  sample_n(min(100, nrow(.)))
+
+# Calculate the root-mean-square variances across the other scenarios
+okay_init_covar = (Reduce(
+  '+',
+  lapply(new_inits[okay_scenarios], function(x) {
+    sqrt(x$init_covar * diag(nrow=ncol(x$init)))
+  })
+) / ncol(okay_init)) ^ 2
+
+# Replace the bad inits with something generic so hopefully the next run won't get stuck in a bad space
+if (length(extremely_bad_scenarios) > 0) {
+  warning("There were ", length(extremely_bad_scenarios), " scenarios where the log posterior probability was unusually poor compared to the others. Potential failure to fit to data.")
+}
+for (scenario in extremely_bad_scenarios) {
+  new_inits[scenario] = list(
+    init = okay_init,
+    init_covar = okay_init_covar
+  )
+}
+
 write_rds(new_inits, stored_model_stats_file)
 
 
@@ -226,7 +270,7 @@ plot_original_data = lapply(data_scenarios, function(x) {
 resim_seasonality = pblapply(samp_results[1:2], function(samp) {
   t = seq(0, years, length.out=500)
   samp_sim = bind_rows(samp$sim)
-  samp_rand = sample.int(nrow(samp_sim), 500)
+  samp_rand = sample.int(nrow(samp_sim), min(nrow(samp_sim), 500))
   suitability_traces = lapply(samp_rand, function(ix) {
     samp_suitability = tibble(
       time = t,
@@ -264,6 +308,6 @@ end_time = Sys.time()
 print(end_time - start_time)
 print(paste("Time elapsed:", end_time - start_time))
 
-workspace_filename = paste0("Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 save.image(workspace_filename)
 
