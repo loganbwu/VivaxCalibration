@@ -308,6 +308,7 @@ end_time = Sys.time()
 print(end_time - start_time)
 print(paste("Time elapsed:", end_time - start_time))
 
-workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+# workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_latest.RData")
 save.image(workspace_filename)
 
