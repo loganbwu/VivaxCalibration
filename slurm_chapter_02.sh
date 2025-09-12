@@ -3,13 +3,13 @@
 #SBATCH --partition=regular
 #SBATCH --time=2-00
 #SBATCH --cpus-per-task=128
-#SBATCH --mem=128G
+#SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --mail-user=wu.l@wehi.edu.au
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
-max_hours=40
+max_hours=36
 
 module load R/4.4
 
