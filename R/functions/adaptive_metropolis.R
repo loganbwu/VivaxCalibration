@@ -1,3 +1,5 @@
+source(here::here("R/functions/safe_mclapply.R"))
+
 #' Run the adaptive Metropolis algorithm
 #'
 #' @param model list containing a prior and likelihood function
@@ -13,15 +15,18 @@
 #' @param time_limit if provided in hours, estimates the number of iterations that can be performed, and the sampling stages will be scaled to fit
 #' @param pars does nothing, for compatibility
 #' @param include does nothing, for compatibility
-metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=NULL, n_adapt=NULL, n_chains=1, thin=1, time_limit=NULL, previous_samples=NULL, pars=NULL, include=F) {
+metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=NULL, n_adapt=NULL, n_chains=1, thin=1, time_limit=NULL, previous_samples=NULL, pars=NULL, include=F, threading=TRUE) {
   
   n_samples = round(n_iter * thin)
   message("Generating ", n_samples * n_chains, " samples across ", n_chains, " chains")
   
-  if (n_chains > 1) {
-    lapply_func = parallel::mclapply
+  if (n_chains > 1 & threading) {
+    lapply_func = safe_mclapply
   } else {
-    lapply_func = lapply
+    lapply_func = pblapply
+    if (!is.null(time_limit)) {
+      time_limit = time_limit / n_chains
+    }
   }
   
   # Estimate required time
@@ -58,7 +63,7 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   proposal_covar = init_covar
   if (is.data.frame(init)) {
     # If we've provided a dataframe of potential initial values, resample it for the number of chains then format as a list
-    init_list = lapply(seq_len(n_chains), function(i) {
+    init_list = lapply_func(seq_len(n_chains), function(i) {
       init %>%
         slice_sample(n=1) %>%
         as.numeric() %>%
@@ -70,13 +75,13 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   
   if (n_burnin > 0) {
     # Run chains
-    message("Running burnin iterations...")
+    message("Running ", n_burnin, " burnin iterations per chain...")
     burnin_output = lapply_func(init_list, function(init) {
       run_one_chain(model, init, proposal_covar, n_iter=n_burnin, thin=0.01)
     })
     
     # Update initial values
-    init_list = lapply(burnin_output, function(x) {
+    init_list = lapply_func(burnin_output, function(x) {
       x$current_x
     })
   }
@@ -84,7 +89,7 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   # Run adaptation
   if (n_adapt > 0) {
     # Run chains
-    message("Running adaptation iterations...")
+    message("Running ", n_adapt, " adaptation iterations per chain...")
     adapt_output = lapply_func(init_list, function(init) {
       run_one_chain(model, init, proposal_covar, n_iter=n_adapt, thin=min(1, 1000 / n_adapt))
     })
@@ -111,10 +116,30 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   }
   
   # Run samples with new initial values and proposal covarian
-  message("Running sampling iterations...")
+  message("Running ", n_iter, " sampling iterations per chain...")
   sample_outputs = lapply_func(init_list, function(init) {
     run_one_chain(model, init, proposal_covar, n_iter=n_iter, thin=thin)
   })
+  
+  # Inspect the chains
+  # num_samples = sapply(sample_outputs, function(x) {
+  #   nrow(x$sim)
+  # })
+  # min_num_samples_per_chain = min(10, n_iter)
+  # if (any(num_samples < min_num_samples_per_chain)) {
+  #   warning("Some chains returned low sample counts: ", paste(num_samples, collapse=", "))
+  # }
+  # for (i in seq_along(sample_outputs)) {
+  #   x = sample_outputs[[i]]
+  #   num_samples = nrow(x$sim)
+  #   if
+  # }
+  
+  # message("Stopping to debug")
+  
+  if (any(sapply(sample_outputs, is.null))) {
+    warning("Warning")
+  }
   
   # Zip chain outputs together for nicer outputs
   zipped = list(data = data)
@@ -123,6 +148,8 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
       o[[element_name]]
     })
   }
+  
+  
   return(structure(zipped, class = "metropolisfit"))
 }
 
@@ -185,7 +212,7 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
                    unname(coda::effectiveSize(x))
                  })
   } else {
-    ESS = NULL
+    ESS = NULL # not valid if there are no samples
   }
   return(list(sim = samples, # called `sim` to align with stan
               sim_diagnostics = samples_diagnostics,
@@ -225,7 +252,11 @@ extract.metropolisfit = function(fit, type="incidence", n_samples=100, alpha=0.0
     incidence = lapply_func(sample_ix, function(ix) {
       x = unlist(all_sims[ix,])
       mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x, maxsteps=1e6)
-      clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
+      if ("ClinicalPrimary" %in% colnames(mean_ode)) {
+        clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
+      } else {
+        clinical_primary = (mean_ode[,"ClinicalImmediatePrimary"] - lag(mean_ode[,"ClinicalImmediatePrimary"]))[-c(1,2)] + (mean_ode[,"ClinicalDelayedPrimary"] - lag(mean_ode[,"ClinicalDelayedPrimary"]))[-c(1,2)]
+      }
       clinical_relapse = (mean_ode[,"ClinicalRelapse"] - lag(mean_ode[,"ClinicalRelapse"]))[-c(1,2)]
       clinical_incidence = clinical_primary + clinical_relapse
       tibble(time = fit$data$ts,
