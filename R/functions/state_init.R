@@ -88,3 +88,26 @@ state_init_3 = function(parameters, ...) {
   state
 }
 
+#' Adapted to distinguish between immediate and delayed primary infections. For use with version 12
+state_init_4 = function(parameters, ...) {
+  listargs = list(...)
+  if (length(listargs) > 0 & is.list(listargs[[1]])) {
+    listargs = listargs[[1]]
+  }
+  
+  n_stages = parameters$n_dormant + 1
+  names_compartments = c("S0", "I0",
+                         paste0("Sl", seq_len(n_stages)),
+                         paste0("Scl", seq_len(n_stages)),
+                         paste0("Icl", seq_len(n_stages)))
+  
+  state = rep(0, length(names_compartments)) %>%
+    setNames(names_compartments) %>%
+    c(ImmediatePrimary = 0, DelayedPrimary = 0, AllRelapse = 0, ClinicalImmediatePrimary = 0, ClinicalDelayedPrimary = 0, ClinicalRelapse = 0)
+  for (n in names(listargs)[names(listargs) %in% names(state)]) {
+    state[n] = listargs[[n]]
+  }
+  state["S0"] = 1 - sum(state) + state["S0"]
+  state
+}
+

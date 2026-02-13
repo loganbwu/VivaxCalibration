@@ -1,4 +1,18 @@
-# Relies on VivaxODE/stan/temperate_v11.stan
+# Is no longer reliant on VivaxODE/stan/temperate_v**.stan (neither was v11)
+# Instead the stancode defines the ODE function, deSolve in R performs the ODE
+# integration, and R performs the Metropolis steps
+
+# Changes from v2: omega is now 'suitability' function and equations are verified against the clinical pathways
+# Changes from v3: changed observation model for cases/relapses
+# Changes from v5: observation model is negative binomial not poisson
+# Changes from v6: previous model fit parameters were just lambda and phi_inv. Now we add relapse_clinical_immunity
+# Changes from v7: now includes all primaries/relapses, not just clinical primaries/relapses
+# Changes from v8 (TODO): seasonal parameters are now estimated.
+# Changes from v9: relapse clinical immunity is now a fixed data variable
+# Changes from v9_noRCI: seasonality is now fixed but alpha and beta are fit with strongly informative priors
+# Changes from v10: Setup for overwinter as per draft chapter. Alpha and beta have strongly informative priors. Seasonality is still estimated.
+# Changes from v11: Infection reporting: primary infections are now split into immediate and delayed primary infections. Relapses are split into short and long-delay relapses.
+
 stancode = "
 functions {
   // Unused except for resimulation
@@ -153,14 +167,18 @@ functions {
     
     // A clinical case is defined by the number of treatments. It is not affected by the outcome of treatment.
     // We also count the first 'relapse' with no clinical immunity (i.e., cryptic primary infection) as a primary infection because it presents as a primary.
-    real dAllPrimary = (S0*infect*(short_hyp + long_hyp*primary) +
+                          
+    real dImmediatePrimary = (S0*infect*(short_hyp + long_hyp*primary) +
                           sum(Sl)*infect*(short_hyp + long_hyp*primary) +
-                          sum(Scl)*infect*(short_hyp + long_hyp*primary) +
-                          Sl[active]*relapse) * N;
+                          sum(Scl)*infect*(short_hyp + long_hyp*primary)) * N;
+                          
+    real dDelayedPrimary = (Sl[active]*relapse) * N;
     
     real dAllRelapse = Scl[active]*relapse * N;
     
-    real dClinicalPrimary = dAllPrimary * treatedprimary;
+    real dClinicalImmediatePrimary = dImmediatePrimary * treatedprimary;
+    
+    real dClinicalDelayedPrimary = dDelayedPrimary * treatedprimary;
     
     real dClinicalRelapse = dAllRelapse * treatedrelapse;
     
@@ -173,10 +191,12 @@ functions {
       dydt[2+n_stages+i] = dScldt[i];
       dydt[2+2*n_stages+i] = dIcldt[i];
     }
-    dydt[n_compartments+1] = dAllPrimary;
-    dydt[n_compartments+2] = dAllRelapse;
-    dydt[n_compartments+3] = dClinicalPrimary;
-    dydt[n_compartments+4] = dClinicalRelapse;
+    dydt[n_compartments+1] = dImmediatePrimary;
+    dydt[n_compartments+2] = dDelayedPrimary;
+    dydt[n_compartments+3] = dAllRelapse;
+    dydt[n_compartments+4] = dClinicalImmediatePrimary;
+    dydt[n_compartments+5] = dClinicalDelayedPrimary;
+    dydt[n_compartments+6] = dClinicalRelapse;
     
     return dydt;
   }
@@ -220,13 +240,9 @@ make_log_likelihood = function(.data) {
     }
     # Solve the ODE
     mean_ode = deSolve::ode(.data$y0, c(.data$t0, 0, .data$ts), run_my_ode, parms=x, method="bdf")
-    clinical_incidence = mean_ode[,"ClinicalPrimary"] + mean_ode[,"ClinicalRelapse"]
+    clinical_incidence = mean_ode[,"ClinicalImmediatePrimary"] + mean_ode[,"ClinicalDelayedPrimary"] + mean_ode[,"ClinicalRelapse"]
     mean_cases = pmax(0, (clinical_incidence - lag(clinical_incidence))[-c(1, 2)])
-    log_likelihood = sum(dnbinom(.data$cases, mu = mean_cases, size = x[["phi"]], log = T))
-    if (!is.finite(log_likelihood)) {
-      log_likelihood = -Inf
-    }
-    return(log_likelihood)
+    return(sum(dnbinom(.data$cases, mu = mean_cases, size = x[["phi"]], log = T)))
   }
   return(log_likelihood_func)
 }
