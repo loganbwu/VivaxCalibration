@@ -8,7 +8,7 @@ output:
 
 ```{r setup}
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
-load("~/Downloads/Chapter_02_china_metropolis_latest.RData")
+# load("~/Downloads/Chapter_02_china_metropolis_latest.RData")
 # load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
@@ -73,6 +73,8 @@ china_selections = tribble(
 
 ```{r, eval=F}
 if (!require(MalariaData)) {
+  # Because the data package is not guaranteed to be installed
+  message("Loading minimal data packaged with repository")
   china_data = read_rds("china_data.rds")
 } else {
   library(MalariaData)
@@ -93,7 +95,7 @@ if (!require(MalariaData)) {
 }
 ```
 
-Now we fit the model for scenarios
+Now we define parameters for scenarios to run the model on
 
 ```{r, eval=F}
 data_baseline = list(
@@ -130,7 +132,9 @@ data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
 # data_scenarios = data_scenarios[c("baseline duration, baseline ascertainment, baseline phenotype, Dengzhou")]
 ```
 
-Run
+# Run
+
+Define the initial values and a list to put results in
 
 ```{r, eval=F}
 # Define inits - start at the mean of all scenarios and the mean sd of all chains
@@ -158,6 +162,24 @@ init_sd = c(alpha = 0.0296,
 
 samp_results = rep(list(NULL), length(data_scenarios)) %>%
   setNames(names(data_scenarios))
+
+# Define a function to initialise a scenario
+stored_model_stats_file = "model_stats.rds" # exists to initialise repeated runs from a previous run's samples
+scenario_init = function(name, init, init_sd) {
+  if (file.exists(stored_model_stats_file)) {
+    stored_model_stats = read_rds(stored_model_stats_file)
+    if (name %in% names(stored_model_stats)) {
+      if (is.data.frame(stored_model_stats[[name]]$init)) {
+        init_df = stored_model_stats[[name]]$init
+        init_row = head(init_df, 1)
+        init_vec = as.numeric(init_row) %>% setNames(names(init_row))
+        stored_model_stats[[name]]$init = init_vec
+      }
+      return(stored_model_stats[[name]])
+    }
+  }
+  return(list(init = init, init_covar = init_covar, use_defaults=TRUE))
+}
 ```
 
 ```{r, eval=F}
@@ -454,20 +476,35 @@ lapply(samp_results[1:2], function(x) {
 Plot baseline
 
 ```{r}
+# name_to_plot = first_name_shortest
+# name_to_plot = "Baseline"
+ix_to_plot = 1
+name_to_plot = unique(posterior_seasonal$name_shortest)[ix_to_plot]
+
 # Get ranges
 var_ranges = posterior_seasonal %>%
-  filter(name_shortest == first_name_shortest) %>%
+  filter(name_shortest == name_to_plot) %>%
   group_by(parameter) %>%
   summarise(min = min(value),
             max = max(value))
 var_priors = list()
-baseline_model = models[[1]]
+
+this_model = 
+baseline_model = models[[ix_to_plot]]
 for (i in seq_len(nrow(var_ranges))) {
   parameter_name = var_ranges$parameter[i]
   parameter_min = 0 # var_ranges$min[i]
   parameter_max = var_ranges$max[i]
+  if (parameter_name %in% c("alpha", "beta", "p_long", "p_RCI", "p_silent")) {
+    print(parameter_name)
+    parameter_min = 0
+    parameter_max = 1
+  } else if (parameter_name == "phase") {
+    parameter_min = 0
+    parameter_max = 365.25
+  }
   parameter_range = parameter_max - parameter_min
-  parameter_seq = seq(parameter_min, parameter_max, length.out = 100)
+  parameter_seq = seq(parameter_min, parameter_max, length.out = 1000)
   prior = sapply(parameter_seq, function(x) {
     # insert range to evaluate prior over
     x_dummy = init
@@ -493,7 +530,7 @@ var_priors$value[var_priors$parameter == "p_silent"] = 1 - var_priors$value[var_
 var_priors$parameter[var_priors$parameter == "p_silent"] = "p"
 
 baseline_var_plot_data = posterior_seasonal %>%
-  filter(name_shortest == first_name_shortest)
+  filter(name_shortest == name_to_plot)
 baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_long"]
 baseline_var_plot_data$parameter[baseline_var_plot_data$parameter == "p_long"] = "s"
 baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"] = 1 - baseline_var_plot_data$value[baseline_var_plot_data$parameter == "p_silent"]
@@ -514,11 +551,11 @@ baseline_var_plot = baseline_var_plot_data %>%
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank())
 baseline_var_plot
-filename = paste0("../plots/china_baseline_variables.png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), "_variables.png")
 # ggsave(filename, width=8, height=8)
 
 baseline_epi_plot = resim %>%
-  filter(scenario <= 2) %>%
+  filter(name_shortest == name_to_plot) %>%
   ggplot(aes(x=time/years)) +
   geom_line(aes(y=value, color=metric, group=interaction(metric, ix)),
             alpha = 0.1) +
@@ -535,14 +572,34 @@ baseline_epi_plot = resim %>%
        subtitle = "Modelled mean incidence") +
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   theme(strip.text = element_markdown())
+
+baseline_epi_plot_nonlog = resim %>%
+  filter(name_shortest == name_to_plot) %>%
+  ggplot(aes(x=time/years)) +
+  geom_line(aes(y=value, color=metric, group=interaction(metric, ix)),
+            alpha = 0.1) +
+  geom_point(data = plot_original_data,
+             aes(y = cases, group = NULL, color=NULL),
+             size = 0.5, alpha = 0.5) +
+  # scale_y_log10(labels = label_auto2) +
+  # coord_cartesian(ylim = c(0, NA)) +
+  # facet_wrap(vars(Scenario), scales="free_y") +
+  facet_grid(cols=vars(region)) +
+  labs(x = "Year",
+       y = "Monthly incidence",
+       color = "Infection type",
+       subtitle = "Modelled mean incidence") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
+
 baseline_epi_plot
-filename = paste0("../plots/china_baseline_epi.png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), "_epi.png")
 # ggsave(filename, width=8, height=8)
 
-baseline_var_plot / baseline_epi_plot +
-  plot_layout(heights = c(2, 1)) +
+baseline_var_plot / baseline_epi_plot / baseline_epi_plot_nonlog +
+  plot_layout(heights = c(2, 1, 1)) +
   plot_annotation(tag_levels = "A")
-filename = paste0("../plots/china_baseline.png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), ".png")
 ggsave(filename, width=8, height=8)
 
 rm(baseline_var_plot)

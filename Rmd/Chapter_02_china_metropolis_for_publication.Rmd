@@ -2,12 +2,14 @@
 title: "PLAN for Chapter 2. Simulation-estimation study for the temperate model"
 subtitle: "This RMarkdown is a template as initially outlined in the progress report. Each task will be outlined and then followed by a code block to be completed."
 output:
-html_notebook:
-number_sections: true
+  html_notebook:
+    number_sections: true
 ---
 
 ```{r setup}
-# load("workspaces/Chapter_02_china_metropolis_2024-07-01 - 72hr lng.RData")
+# load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
+load("workspaces/Chapter_02_china_metropolis_latest.RData")
+# load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
 library(rstan)
@@ -18,167 +20,17 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
+library(deSolve) # reminder because
+library(coda)
+library(cowplot)
 source("../R/constants.R")
 source("../R/load_functions.R")
-
-plots_dir = "../plots_rrr_sensitivity"
-
-rstan_options(auto_write = TRUE, threads_per_chain = 1)
-
-n_cores = parallelly::availableCores()
-options(mc.cores = n_cores)
-message("Running on ", n_cores, " cores")
-
-# Load model and metropolis algorithm (copied from VivaxODE project folder)
-source(file = "../R/models/temperate_v11.R")
-source(file = "../R/functions/adaptive_metropolis.R")
-# Load priors for each scenario
-source(file = "../R/priors_RRR_sensitivity.R")
-my_state_init = state_init_3
-start_time = Sys.time()
-```
-## Parameter recovery on real data
-
-We test whether parameter recovery works on real datasets. We will find data from a variety of settings (e.g., transmission levels, remoteness, strains) to demonstrate generalisability.
-
-Data:
-
-- Hainan data (tropical China) but this has been difficult to acquire.
-We will not be investigating Chinese Yunnan (southern mountainous) or Henan (central temperate) data which we do have because the Yunnan strain is not known to be tropical, and the Henan data is temperate (our current temperate model does not align with this data convincingly).
-- Brazilian 'integrated data set', available per county or municipality and very detailed.
-
-```{r}
-china_selections = tribble(
-  ~Region, ~min, ~max,
-  "Dengzhou", "2004-01-01", "2009-01-01",
-  "Guantang", "1977-01-01", "1982-01-01",
-  "Huangchuan", NA, NA,
-  "Xiayi", NA, NA
-) %>%
-  mutate(min = as.Date(min),
-         max = as.Date(max))
 ```
 
-```{r}
-if (!require(MalariaData)) {
-  china_data = read_rds("china_data.rds")
-} else {
-  library(MalariaData)
-  regions = c("Xiayi", "Guantang", "Dengzhou", "Huangchuan") %>% setNames({.})
-  china_data_all = lapply(regions, function(x) {load_region(x, species = "Vivax", source="Local")}) %>%
-    bind_rows(.id = "Region") %>%
-    select(Region, Date, Cases) %>%
-    left_join(china_selections, by="Region") %>%
-    mutate(Date = as.Date(paste(year(Date), month(Date), "01", sep="-")) + months(1) - days(1)) %>% # Align to last day of the month
-    mutate(include = ifelse(Date >= min & Date < max, "grey20", "grey"),
-           include = replace_na(include, "grey"))
-  
-  china_data = china_data_all %>%
-    filter(include == "grey20") %>%
-    select(-include)
-  
-  write_rds(china_data, "china_data.rds")
-}
-```
 
-Now we fit the model for scenarios
+# Load simulations from HPC (or other run using Chapter_02_standalone)
 
-```{r}
-data_baseline = list(
-  t0 = -30*years,
-  gamma_d = 1/434.,
-  gamma_l = 1/223,
-  f = 1/72,
-  r = 1/60,
-  eps = 0
-)
-# Add each scenario's data on
-data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
-  data_scenario = data_baseline
-  scenario_specific = scenarios[i,]
-  for (name in names(scenario_specific)) {
-    if (!is.character(scenario_specific[[name]])) {
-      data_scenario[[name]] = scenario_specific[[name]]
-    }
-  }
-  data_scenario$y0 = my_state_init(data_scenario, I0=0.01)
-  
-  # Add case data
-  region_name = scenario_specific$region
-  ts_region = china_data %>%
-    filter(Region == region_name)
-  first_year = min(year(ts_region$Date))
-  ts_region = ts_region %>%
-    mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
-  data_scenario$ts = ts_region$ts
-  data_scenario$cases = ts_region$Cases
-  return(data_scenario)
-}) %>%
-  setNames(scenarios$name)
-# data_scenarios = data_scenarios[c("baseline duration, baseline ascertainment, baseline phenotype, Dengzhou")]
-```
-
-Run
-
-```{r}
-# Define inits - start at the mean of all scenarios and the mean sd of all chains
-init = c(
-  alpha = 0.173,
-  beta = 0.899,
-  lambda = 0.05,
-  phi = 999,#1.42,
-  kappa = 2.45,
-  phase = 119,
-  p_long = 0.775,
-  p_silent = 0.245,
-  p_RCI = 0.123
-)
-
-init_sd = c(alpha = 0.0296,
-            beta = 0.0293,
-            lambda = 0.0125,
-            phi = 0.260,
-            kappa = 0.395,
-            phase = 5.20,
-            p_long = 0.0836,
-            p_silent = 0.0577,
-            p_RCI = 0.0218)
-
-samp_results = rep(list(NULL), length(data_scenarios)) %>%
-  setNames(names(data_scenarios))
-```
-
-```{r}
-# max_hours = 24*5
-max_hours = 1
-models = lapply(data_scenarios, make_model)
-for (i in seq_len(length(data_scenarios))) {
-  print(paste("Scenario", i))
-  
-  tictoc::tic()
-  samp = metropolis_sampling(models[[i]],
-                             init = init,
-                             init_sd = init_sd,
-                             data = data_scenarios[[i]],
-                             n_iter = 500,
-                             n_burnin = 400,
-                             n_adapt = 100,
-                             n_chains = 8,
-                             time_limit = max_hours / length(data_scenarios))
-  tictoc::toc()
-  samp_results[[i]] = samp
-}
-samp_filename = paste0("samp_results_", Sys.Date(), ".rds")
-saveRDS(samp_results, samp_filename)
-```
-
-Load simulations from HPC
-
-```{r, eval=F}
-# rds_1 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-07.rds")
-# rds_2 = read_rds("~/Desktop/Chapter_02_china_metropolis_2024-07-09.rds")
-# samp_results = c(rds_1, rds_2)
-```
+After loading the .RData workspace from the HPC, run the setup chunk and then continue running below here.
 
 Transform output parameters
 
@@ -203,20 +55,6 @@ posterior_seasonal = posterior_seasonal_2 %>%
   left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
 
-resim = pbmclapply(samp_results, function(samp) {
-  resim = extract(samp, "incidence", n_samples=100, threading=F)
-}) %>%
-  bind_rows(.id = "Scenario") %>%
-  mutate(Scenario = fct_inorder(Scenario)) %>%
-  left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(name_short = name_short %>% str_replace_all(", ", ",\n")) %>%
-  pivot_longer(matches("^clinical"), names_to="metric") %>%
-  mutate(metric = metric %>% case_match(
-    "clinical_incidence" ~ "Total",
-    "clinical_relapse" ~ "Relapse",
-    "clinical_primary" ~ "Primary"
-  ))
-
 plot_original_data = lapply(data_scenarios, function(x) {
   tibble(time = x$ts,
          cases = x$cases)
@@ -225,8 +63,15 @@ plot_original_data = lapply(data_scenarios, function(x) {
   left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(Scenario = fct_inorder(Scenario))
 
+# If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
+if ("Baseline" %in% posterior_seasonal$name_shortest) {
+  first_name_shortest = "Baseline"
+} else {
+  first_name_shortest = first(posterior_seasonal$name_shortest)
+}
+
 trace_plot = posterior_seasonal %>%
-  filter(name_shortest == "Baseline") %>%
+  filter(name_shortest == first_name_shortest) %>%
   ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
   geom_step(alpha=0.25) +
   coord_cartesian(xlim = c(0, NA)) +
@@ -234,7 +79,7 @@ trace_plot = posterior_seasonal %>%
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
   labs(subtitle = "Parameter traces")
 trace_plot
-filename = paste0(plots_dir, "/china_trace.png")
+filename = paste0("../plots/china_trace.png")
 ggsave(filename, width=8, height=8)
 
 var_plot = posterior_seasonal %>%
@@ -245,7 +90,7 @@ var_plot = posterior_seasonal %>%
   labs(subtitle = "Parameter estimates") +
   theme(strip.text = element_markdown())
 var_plot
-filename = paste0(plots_dir, "/china_variables.png")
+filename = paste0("../plots/china_variables.png")
 # ggsave(filename, width=8, height=8)
 
 ll_plot = posterior_seasonal %>%
@@ -256,7 +101,7 @@ ll_plot = posterior_seasonal %>%
   labs(subtitle = "Log likelihood (higher is better)") +
   theme(legend.position = "none")
 ll_plot
-filename = paste0(plots_dir, "/china_loglikelihood.png")
+filename = paste0("../plots/china_loglikelihood.png")
 ggsave(filename, width=8, height=8)
 
 lpp_plot = posterior_seasonal %>%
@@ -267,21 +112,52 @@ lpp_plot = posterior_seasonal %>%
   labs(subtitle = "Log posterior probability (higher is better)") +
   theme(legend.position = "none")
 lpp_plot
-filename = paste0(plots_dir, "/china_logposteriorprobability.png")
+filename = paste0("../plots/china_logposteriorprobability.png")
 ggsave(filename, width=8, height=8)
+
+bf_data_byregion = posterior_seasonal %>%
+  group_by(name_short, name_shortest, region, n_changes) %>%
+  summarise(lpp = matrixStats::logSumExp(lpp) - log(n()),
+            ll = matrixStats::logSumExp(ll) - log(n()),
+            .groups = "drop") %>%
+  group_by(region) %>%
+  mutate(baseline_lpp = lpp[name_shortest == first_name_shortest],
+         baseline_ll = ll[name_shortest == first_name_shortest],
+         bayes_factor = exp(lpp - baseline_lpp)) %>%
+  ungroup() %>%
+  filter(name_shortest != first_name_shortest)
+
+bf_plot_byregion = ggplot(bf_data_byregion, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
+  geom_col(alpha = 0.8) +
+  geom_vline(xintercept = 1, linetype="dashed") +
+  scale_x_log10(labels = label_auto3, breaks = c(10 ^ c(-14, -7, seq(-2, 3, by=1)))) +
+  scale_y_discrete(limits = rev) +
+  ggforce::facet_row(vars(region)) +
+  # ggforce::facet_col(vars(n_changes), scales="free_y", space="free") +
+  theme(legend.position = "none",
+        axis.text.x = element_markdown(angle=-90, hjust=0),
+        axis.title.x = element_markdown(),
+        # strip.background = element_blank(),
+        # strip.text.x = element_blank(),
+        strip.text.y = element_blank()) +
+  labs((title = "Bayes factor relative to the baseline model"),
+       x = "*K*",
+       y = NULL)
+
+bf_plot_byregion
+filename = paste0("../plots/china_bayesfactor_byregion.png")
+ggsave(filename, width=8, height=4)
 
 bf_data = posterior_seasonal %>%
   group_by(name_short, name_shortest, n_changes) %>%
-  summarise(# lpp = log(sum(exp(lpp))) - log(n()),
-    lpp = matrixStats::logSumExp(lpp) - log(n()),
-    # ll = mean(ll),
-    ll = matrixStats::logSumExp(ll) - log(n()),
-    .groups = "drop") %>%
-  mutate(baseline_lpp = lpp[name_shortest == "Baseline"],
-         baseline_ll = ll[name_shortest == "Baseline"],
+  summarise(lpp = matrixStats::logSumExp(lpp) - log(n()),
+            ll = matrixStats::logSumExp(ll) - log(n()),
+            .groups = "drop") %>%
+  mutate(baseline_lpp = lpp[name_shortest == first_name_shortest],
+         baseline_ll = ll[name_shortest == first_name_shortest],
          bayes_factor = exp(lpp - baseline_lpp)) %>%
   ungroup() %>%
-  filter(name_shortest != "Baseline")
+  filter(name_shortest != first_name_shortest)
 
 bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
   geom_col(alpha = 0.8) +
@@ -299,7 +175,7 @@ bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_s
        x = "*K*",
        y = NULL)
 bf_plot
-filename = paste0(plots_dir, "/china_bayesfactor.png")
+filename = paste0("../plots/china_bayesfactor.png")
 ggsave(filename, width=8, height=4)
 
 # ggsave(filename, width=8, height=4)
@@ -322,30 +198,14 @@ epi_plot = ggplot(mapping = aes(x=time/years)) +
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   theme(strip.text = element_markdown())
 epi_plot
-filename = paste0(plots_dir, "/china_incidence.png")
+filename = paste0("../plots/china_incidence.png")
 ggsave(filename, width=8, height=10)
 
 epi_plot / var_plot + theme(legend.position="none") + plot_annotation(tag_levels="A")
-filename = paste0(plots_dir, "/china_posterior.png")
+filename = paste0("../plots/china_posterior.png")
 ggsave(filename, width=8, height=8)
 
-resim_seasonality = pblapply(samp_results[1:2], function(samp) {
-  t = seq(0, years, length.out=500)
-  samp_sim = bind_rows(samp$sim)
-  samp_rand = sample.int(nrow(samp_sim), 500)
-  suitability_traces = lapply(samp_rand, function(ix) {
-    samp_suitability = tibble(
-      time = t,
-      suitability = sapply(t, function(tt) {
-        omega = suitability(tt, samp$data$eps, samp_sim[[ix, "kappa"]], samp_sim[[ix, "phase"]])
-      })
-    )
-  }) %>%
-    bind_rows(.id = "trace")
-}) %>%
-  bind_rows(.id = "Scenario") %>%
-  left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(Scenario = fct_inorder(Scenario))
+# Note: moved the generation of resim_seasonality into above where we load the workspace, and the standalone file
 
 resim_seasonality_plot = resim_seasonality %>%
   filter(scenario <= 2) %>%
@@ -358,7 +218,7 @@ resim_seasonality_plot = resim_seasonality %>%
        color = "Region") +
   guides(colour = guide_legend(override.aes = list(alpha = 1)))
 resim_seasonality_plot
-filename = paste0(plots_dir, "/china_resim_seasonality_plot.png")
+filename = paste0("../plots/china_resim_seasonality_plot.png")
 ggsave(filename, width=8, height=4)
 
 rm(trace_plot)
@@ -392,7 +252,10 @@ lapply(samp_results[1:2], function(x) {
 Plot baseline
 
 ```{r}
-name_to_plot = "Baseline"
+# name_to_plot = first_name_shortest
+# name_to_plot = "Baseline"
+ix_to_plot = 1
+name_to_plot = unique(posterior_seasonal$name_shortest)[ix_to_plot]
 
 # Get ranges
 var_ranges = posterior_seasonal %>%
@@ -401,13 +264,23 @@ var_ranges = posterior_seasonal %>%
   summarise(min = min(value),
             max = max(value))
 var_priors = list()
-baseline_model = models[[1]]
+
+this_model = 
+baseline_model = models[[ix_to_plot]]
 for (i in seq_len(nrow(var_ranges))) {
   parameter_name = var_ranges$parameter[i]
   parameter_min = 0 # var_ranges$min[i]
   parameter_max = var_ranges$max[i]
+  if (parameter_name %in% c("alpha", "beta", "p_long", "p_RCI", "p_silent")) {
+    print(parameter_name)
+    parameter_min = 0
+    parameter_max = 1
+  } else if (parameter_name == "phase") {
+    parameter_min = 0
+    parameter_max = 365.25
+  }
   parameter_range = parameter_max - parameter_min
-  parameter_seq = seq(parameter_min, parameter_max, length.out = 100)
+  parameter_seq = seq(parameter_min, parameter_max, length.out = 1000)
   prior = sapply(parameter_seq, function(x) {
     # insert range to evaluate prior over
     x_dummy = init
@@ -454,11 +327,11 @@ baseline_var_plot = baseline_var_plot_data %>%
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank())
 baseline_var_plot
-filename = paste0(plots_dir, "/china_", str_to_lower(name_to_plot), "_variables.png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), "_variables.png")
 # ggsave(filename, width=8, height=8)
 
 baseline_epi_plot = resim %>%
-  filter(scenario <= 2) %>%
+  filter(name_shortest == name_to_plot) %>%
   ggplot(aes(x=time/years)) +
   geom_line(aes(y=value, color=metric, group=interaction(metric, ix)),
             alpha = 0.1) +
@@ -475,18 +348,98 @@ baseline_epi_plot = resim %>%
        subtitle = "Modelled mean incidence") +
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   theme(strip.text = element_markdown())
+
+baseline_epi_plot_nonlog = resim %>%
+  filter(name_shortest == name_to_plot) %>%
+  ggplot(aes(x=time/years)) +
+  geom_line(aes(y=value, color=metric, group=interaction(metric, ix)),
+            alpha = 0.1) +
+  geom_point(data = plot_original_data,
+             aes(y = cases, group = NULL, color=NULL),
+             size = 0.5, alpha = 0.5) +
+  # scale_y_log10(labels = label_auto2) +
+  # coord_cartesian(ylim = c(0, NA)) +
+  # facet_wrap(vars(Scenario), scales="free_y") +
+  facet_grid(cols=vars(region)) +
+  labs(x = "Year",
+       y = "Monthly incidence",
+       color = "Infection type",
+       subtitle = "Modelled mean incidence") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
+
 baseline_epi_plot
-filename = paste0(plots_dir, "/china_", str_to_lower(name_to_plot), "_epi.png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), "_epi.png")
 # ggsave(filename, width=8, height=8)
 
-baseline_var_plot / baseline_epi_plot +
-  plot_layout(heights = c(2, 1)) +
+baseline_var_plot / baseline_epi_plot / baseline_epi_plot_nonlog +
+  plot_layout(heights = c(2, 1, 1)) +
   plot_annotation(tag_levels = "A")
-filename = paste0(plots_dir, "/china_", str_to_lower(name_to_plot), ".png")
+filename = paste0("../plots/china_", str_to_lower(name_to_plot), ".png")
 ggsave(filename, width=8, height=8)
 
 rm(baseline_var_plot)
 rm(baseline_epi_plot)
+```
+
+Plot traces
+
+```{r}
+samp_results_first = samp_results[1:2]
+traces = lapply(samp_results_first, function(x) {
+  lapply(x$sim, function(y) {
+    y %>%
+      mutate(iteration = row_number())
+  }) %>%
+    bind_rows(.id = "chain") %>%
+    pivot_longer(-c(chain, iteration), names_to = "variable") %>%
+    filter(chain <= 400)
+}) %>%
+  bind_rows(.id = "scenario") %>%
+  mutate(scenario = scenario %>% str_remove(".* "))
+
+ggplot(traces, aes(x = iteration, y = value, color = chain)) +
+  geom_line(alpha=0.3) +
+  ggh4x::facet_grid2(cols = vars(scenario), rows = vars(variable), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+  labs(title = "Metropolis sample traces",
+       subtitle = "Baseline scenario",
+       x = "Iteration",
+       y = "Value",
+       color = "Chain") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  theme(strip.text = element_markdown())
+
+filename = paste0("../plots/china_mcmc_traceplot.png")
+ggsave(filename, width=8, height=10)
+```
+
+Check correlations (this is not particularly consequential but might be interesting)
+
+```{r}
+corr_scenario = lapply(unique(traces$scenario) %>% setNames({.}), function(x) {
+  y = traces %>%
+    filter(scenario == x) %>%
+    pivot_wider(names_from = variable) %>%
+    select(-scenario, -chain, -iteration) %>%
+    cor()
+  colnames(y) = sapply(colnames(y), make_greek)
+  rownames(y) = sapply(rownames(y), make_greek)
+  y
+})
+
+corrplots = lapply(names(corr_scenario), function(m) {
+  M = corr_scenario[[m]]
+  rownames(M) = sapply(rownames(M), make_greek)
+  colnames(M) = sapply(colnames(M), make_greek)
+  ggcorrplot::ggcorrplot(M, type="upper") +
+    theme(axis.text.x = element_markdown(),
+          axis.text.y = element_markdown()) +
+    labs(subtitle = m)
+})
+
+(corrplots[[1]] | corrplots[[2]]) + plot_annotation(title = "Correlation plots for the baseline scenarios")
+filename = paste0("../plots/china_mcmc_corrplot.png")
+ggsave(filename, width=8, height=4)
 ```
 
 Check acceptance
@@ -530,9 +483,9 @@ rhat_df$parameter[rhat_df$parameter == "p_silent"] = "p"
 rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
   geom_vline(xintercept=1.05, linetype="dashed") +
   geom_col(alpha = 0.8, position="dodge2") +
+  coord_cartesian(xlim=c(1, NA)) +
   scale_y_discrete(limits=rev, labels=make_greek) +
   facet_wrap(vars(name_shortest)) +
-  # theme(legend.position = "none") +
   labs(subtitle = "Chain convergence criteria (lower is better)",
        x = latex2exp::TeX("$\\hat{r}$"),
        y = "Parameter",
@@ -541,10 +494,71 @@ rhat_plot = ggplot(rhat_df, aes(x = rhat, y = parameter, fill = region)) +
 
 ess_plot / rhat_plot +
   plot_annotation(tag_levels = "A") + plot_layout(guides="collect") & theme(legend.position = "bottom")
-filename = paste0(plots_dir, "/china_mcmc_diagnostics.png")
+filename = paste0("../plots/china_mcmc_diagnostics.png")
 ggsave(filename, width=8, height=10)
 ```
 
+Based on the plots, do we have any issues?
+
+```{r}
+ess_issues = ess_df %>%
+  filter(ess < 100)
+
+rhat_issues = rhat_df %>%
+  filter(rhat > 1.05)
+
+issues_df = bind_rows(ess_issues %>% select(scenario, parameter),
+                      rhat_issues %>% select(scenario, parameter)) %>%
+  distinct()
+
+scenario_issues = unique(c(ess_issues$scenario, rhat_issues$scenario))
+
+samp_results_issues = samp_results[scenario_issues]
+if (length(samp_results_issues) > 0) {
+  traces_issues = lapply(samp_results_issues, function(x) {
+    lapply(x$sim, function(y) {
+      y %>%
+        mutate(iteration = row_number())
+    }) %>%
+      bind_rows(.id = "chain") %>%
+      pivot_longer(-c(chain, iteration), names_to = "parameter") %>%
+      filter(chain <= 400)
+  }) %>%
+    bind_rows(.id = "scenario") %>%
+    mutate(scenario = scenario %>% str_remove(".* ")) %>%
+    filter(parameter %in% issues_df$parameter)
+  
+  ggplot(traces_issues, aes(x = iteration, y = value, color = chain)) +
+    geom_line(alpha=0.3) +
+    ggh4x::facet_grid2(cols = vars(scenario), rows = vars(parameter), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+    labs(title = "Metropolis sample traces",
+         subtitle = "Baseline scenario",
+         x = "Iteration",
+         y = "Value",
+         color = "Chain") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+    theme(strip.text = element_markdown())
+  
+  filename = paste0("../plots/china_mcmc_traceplot.png")
+  ggsave(filename, width=8, height=10)
+}
+```
+
+Plot p_RRR specifically
+
+```{r}
+posterior_seasonal %>%
+  mutate(name_wo_phenotype = paste(duration, "duration,", ascertainment, "ascertainment")) %>%
+  filter(parameter == "p_RCI") %>%
+  ggplot(aes(x = value, color=region, fill=region)) +
+  geom_density(alpha=0.5) +
+  facet_grid(rows=vars(name_wo_phenotype), cols=vars(phenotype)) +
+  labs(title = "p_RRR",
+       subtitle = "Faceted by p_RRR prior (cols)")
+
+filename = paste0("../plots/china_p_RRR.png")
+ggsave(filename, width=8, height=10)
+```
 
 Save workspace
 
@@ -552,14 +566,14 @@ Save workspace
 end_time = Sys.time()
 print(end_time)
 print(end_time - start_time)
-workspace_filename = paste0("workspaces/Chapter_02_china_RRR_sensitivity_", Sys.Date(), ".RData")
+workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
 # save.image(workspace_filename)
 beepr::beep()
 ```
 
 Misc - improve guess by starting at the mean
 
-```{r}
+```{r, eval=F}
 mean_posterior_seasonal = posterior_seasonal %>%
   group_by(parameter) %>%
   summarise(median = median(value)) %>%

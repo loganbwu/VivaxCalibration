@@ -1,13 +1,21 @@
-args <- commandArgs(trailingOnly = TRUE)
 start_time = Sys.time()
-# Check that there is exactly one argument. If not, provide a script usage statement.
-if (length(args)==0) {
-  # stop("At least one argument must be supplied (input file).", call.=FALSE)
-  args = 1 # fallback, set max_hours
-} else if (length(args)>1) {
-  stop("More than one argument specified.", call.=FALSE)
-}
-max_hours = as.numeric(args[1])
+
+library(optparse)
+
+option_list <- list(
+  make_option(c("-h", "--hours"), default = 2,
+              help = "Target total runtime in hours"),
+  make_option(c("-i", "--index"), default = "NA",
+              help = "Single scenario index to run, if specified")
+)
+
+# This gracefully handles both command line and interactive use
+opt <- parse_args(OptionParser(option_list = option_list))
+max_hours = as.numeric(opt$hours)
+scenario_index = as.integer(opt$index)
+
+
+start_time = Sys.time()
 
 library(R.utils)
 library(tidyverse)
@@ -19,9 +27,9 @@ library(pbapply)
 library(memoise)
 library(RColorBrewer)
 library(ggtext)
-# setwd("Rmd")
-source("../R/constants.R")
-source("../R/load_functions.R")
+library(here)
+source(here("R", "constants.R"))
+source(here("R", "load_functions.R"))
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
@@ -30,11 +38,11 @@ options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
 # Load model and metropolis algorithm (copied from VivaxODE project folder)
-source(file = "../R/models/temperate_v11.R")
-source(file = "../R/functions/adaptive_metropolis.R")
+source(here("R", "models/temperate_v12.R"))
+source(here("R", "functions/adaptive_metropolis.R"))
 # Load priors for each scenario
-source(file = "../R/priors.R")
-my_state_init = state_init_3
+source(here("R", "priors.R"))
+my_state_init = state_init_4
 start_time = Sys.time()
 
 china_selections = tribble(
@@ -47,7 +55,7 @@ china_selections = tribble(
   mutate(min = as.Date(min),
          max = as.Date(max))
 
-china_data = read_rds("china_data.rds")
+china_data = read_rds(here("Rmd", "china_data.rds"))
 
 data_baseline = list(
   t0 = -30*years,
@@ -113,7 +121,7 @@ init_covar = diag(length(init_sd)) * init_sd^2
 # the stored model stats file will store a small sample from the previous run,
 # to be used as initial values (if it exists). Therefore we can skip the burn-in
 # period.
-stored_model_stats_file = "model_stats_2026-02-07.rds"
+stored_model_stats_file = here("Rmd", "model_stats_2026-02-12.rds")
 scenario_init = function(name, init, init_sd) {
   if (file.exists(stored_model_stats_file)) {
     stored_model_stats = read_rds(stored_model_stats_file)
@@ -135,14 +143,13 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 
 models = lapply(data_scenarios, make_model)
 
-chains_per_scenario = max(1, floor(n_cores / length(data_scenarios)))
-total_chains = chains_per_scenario * length(data_scenarios)
-max_chains_per_core = ceiling(total_chains / n_cores)
-max_hours_per_chain = max_hours / max_chains_per_core
-do_scenario = function(i) {
+max_hours_per_chain = max_hours / length(data_scenarios)
+chains_per_scenario = n_cores
+
+do_scenario = function(i, force_initialisation = FALSE) {
   model_name = names(models)[i]
   model_stats = scenario_init(model_name, init, init_sd)
-  if ("use_defaults" %in% names(model_stats)) {
+  if ("use_defaults" %in% names(model_stats) | force_initialisation) {
     # We're using the default initial values and covariance so need to perform adaptation
     n_burnin = 400
     n_adapt = 100
@@ -163,21 +170,71 @@ do_scenario = function(i) {
                              n_burnin = n_burnin,
                              n_adapt = n_adapt,
                              n_chains = chains_per_scenario,
-                             time_limit = max_hours_per_chain)
+                             time_limit = max_hours_per_chain,
+                             threading = TRUE)
 }
-samp_results_lapply = pbmclapply(seq_len(length(data_scenarios)), do_scenario, mc.preschedule=FALSE)
 
-for (i in seq_len(length(data_scenarios))) {
-  samp_results[[i]] = samp_results_lapply[[i]]
+
+count_successful_chains = function(x) {
+  if (is.null(x)) {
+    return(0)
+  } else {
+    null_chains = sapply(x$sim, is.null)
+    return(sum(!null_chains))
+  }
 }
-rm(samp_results_lapply)
+
+calculate_lpp = function(x) {
+  if (is.null(x)) {
+    return(NA)
+  } else {
+    lpp = bind_rows(x$sim_diagnostics) %>%
+      pull(lpp) %>%
+      mean()
+    return(lpp)
+  }
+}
+
+# Run iterations
+for (i in seq_len(length(data_scenarios))) {
+  if (!is.na(scenario_index) & i != scenario_index) {
+    # If specified, only run specific scenarios - useful for a distributed workload
+    next
+  }
+  message("- Processing scenario ", i)
+  samp_result = do_scenario(i, force_initialisation=TRUE)
+  successful_chains = count_successful_chains(samp_result)
+  
+  if (successful_chains >= chains_per_scenario) {
+    # Assess goodness of convergence
+    lpp = calculate_lpp(samp_result)
+    
+    
+    # Save results
+    samp_results[[i]] = samp_result
+    rds_filename = here::here("Rmd", paste0("workspaces/samp_results[[", i, "]].rds"))
+    message("Saving results to ", rds_filename)
+    write_rds(samp_results[[i]], rds_filename)
+  }
+  else if (successful_chains > 0) {
+    warning("! Only ", successful_chains, " of ", chains_per_scenario, " chains returned samples. Not saving results!")
+  } 
+  else {
+    warning("! 0 chains returned samples. Not saving results!")
+  }
+}
+
+successful_chains = sapply(samp_results, function(x) {
+  if (is.null(x)) {
+    return(0)
+  } else {
+    null_chains = sapply(x$sim, is.null)
+    return(sum(!null_chains))
+  }
+})
 
 # Assess goodness of convergence
-lpps = sapply(samp_results, function(x) {
-  bind_rows(x$sim_diagnostics) %>%
-    pull(lpp) %>%
-    mean()
-})
+lpps = sapply(samp_results, calculate_lpp)
 
 # Now use samp_results to calculate the optimal inits
 get_inits = function(results) {
@@ -218,7 +275,7 @@ if (length(extremely_bad_scenarios) > 0) {
   warning("There were ", length(extremely_bad_scenarios), " scenarios where the log posterior probability was unusually poor compared to the others. Potential failure to fit to data.")
 }
 for (scenario in extremely_bad_scenarios) {
-  new_inits[scenario] = list(
+  new_inits[[scenario]] = list(
     init = okay_init,
     init_covar = okay_init_covar
   )
@@ -312,6 +369,6 @@ print(end_time - start_time)
 print(paste("Time elapsed:", end_time - start_time))
 
 # workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_", Sys.Date(), ".RData")
-workspace_filename = paste0("workspaces/Chapter_02_china_metropolis_latest.RData")
+workspace_filename = here("Rmd", "workspaces/Chapter_02_china_metropolis_latest.RData")
 save.image(workspace_filename)
 
