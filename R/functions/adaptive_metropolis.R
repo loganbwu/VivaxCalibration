@@ -18,7 +18,7 @@ source(here::here("R/functions/safe_mclapply.R"))
 metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=NULL, n_adapt=NULL, n_chains=1, thin=1, time_limit=NULL, previous_samples=NULL, pars=NULL, include=F, threading=TRUE) {
   
   n_samples = round(n_iter * thin)
-  message("Generating ", n_samples * n_chains, " samples across ", n_chains, " chains")
+  message("Generating samples across ", n_chains, " chains")
   
   if (n_chains > 1 & threading) {
     lapply_func = safe_mclapply
@@ -36,6 +36,7 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
     # Just use the first one if we've given a dataframe of potential initial values
     time_estimate_init = head(init, 1)
   } else {
+    # Otherwise use the vector
     time_estimate_init = init
   }
   for (i in seq_len(n_time_estimate)) {
@@ -80,9 +81,28 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
       run_one_chain(model, init, proposal_covar, n_iter=n_burnin, thin=0.01)
     })
     
-    # Update initial values
-    init_list = lapply_func(burnin_output, function(x) {
-      x$current_x
+    # Get burnin samples
+    burnin_samples = lapply_func(burnin_output, function(x) {
+      x$sim %>%
+        mutate(ess_weight = mean(x$ESS)) # just take the average ESS across all variables
+    }) %>%
+      bind_rows()
+    
+    # print(head(burnin_samples))
+    message("Total ESS during burnin was ", sum(burnin_samples$ess_weight))
+    
+    # If burnin was unsuccessful (extremely low ESS) then terminate
+    if (sum(burnin_samples$ess_weight) < 1) {
+      warning("Burnin failed and resulted in an equivalent sample size close to zero; returning NULL.")
+      return(NULL)
+    }
+    # Otherwise, update initial values using the best chains
+    init_list = lapply_func(seq_len(n_chains), function(i) {
+      burnin_samples %>%
+        slice_sample(n=1, weight_by=ess_weight) %>%
+        select(-ess_weight) %>%
+        as.numeric() %>%
+        setNames(names(init))
     })
   }
   
@@ -94,7 +114,7 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
       run_one_chain(model, init, proposal_covar, n_iter=n_adapt, thin=min(1, 1000 / n_adapt))
     })
     
-    # Process burnin period
+    # Process adaptation period
     adapt_samples = lapply(adapt_output, function(x) {
       x$sim
     }) %>%
@@ -120,20 +140,6 @@ metropolis_sampling = function(model, init, init_covar, data, n_iter, n_burnin=N
   sample_outputs = lapply_func(init_list, function(init) {
     run_one_chain(model, init, proposal_covar, n_iter=n_iter, thin=thin)
   })
-  
-  # Inspect the chains
-  # num_samples = sapply(sample_outputs, function(x) {
-  #   nrow(x$sim)
-  # })
-  # min_num_samples_per_chain = min(10, n_iter)
-  # if (any(num_samples < min_num_samples_per_chain)) {
-  #   warning("Some chains returned low sample counts: ", paste(num_samples, collapse=", "))
-  # }
-  # for (i in seq_along(sample_outputs)) {
-  #   x = sample_outputs[[i]]
-  #   num_samples = nrow(x$sim)
-  #   if
-  # }
   
   # message("Stopping to debug")
   
@@ -211,8 +217,9 @@ run_one_chain = function(model, init, covar, n_iter, thin=1) {
                  function(x) {
                    unname(coda::effectiveSize(x))
                  })
+    # print(ESS)
   } else {
-    ESS = NULL # not valid if there are no samples
+    ESS = 0 # not valid if there are no samples
   }
   return(list(sim = samples, # called `sim` to align with stan
               sim_diagnostics = samples_diagnostics,
@@ -253,14 +260,18 @@ extract.metropolisfit = function(fit, type="incidence", n_samples=100, alpha=0.0
       x = unlist(all_sims[ix,])
       mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x, maxsteps=1e6)
       if ("ClinicalPrimary" %in% colnames(mean_ode)) {
+        # Run for v11
         clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
       } else {
-        clinical_primary = (mean_ode[,"ClinicalImmediatePrimary"] - lag(mean_ode[,"ClinicalImmediatePrimary"]))[-c(1,2)] + (mean_ode[,"ClinicalDelayedPrimary"] - lag(mean_ode[,"ClinicalDelayedPrimary"]))[-c(1,2)]
+        # Run for v12
+        clinical_immediateprimary = (mean_ode[,"ClinicalImmediatePrimary"] - lag(mean_ode[,"ClinicalImmediatePrimary"]))[-c(1,2)]
+        clinical_delayedprimary = (mean_ode[,"ClinicalDelayedPrimary"] - lag(mean_ode[,"ClinicalDelayedPrimary"]))[-c(1,2)]
       }
       clinical_relapse = (mean_ode[,"ClinicalRelapse"] - lag(mean_ode[,"ClinicalRelapse"]))[-c(1,2)]
       clinical_incidence = clinical_primary + clinical_relapse
       tibble(time = fit$data$ts,
-             clinical_primary = clinical_primary,
+             clinical_immediateprimary = clinical_immediateprimary,
+             clinical_delayedprimary = clinical_delayedprimary,
              clinical_relapse = clinical_relapse,
              clinical_incidence = clinical_incidence,
              # cases_lower = qpois(alpha/2, lambda=clinical_incidence),

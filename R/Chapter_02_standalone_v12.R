@@ -3,16 +3,24 @@ start_time = Sys.time()
 library(optparse)
 
 option_list <- list(
-  make_option(c("-h", "--hours"), default = 2,
+  make_option(c("-h", "--hours"), default = 8,
               help = "Target total runtime in hours"),
-  make_option(c("-i", "--index"), default = "NA",
-              help = "Single scenario index to run, if specified")
+  make_option(c("-i", "--index"), default = "2",
+              help = "Scenario index/indices to run (e.g., '3' or '1,3,5')"),
+  make_option(c("-c", "--chains"), default = 1,
+              help = "Number of chains/cores")
 )
 
 # This gracefully handles both command line and interactive use
 opt <- parse_args(OptionParser(option_list = option_list))
 max_hours = as.numeric(opt$hours)
-scenario_index = as.integer(opt$index)
+# Parse scenario indices
+if (!is.null(opt$index)) {
+  scenario_indices <- as.integer(strsplit(opt$index, ",")[[1]])
+} else {
+  scenario_indices <- NA
+}
+chains = as.integer(opt$chains)
 
 
 start_time = Sys.time()
@@ -21,19 +29,18 @@ library(R.utils)
 library(tidyverse)
 library(rstan)
 library(parallel)
-library(patchwork)
 library(pbmcapply)
 library(pbapply)
 library(memoise)
-library(RColorBrewer)
-library(ggtext)
 library(here)
+library(RColorBrewer)
 source(here("R", "constants.R"))
 source(here("R", "load_functions.R"))
 
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
-n_cores = parallelly::availableCores() - 1
+# n_cores = parallelly::availableCores() - 1
+n_cores = chains
 options(mc.cores = n_cores)
 message("Running on ", n_cores, " cores")
 
@@ -58,7 +65,8 @@ china_selections = tribble(
 china_data = read_rds(here("Rmd", "china_data.rds"))
 
 data_baseline = list(
-  t0 = -30*years,
+  # t0 = -30*years,
+  t0 = -5*years,
   gamma_d = 1/434.,
   gamma_l = 1/223,
   f = 1/72,
@@ -117,6 +125,24 @@ init_sd = c(alpha = 0.0293,
             p_RCI = 0.0411)
 init_covar = diag(length(init_sd)) * init_sd^2
 
+init_covar = structure(
+  c(0.001104, -3.805e-05, -8.047e-05, 0.01212, 0.002304, 
+    0.06224, -5.32e-05, -0.0002501, -0.001002, -3.805e-05, 0.0006094, 
+    7.558e-06, -0.00134, -0.001085, 0.1463, -1.584e-05, 0.0002763, 
+    -0.0002124, -8.047e-05, 7.558e-06, 1.838e-05, -0.001252, -0.000429, 
+    0.02418, 6.135e-05, 0.0001365, 6.5e-05, 0.01212, -0.00134, -0.001252, 
+    0.8752, 0.4019, -40.36, -0.01619, -0.03659, 0.05608, 0.002304, 
+    -0.001085, -0.000429, 0.4019, 0.9305, -50.06, -0.01586, -0.02713, 
+    0.03045, 0.06224, 0.1463, 0.02418, -40.36, -50.06, 4815, 1.711, 
+    3.533, -5.482, -5.32e-05, -1.584e-05, 6.135e-05, -0.01619, -0.01586, 
+    1.711, 0.005007, 0.001365, -0.001304, -0.0002501, 0.0002763, 
+    0.0001365, -0.03659, -0.02713, 3.533, 0.001365, 0.005868, -0.00446, 
+    -0.001002, -0.0002124, 6.5e-05, 0.05608, 0.03045, -5.482, -0.001304, 
+    -0.00446, 0.01553),
+  dim = c(9L, 9L),
+  dimnames = list(c("alpha", "beta", "lambda", "phi", "kappa", "phase", "p_long", "p_silent", "p_RCI"),
+                  c("alpha", "beta", "lambda", "phi", "kappa", "phase", "p_long", "p_silent", "p_RCI")))
+
 # Now, can we define a function that provides the inits based on the scenario?
 # the stored model stats file will store a small sample from the previous run,
 # to be used as initial values (if it exists). Therefore we can skip the burn-in
@@ -124,6 +150,7 @@ init_covar = diag(length(init_sd)) * init_sd^2
 stored_model_stats_file = here("Rmd", "model_stats_2026-02-12.rds")
 scenario_init = function(name, init, init_sd) {
   if (file.exists(stored_model_stats_file)) {
+    # Get initial values and covariance from the saved file
     stored_model_stats = read_rds(stored_model_stats_file)
     if (name %in% names(stored_model_stats)) {
       if (is.data.frame(stored_model_stats[[name]]$init)) {
@@ -143,7 +170,9 @@ samp_results = rep(list(NULL), length(data_scenarios)) %>%
 
 models = lapply(data_scenarios, make_model)
 
-max_hours_per_chain = max_hours / length(data_scenarios)
+use_threading = TRUE
+num_scenarios = ifelse(any(is.na(scenario_indices)), length(data_scenarios), length(scenario_indices))
+max_hours_per_chain = max_hours / num_scenarios / ifelse(use_threading, 1, n_cores)
 chains_per_scenario = n_cores
 
 do_scenario = function(i, force_initialisation = FALSE) {
@@ -162,6 +191,8 @@ do_scenario = function(i, force_initialisation = FALSE) {
     n_burnin = 100
     n_adapt = 0
   }
+  n_burnin = 0
+  n_adapt = 0
   samp = metropolis_sampling(models[[i]],
                              init = model_stats$init,
                              init_covar = model_stats$init_covar,
@@ -171,7 +202,7 @@ do_scenario = function(i, force_initialisation = FALSE) {
                              n_adapt = n_adapt,
                              n_chains = chains_per_scenario,
                              time_limit = max_hours_per_chain,
-                             threading = TRUE)
+                             threading = use_threading)
 }
 
 
@@ -195,17 +226,43 @@ calculate_lpp = function(x) {
   }
 }
 
+calculate_accept = function(x) {
+  if (is.null(x)) {
+    return(NA)
+  } else {
+    accept_ratio = mean(unlist(x$accept))
+    return(accept_ratio)
+  }
+}
+
+calculate_ess = function(x) {
+  if (is.null(x)) {
+    return(NA)
+  } else {
+    return(mean(unlist(x$ESS)))
+  }
+}
+
+calculate_acceptance = function(x) {
+  if (is.null(x)) {
+    return(NA)
+  } else {
+    return(mean(unlist(x$accept)))
+  }
+}
+
 # Run iterations
 for (i in seq_len(length(data_scenarios))) {
-  if (!is.na(scenario_index) & i != scenario_index) {
+  if (!any(is.na(scenario_indices)) & !i %in% scenario_indices) {
     # If specified, only run specific scenarios - useful for a distributed workload
     next
   }
   message("- Processing scenario ", i)
   samp_result = do_scenario(i, force_initialisation=TRUE)
   successful_chains = count_successful_chains(samp_result)
+  ess = calculate_ess(samp_result)
   
-  if (successful_chains >= chains_per_scenario) {
+  if (successful_chains >= chains_per_scenario & ess > 1) {
     # Assess goodness of convergence
     lpp = calculate_lpp(samp_result)
     
@@ -213,16 +270,41 @@ for (i in seq_len(length(data_scenarios))) {
     # Save results
     samp_results[[i]] = samp_result
     rds_filename = here::here("Rmd", paste0("workspaces/samp_results[[", i, "]].rds"))
+    message("Successful chains: ", successful_chains, ". ESS: ", ess)
     message("Saving results to ", rds_filename)
     write_rds(samp_results[[i]], rds_filename)
   }
-  else if (successful_chains > 0) {
-    warning("! Only ", successful_chains, " of ", chains_per_scenario, " chains returned samples. Not saving results!")
-  } 
   else {
-    warning("! 0 chains returned samples. Not saving results!")
+    message("! Encountered an issue with sampler results so did not save. Successful chains: ", successful_chains, ". ESS: ", ess)
   }
 }
+
+# basic trace plot
+scenario_to_plot = 1
+samp_results[[scenario_to_plot]]$sim %>%
+  bind_rows(.id = "chain") %>%
+  mutate(i = row_number(),
+         chain = as.integer(chain)) %>%
+  sample_n(min(n(), 1000)) %>%
+  filter(i > nrow({.})/10) %>%
+  pivot_longer(-c(i, chain)) %>%
+  ggplot(aes(x=i, y=value, color=as.character(chain))) +
+  geom_step() +
+  facet_wrap(vars(name), scales="free_y") +
+  theme(legend.position = "none")
+
+# basic density plot
+samp_results[[scenario_to_plot]]$sim %>%
+  bind_rows(.id = "chain") %>%
+  sample_n(min(n(), 1000)) %>%
+  mutate(i = row_number(),
+         chain = as.integer(chain)) %>%
+  filter(i > nrow({.})/10) %>%
+  pivot_longer(-c(i, chain)) %>%
+  ggplot(aes(x=value, color=as.character(chain))) +
+  geom_density() +
+  facet_wrap(vars(name), scales="free") +
+  theme(legend.position = "none")
 
 successful_chains = sapply(samp_results, function(x) {
   if (is.null(x)) {
@@ -235,6 +317,8 @@ successful_chains = sapply(samp_results, function(x) {
 
 # Assess goodness of convergence
 lpps = sapply(samp_results, calculate_lpp)
+ess = sapply(samp_results, calculate_ess)
+acceptance_ratios = sapply(samp_results, calculate_acceptance)
 
 # Now use samp_results to calculate the optimal inits
 get_inits = function(results) {
@@ -248,12 +332,14 @@ new_inits = lapply(samp_results, get_inits)
 
 # If a scenario's log posterior probability seems extremely bad, it indicates a failure to converge and we don't want to write those inits. Instead, we will generate inits from the other scenarios.
 
+# Similarly, if a scenario's covariance is zero on the diagonals, there is also a failure to converge.
+
 # Calculate which scenarios are extremely bad
-lpps_mean = mean(lpps)
-lpps_sd = sd(lpps)
+lpps_mean = mean(lpps, na.rm=T)
+lpps_sd = sd(lpps, na.rm=T)
 lpps_pnorm = pnorm(lpps, mean=lpps_mean, sd=lpps_sd)
-extremely_bad_scenarios = names(lpps_pnorm[lpps_pnorm > 0.95])
-okay_scenarios = names(lpps_pnorm[lpps_pnorm <= 0.95])
+okay_scenarios = names(samp_results)[which(lpps_pnorm <= 0.95 & ess > 1)]
+extremely_bad_scenarios = names(samp_results)[!names(samp_results) %in% okay_scenarios]
 
 # Create some inits to use
 okay_init = lapply(new_inits[okay_scenarios], function(x) {
@@ -281,11 +367,19 @@ for (scenario in extremely_bad_scenarios) {
   )
 }
 
-write_rds(new_inits, stored_model_stats_file)
-
+# write_rds(new_inits, stored_model_stats_file)
+results_files = list.files(here("Rmd/workspaces"), "samp_results.*\\.rds$")
+for (x in results_files) {
+  i = x %>% str_extract("[0-9]+") %>% as.integer()
+  samp_results[[i]] = read_rds(here("Rmd/workspaces", paste0("samp_results[[", i, "]].rds")))
+  names(samp_results)[i] = names(data_scenarios)[i]
+}
 
 # Resimulate trajectories for use in plotting (so we don't need to compile the model later)
 resim = pbmclapply(samp_results, function(samp) {
+  if (is.null(samp)) {
+    return(NULL)
+  }
   resim = extract(samp, "incidence", n_samples=100, threading=F)
 }) %>%
   bind_rows(.id = "Scenario") %>%
@@ -301,6 +395,9 @@ resim = pbmclapply(samp_results, function(samp) {
 
 # Do some diagnostic plots
 posterior_seasonal_1 = pblapply(samp_results, function(samp) {
+  if (is.null(samp)) {
+    return(NULL)
+  }
   bind_cols(
     bind_rows(samp$sim),
     bind_rows(samp$sim_diagnostics, .id = "chain")
@@ -328,6 +425,9 @@ plot_original_data = lapply(data_scenarios, function(x) {
   mutate(Scenario = fct_inorder(Scenario))
 
 resim_seasonality = pblapply(samp_results[1:2], function(samp) {
+  if (is.null(samp)) {
+    return(NULL)
+  }
   t = seq(0, years, length.out=500)
   samp_sim = bind_rows(samp$sim)
   samp_rand = sample.int(nrow(samp_sim), min(nrow(samp_sim), 500))

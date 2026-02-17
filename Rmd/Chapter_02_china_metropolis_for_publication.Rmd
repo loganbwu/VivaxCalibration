@@ -8,7 +8,8 @@ output:
 
 ```{r setup}
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
-load("workspaces/Chapter_02_china_metropolis_latest.RData")
+library(here)
+load(here("Rmd/workspaces/Chapter_02_china_metropolis_latest.RData"))
 # load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
@@ -23,8 +24,8 @@ library(ggtext)
 library(deSolve) # reminder because
 library(coda)
 library(cowplot)
-source("../R/constants.R")
-source("../R/load_functions.R")
+source(here("R", "constants.R"))
+source(here("R", "load_functions.R"))
 ```
 
 
@@ -35,8 +36,18 @@ After loading the .RData workspace from the HPC, run the setup chunk and then co
 Transform output parameters
 
 ```{r}
+# Check for samp_results that were saved individually
+results_files = list.files(here("Rmd/workspaces"), "samp_results.*\\.rds$")
+for (x in results_files) {
+  i = x %>% str_extract("[0-9]+")
+  samp_results[[i]] = read_rds(here("Rmd/workspaces", paste0("samp_results[[", i, "]].rds")))
+}
+
 # inspect parameter posteriors
 posterior_seasonal_1 = pblapply(samp_results, function(samp) {
+  if (is.null(samp)) {
+    return(NULL)
+  }
   bind_cols(
     bind_rows(samp$sim),
     bind_rows(samp$sim_diagnostics, .id = "chain")
