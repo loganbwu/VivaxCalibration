@@ -259,25 +259,38 @@ extract.metropolisfit = function(fit, type="incidence", n_samples=100, alpha=0.0
     incidence = lapply_func(sample_ix, function(ix) {
       x = unlist(all_sims[ix,])
       mean_ode = deSolve::ode(fit$data$y0, c(fit$data$t0, 0, fit$data$ts), run_my_ode, parms=x, maxsteps=1e6)
+      clinical_relapse = (mean_ode[,"ClinicalRelapse"] - lag(mean_ode[,"ClinicalRelapse"]))[-c(1,2)]
       if ("ClinicalPrimary" %in% colnames(mean_ode)) {
         # Run for v11
         clinical_primary = (mean_ode[,"ClinicalPrimary"] - lag(mean_ode[,"ClinicalPrimary"]))[-c(1,2)]
+        clinical_incidence = clinical_primary + clinical_relapse
+        
+        data = tibble(time = fit$data$ts,
+               clinical_primary = clinical_primary,
+               clinical_relapse = clinical_relapse,
+               clinical_incidence = clinical_incidence,
+               # cases_lower = qpois(alpha/2, lambda=clinical_incidence),
+               # cases_upper = qpois(1-(alpha/2), lambda=clinical_incidence))
+               cases_lower = qnbinom(alpha/2, mu=clinical_incidence, size=x[["phi"]]),
+               cases_upper = qnbinom(1-(alpha/2), mu=clinical_incidence, size=x[["phi"]]))
       } else {
         # Run for v12
         clinical_immediateprimary = (mean_ode[,"ClinicalImmediatePrimary"] - lag(mean_ode[,"ClinicalImmediatePrimary"]))[-c(1,2)]
         clinical_delayedprimary = (mean_ode[,"ClinicalDelayedPrimary"] - lag(mean_ode[,"ClinicalDelayedPrimary"]))[-c(1,2)]
+        clinical_incidence = clinical_immediateprimary + clinical_delayedprimary + clinical_relapse
+        
+        data = tibble(time = fit$data$ts,
+               clinical_immediateprimary = clinical_immediateprimary,
+               clinical_delayedprimary = clinical_delayedprimary,
+               clinical_relapse = clinical_relapse,
+               clinical_incidence = clinical_incidence,
+               # cases_lower = qpois(alpha/2, lambda=clinical_incidence),
+               # cases_upper = qpois(1-(alpha/2), lambda=clinical_incidence))
+               cases_lower = qnbinom(alpha/2, mu=clinical_incidence, size=x[["phi"]]),
+               cases_upper = qnbinom(1-(alpha/2), mu=clinical_incidence, size=x[["phi"]]))
       }
-      clinical_relapse = (mean_ode[,"ClinicalRelapse"] - lag(mean_ode[,"ClinicalRelapse"]))[-c(1,2)]
-      clinical_incidence = clinical_primary + clinical_relapse
-      tibble(time = fit$data$ts,
-             clinical_immediateprimary = clinical_immediateprimary,
-             clinical_delayedprimary = clinical_delayedprimary,
-             clinical_relapse = clinical_relapse,
-             clinical_incidence = clinical_incidence,
-             # cases_lower = qpois(alpha/2, lambda=clinical_incidence),
-             # cases_upper = qpois(1-(alpha/2), lambda=clinical_incidence))
-             cases_lower = qnbinom(alpha/2, mu=clinical_incidence, size=x[["phi"]]),
-             cases_upper = qnbinom(1-(alpha/2), mu=clinical_incidence, size=x[["phi"]]))
+      
+      return(data)
     }) %>%
       bind_rows(.id = "ix")
     return(incidence)

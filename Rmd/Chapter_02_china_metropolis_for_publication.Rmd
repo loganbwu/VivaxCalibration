@@ -7,9 +7,10 @@ output:
 ---
 
 ```{r setup}
+start_time = Sys.time()
 # load("workspaces/Chapter_02_china_metropolis_2024-06-29 - 24hr reg.RData") # Used in the thesis. Run this and then you can skip to the analysis chunks.
 library(here)
-load(here("Rmd/workspaces/Chapter_02_china_metropolis_latest.RData"))
+# load(here("Rmd/workspaces/Chapter_02_china_metropolis_latest.RData"))
 # load("~/Desktop/Chapter_02_china_metropolis_2025-05-19.RData") # From the HPC with updated model priors
 library(R.utils)
 library(tidyverse)
@@ -26,6 +27,55 @@ library(coda)
 library(cowplot)
 source(here("R", "constants.R"))
 source(here("R", "load_functions.R"))
+source(here("R", "priors.R"))
+source(here("R", "models/temperate_v12.R"))
+my_state_init = state_init_4
+
+china_selections = tribble(
+  ~Region, ~min, ~max,
+  "Dengzhou", "2004-01-01", "2009-01-01",
+  "Guantang", "1977-01-01", "1982-01-01",
+  "Huangchuan", NA, NA,
+  "Xiayi", NA, NA
+) %>%
+  mutate(min = as.Date(min),
+         max = as.Date(max))
+
+china_data = read_rds(here("Rmd", "china_data.rds"))
+
+data_baseline = list(
+  # t0 = -30*years,
+  t0 = -5*years,
+  gamma_d = 1/434.,
+  gamma_l = 1/223,
+  f = 1/72,
+  r = 1/60,
+  eps = 0
+)
+# Add each scenario's data on
+data_scenarios = lapply(seq_len(nrow(scenarios)), function(i) {
+  data_scenario = data_baseline
+  scenario_specific = scenarios[i,]
+  for (name in names(scenario_specific)) {
+    if (!is.character(scenario_specific[[name]])) {
+      data_scenario[[name]] = scenario_specific[[name]]
+    }
+  }
+  data_scenario$y0 = my_state_init(data_scenario, I0=0.01)
+  
+  # Add case data
+  region_name = scenario_specific$region
+  ts_region = china_data %>%
+    filter(Region == region_name)
+  first_year = min(year(ts_region$Date))
+  ts_region = ts_region %>%
+    mutate(ts = as.numeric(Date - as.Date(paste0(first_year, "-01-01"))))
+  data_scenario$ts = ts_region$ts
+  data_scenario$cases = ts_region$Cases
+  return(data_scenario)
+}) %>%
+  setNames(scenarios$name)
+models = lapply(data_scenarios, make_model)
 ```
 
 
@@ -38,6 +88,7 @@ Transform output parameters
 ```{r}
 # Check for samp_results that were saved individually
 results_files = list.files(here("Rmd/workspaces"), "samp_results.*\\.rds$")
+samp_results = list()
 for (x in results_files) {
   i = x %>% str_extract("[0-9]+")
   samp_results[[i]] = read_rds(here("Rmd/workspaces", paste0("samp_results[[", i, "]].rds")))
@@ -57,13 +108,13 @@ posterior_seasonal_1 = pblapply(samp_results, function(samp) {
     pivot_longer(-c(iteration, accept, lpp, ll, chain), names_to = "parameter", values_to = "value")
 }) %>%
   bind_rows(.id = "Scenario") %>%
-  mutate(Scenario = fct_inorder(Scenario))#
+  mutate(Scenario = as.integer(Scenario)) %>%
+  left_join(scenarios, by=c("Scenario"="scenario"))
 posterior_seasonal_2 = posterior_seasonal_1 %>%
   group_by(Scenario, parameter)
-x1 = scenarios %>%
-  select(name, name_short, region)
+
 posterior_seasonal = posterior_seasonal_2 %>%
-  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  # left_join(scenarios, by=c("Scenario" = "name")) %>%
   mutate(name_short = name_short %>% str_replace_all(", ", ",\n"))
 
 plot_original_data = lapply(data_scenarios, function(x) {
@@ -140,6 +191,7 @@ bf_data_byregion = posterior_seasonal %>%
 
 bf_plot_byregion = ggplot(bf_data_byregion, aes(x = bayes_factor, y = name_shortest, fill = name_shortest)) +
   geom_col(alpha = 0.8) +
+  geom_point(alpha = 0.8) +
   geom_vline(xintercept = 1, linetype="dashed") +
   scale_x_log10(labels = label_auto3, breaks = c(10 ^ c(-14, -7, seq(-2, 3, by=1)))) +
   scale_y_discrete(limits = rev) +
@@ -151,7 +203,7 @@ bf_plot_byregion = ggplot(bf_data_byregion, aes(x = bayes_factor, y = name_short
         # strip.background = element_blank(),
         # strip.text.x = element_blank(),
         strip.text.y = element_blank()) +
-  labs((title = "Bayes factor relative to the baseline model"),
+  labs(title = "Bayes factor relative to the baseline model",
        x = "*K*",
        y = NULL)
 
@@ -188,9 +240,35 @@ bf_plot = ggplot(bf_data, aes(x = bayes_factor, y = name_shortest, fill = name_s
 bf_plot
 filename = paste0("../plots/china_bayesfactor.png")
 ggsave(filename, width=8, height=4)
+```
 
-# ggsave(filename, width=8, height=4)
+Resimulate trajectories (note: this used to be part of the standalone script to be run on the HPC only because I was having C compilation issues on my Mac. This is resolved, so it has been moved back to the analysis script.)
 
+Resimulation is necessary for plotting trajectories because we don't save the time series from each MCMC iteration (data size would be too large). Although one solution would be to save a small sample at MCMC sample-time (e.g. 1000 trajectories).
+
+```{r}
+# Resimulate trajectories for use in plotting (so we don't need to compile the model later)
+resim = pbmclapply(samp_results, function(samp) {
+  if (is.null(samp)) {
+    return(NULL)
+  }
+  resim = extract(samp, "incidence", n_samples=100, threading=F)
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  mutate(Scenario = as.integer(Scenario)) %>%
+  left_join(scenarios, by=c("Scenario" = "scenario")) %>%
+  mutate(name_short = name_short %>% str_replace_all(", ", ",\n")) %>%
+  pivot_longer(matches("^clinical"), names_to="metric") %>%
+  mutate(metric = metric %>% case_match(
+    "clinical_incidence" ~ "Total",
+    "clinical_relapse" ~ "Relapse",
+    "clinical_immediateprimary" ~ "Immediate primary",
+    "clinical_delayedprimary" ~ "Delayed primary",
+    "clinical_primary" ~ "Primary"
+  ))
+```
+
+```{r}
 # Plot credible intervals
 epi_plot = ggplot(mapping = aes(x=time/years)) +
   geom_line(data = resim,
@@ -217,6 +295,23 @@ filename = paste0("../plots/china_posterior.png")
 ggsave(filename, width=8, height=8)
 
 # Note: moved the generation of resim_seasonality into above where we load the workspace, and the standalone file
+resim_seasonality = pblapply(samp_results[1:2], function(samp) {
+  t = seq(0, years, length.out=500)
+  samp_sim = bind_rows(samp$sim)
+  samp_rand = sample.int(nrow(samp_sim), min(nrow(samp_sim), 500))
+  suitability_traces = lapply(samp_rand, function(ix) {
+    samp_suitability = tibble(
+      time = t,
+      suitability = sapply(t, function(tt) {
+        omega = suitability(tt, samp$data$eps, samp_sim[[ix, "kappa"]], samp_sim[[ix, "phase"]])
+      })
+    )
+  }) %>%
+    bind_rows(.id = "trace")
+}) %>%
+  bind_rows(.id = "Scenario") %>%
+  left_join(scenarios, by=c("Scenario" = "name")) %>%
+  mutate(Scenario = fct_inorder(Scenario))
 
 resim_seasonality_plot = resim_seasonality %>%
   filter(scenario <= 2) %>%
@@ -276,7 +371,18 @@ var_ranges = posterior_seasonal %>%
             max = max(value))
 var_priors = list()
 
-this_model = 
+# this_model = 
+init = c(
+  alpha = 0.173,
+  beta = 0.899,
+  lambda = 0.0304,
+  phi = 1.42,
+  kappa = 2.45,
+  phase = 214,
+  p_long = 0.775,
+  p_silent = 0.245,
+  p_RCI = 0.635
+)
 baseline_model = models[[ix_to_plot]]
 for (i in seq_len(nrow(var_ranges))) {
   parameter_name = var_ranges$parameter[i]
