@@ -28,6 +28,7 @@ library(cowplot)
 source(here("R", "constants.R"))
 source(here("R", "load_functions.R"))
 source(here("R", "priors.R"))
+scenarios$scenario = as.character(scenarios$scenario)
 source(here("R", "models/temperate_v12.R"))
 my_state_init = state_init_4
 
@@ -88,6 +89,8 @@ Transform output parameters
 ```{r}
 # Check for samp_results that were saved individually
 results_files = list.files(here("Rmd/workspaces"), "samp_results.*\\.rds$")
+results_i = results_files %>% str_extract("[0-9]+") %>% as.integer()
+results_files = results_files[order(results_i)] # put back into the original order
 samp_results = list()
 for (x in results_files) {
   i = x %>% str_extract("[0-9]+")
@@ -107,11 +110,10 @@ posterior_seasonal_1 = pblapply(samp_results, function(samp) {
     mutate(phase = phase + years/4) %>%
     pivot_longer(-c(iteration, accept, lpp, ll, chain), names_to = "parameter", values_to = "value")
 }) %>%
-  bind_rows(.id = "Scenario") %>%
-  mutate(Scenario = as.integer(Scenario)) %>%
-  left_join(scenarios, by=c("Scenario"="scenario"))
+  bind_rows(.id = "scenario") %>%
+  left_join(scenarios, by=c("scenario"="scenario"))
 posterior_seasonal_2 = posterior_seasonal_1 %>%
-  group_by(Scenario, parameter)
+  group_by(scenario, parameter)
 
 posterior_seasonal = posterior_seasonal_2 %>%
   # left_join(scenarios, by=c("Scenario" = "name")) %>%
@@ -121,9 +123,9 @@ plot_original_data = lapply(data_scenarios, function(x) {
   tibble(time = x$ts,
          cases = x$cases)
 }) %>%
-  bind_rows(.id = "Scenario") %>%
-  left_join(scenarios, by=c("Scenario" = "name")) %>%
-  mutate(Scenario = fct_inorder(Scenario))
+  bind_rows(.id = "scenario") %>%
+  left_join(scenarios, by=c("scenario" = "name")) %>%
+  mutate(scenario = fct_inorder(scenario))
 
 # If baseline is not present, get the first name_shortest and plot these. Otherwise the plots break.
 if ("Baseline" %in% posterior_seasonal$name_shortest) {
@@ -134,7 +136,7 @@ if ("Baseline" %in% posterior_seasonal$name_shortest) {
 
 trace_plot = posterior_seasonal %>%
   filter(name_shortest == first_name_shortest) %>%
-  ggplot(aes(x = iteration, y = value, color=Scenario, group=interaction(Scenario, chain))) +
+  ggplot(aes(x = iteration, y = value, color=scenario, group=interaction(scenario, chain))) +
   geom_step(alpha=0.25) +
   coord_cartesian(xlim = c(0, NA)) +
   scale_y_log10() +
@@ -145,7 +147,7 @@ filename = paste0("../plots/china_trace.png")
 ggsave(filename, width=8, height=8)
 
 var_plot = posterior_seasonal %>%
-  ggplot(aes(x = value, fill=Scenario, color=Scenario)) +
+  ggplot(aes(x = value, fill=scenario, color=scenario)) +
   geom_density(alpha=0.5) +
   coord_cartesian(xlim = c(0, NA)) +
   facet_wrap(vars(parameter), scales="free", labeller=plot_labeller_novar) +
@@ -254,9 +256,8 @@ resim = pbmclapply(samp_results, function(samp) {
   }
   resim = extract(samp, "incidence", n_samples=100, threading=F)
 }) %>%
-  bind_rows(.id = "Scenario") %>%
-  mutate(Scenario = as.integer(Scenario)) %>%
-  left_join(scenarios, by=c("Scenario" = "scenario")) %>%
+  bind_rows(.id = "scenario") %>%
+  left_join(scenarios, by="scenario") %>%
   mutate(name_short = name_short %>% str_replace_all(", ", ",\n")) %>%
   pivot_longer(matches("^clinical"), names_to="metric") %>%
   mutate(metric = metric %>% case_match(
@@ -513,11 +514,11 @@ traces = lapply(samp_results_first, function(x) {
     filter(chain <= 400)
 }) %>%
   bind_rows(.id = "scenario") %>%
-  mutate(scenario = scenario %>% str_remove(".* "))
+  left_join(scenarios, by="scenario")
 
-ggplot(traces, aes(x = iteration, y = value, color = chain)) +
+ggplot(traces %>% filter(as.character(name_short) == "Baseline"), aes(x = iteration, y = value, color = chain)) +
   geom_line(alpha=0.3) +
-  ggh4x::facet_grid2(cols = vars(scenario), rows = vars(variable), scales="free_y", independent="y", labeller=plot_labeller_novar) +
+  ggh4x::facet_grid2(cols = vars(name), rows = vars(variable), scales="free_y", independent="y", labeller=plot_labeller_novar) +
   labs(title = "Metropolis sample traces",
        subtitle = "Baseline scenario",
        x = "Iteration",
@@ -532,7 +533,7 @@ ggsave(filename, width=8, height=10)
 
 Check correlations (this is not particularly consequential but might be interesting)
 
-```{r}
+```{r, eval=F}
 corr_scenario = lapply(unique(traces$scenario) %>% setNames({.}), function(x) {
   y = traces %>%
     filter(scenario == x) %>%
@@ -571,7 +572,7 @@ ess = lapply(samp_results, function(x) {
 })
 ess_df = bind_rows(ess, .id = "scenario") %>%
   pivot_longer(-scenario, names_to="parameter", values_to="ess") %>%
-  left_join(scenarios, by=c("scenario" = "name"))
+  left_join(scenarios, by=c("scenario"))
 ess_df$parameter[ess_df$parameter == "p_long"] = "s"
 ess_df$parameter[ess_df$parameter == "p_silent"] = "p"
 
@@ -593,7 +594,7 @@ ess_plot = ggplot(ess_df, aes(x = ess, y = parameter, fill = region)) +
 rhat = pbmclapply(samp_results, rhat.metropolisfit)
 rhat_df = bind_rows(rhat, .id = "scenario") %>%
   pivot_longer(-scenario, names_to="parameter", values_to="rhat") %>%
-  left_join(scenarios, by=c("scenario" = "name"))
+  left_join(scenarios, by=c("scenario"))
 rhat_df$parameter[rhat_df$parameter == "p_long"] = "s"
 rhat_df$parameter[rhat_df$parameter == "p_silent"] = "p"
 
